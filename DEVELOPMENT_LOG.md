@@ -11,8 +11,8 @@ so passages chain (and may branch) across as many windows as you like.
 
 Files
 -----
-    strand_passage_guiV3_4.py         (V3.4) interactive GUI + --nongui + --demo
-    link_engine_v3_4.py               (V3.4) passage / DT-choice / SnapPy engine
+    strand_passage_guiV3_5.py         (V3.5) interactive GUI + --nongui + --demo
+    link_engine_v3_5.py               (V3.5) passage / DT-choice / SnapPy engine
     draw_dt_original_labelsV3_11.py   (V3.11) drawing + model layer
     check_two_dt.py                   standalone SnapPy/Sage utility: compare two
                                       DT codes (topology + Jones + backtrack test)
@@ -23,30 +23,46 @@ Files
 --nongui outputs
 ----------------
     <name>.xlsx           the two-pass spreadsheet (first_pass sheet + one sheet
-                          per first-flip crossing)
+                          per merged first-step structure)
     <name>_overview.svg   a large, tidy overview of every resulting structure
 
 Run
 ---
-    sage -python strand_passage_guiV3_4.py                     # SnapPy enabled
-    sage -python strand_passage_guiV3_4.py --dt "DT: [(4,6,2)]"
-    python3 strand_passage_guiV3_4.py --gui-backend agg        # if TkAgg won't load
+    sage -python strand_passage_guiV3_5.py                     # SnapPy enabled
+    sage -python strand_passage_guiV3_5.py --dt "DT: [(4,6,2)]"
+    python3 strand_passage_guiV3_5.py --gui-backend agg        # if TkAgg won't load
     ./bin/strand-passage --help                                # launcher
 
 Backtrack-assisted simplification (ON by default: 200 rounds, 30 steps):
-    sage -python strand_passage_guiV3_4.py                     # backtrack ON
-    sage -python strand_passage_guiV3_4.py --backtrack-rounds 400
-    sage -python strand_passage_guiV3_4.py --no-backtrack      # turn it OFF
+    sage -python strand_passage_guiV3_5.py                     # backtrack ON
+    sage -python strand_passage_guiV3_5.py --backtrack-rounds 400
+    sage -python strand_passage_guiV3_5.py --no-backtrack      # turn it OFF
     (in the GUI, the "Backtrack simplify" checkbox + rounds/steps fields start
      ON at 200/30 and can be toggled live between clicks.)
 
 Non-interactive two-pass spreadsheet:
-    sage -python strand_passage_guiV3_4.py --nongui \
+    sage -python strand_passage_guiV3_5.py --nongui \
         --dt "DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]" \
         --out strand_passage_results.xlsx        # backtrack ON by default
 
 Headless cascade figure (no display needed):
-    python3 strand_passage_guiV3_4.py --dt "DT: [(4,6,2)]" --demo 2 1 --out chain.png
+    python3 strand_passage_guiV3_5.py --dt "DT: [(4,6,2)]" --demo 2 1 --out chain.png
+
+
+What is new in V3.5 (merged first-step continuations)
+-----------------------------------------------------
+  * --nongui now runs the second-pass strand-passage enumeration once per merged
+    first-step structure, not once per raw first-step crossing. The first-step
+    nodes are reconciled with the same per-step merge logic used by the overview
+    before any second-pass continuations are launched.
+  * This makes repeated runs more consistent and avoids spending time on
+    equivalent first-step diagrams that would later collapse into the same
+    overview card.
+  * Second-pass workbook sheets are named after the merged first-step node
+    (`merged_<node>_<labels...>`). Each second-pass row records
+    `first_step_passages` and `first_step_representative` so the spreadsheet
+    still shows exactly which first-step crossings merged and which diagram was
+    used for continuation.
 
 
 What is new in V3.4 (GitHub packaging + icon)

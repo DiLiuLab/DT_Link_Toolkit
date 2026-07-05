@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-link_engine_v3_4.py  (V3.4)
+link_engine_v3_5.py  (V3.5)
 ======================
 
 Link-diagram engine for strand-passage experiments.
+
+What is new in V3.5
+-------------------
+* Version-aligned engine module for ``strand_passage_guiV3_5.py``.  The engine
+  behavior is unchanged from V3.4; the V3.5 batch-policy change lives in the
+  GUI/``--nongui`` driver.
 
 What is new in V3.4
 -------------------
@@ -51,7 +57,7 @@ What is new in V3.3
 
 Drawing backend
 ---------------
-V3.4 imports ``draw_dt_original_labelsV3_11.py`` for the 2-D DT
+V3.5 imports ``draw_dt_original_labelsV3_11.py`` for the 2-D DT
 parser/model/layout/render helpers.
 """
 
@@ -71,7 +77,7 @@ import networkx as nx
 os.environ.setdefault("MPLBACKEND", "Agg")
 import draw_dt_original_labelsV3_11 as D
 
-VERSION = "3.4"
+VERSION = "3.5"
 DRAWING_MODULE_NAME = getattr(D, "__name__", "draw_dt_original_labelsV3_11")
 
 # Defaults for the backtrack-assisted SnapPy simplification (ON by default in

@@ -1,10 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-strand_passage_guiV3_4.py  (V3.4)
+strand_passage_guiV3_5.py  (V3.5)
 =================================
 
 Interactive strand-passage explorer with component-colour preservation.
+
+What is new in V3.5
+-------------------
+* ``--nongui`` now sends only one representative of each merged first-step
+  structure into the second strand-passage pass.  The first-step graph is
+  reconciled/merged before continuation, matching the overview cards more
+  closely and avoiding duplicate second-pass computations from equivalent
+  first-pass diagrams.
+* Second-pass workbook sheets are named after the merged first-step node, and
+  second-pass rows record the first-step passages that merged into that node
+  plus the representative passage used for continuation.
 
 What is new in V3.4
 -------------------
@@ -14,7 +25,7 @@ What is new in V3.4
   when present.  Missing or unsupported icon assets are ignored, so the scripts
   still run from a plain source checkout.
 * Drawing/model layer is now ``draw_dt_original_labelsV3_11.py`` (via
-  ``link_engine_v3_4.py``).
+  ``link_engine_v3_5.py``).
 
 What is new in V3.3
 -------------------
@@ -31,7 +42,7 @@ What is new in V3.3
 What is new in V3.2
 -------------------
 * Drawing/model layer is now ``draw_dt_original_labelsV3_11.py`` (via
-  ``link_engine_v3_4.py``), and 2-D links are drawn with that helper's own
+  ``link_engine_v3_5.py``), and 2-D links are drawn with that helper's own
   DEFAULT settings (default layout, top-to-bottom orientation, false-crossing
   audit with a planar fallback).
 * DT-code choice rule, applied everywhere (GUI and ``--nongui`` spreadsheet):
@@ -56,21 +67,21 @@ What is new in V3.2
 * --nongui also writes a large, tidy overview SVG (<name>_overview.svg) of every
   resulting structure across the two passage steps: colour-coded cards with the
   2-D view, DT code, crossing/component counts, Jones, a component colour key,
-  and outcome tags; curved arrows labelled with the flipped crossing show the
+  and outcome tags; straight arrows labelled with the flipped crossing show the
   operation order; topologically identical structures are merged into one card.
 
 Non-interactive spreadsheet (behaves like the old strand_pass_sage.py):
-    sage -python strand_passage_guiV3_4.py --nongui \
+    sage -python strand_passage_guiV3_5.py --nongui \
         --dt "DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]" \
         --out strand_passage_results.xlsx
 
 Interactive run:
-    sage -python strand_passage_guiV3_4.py                 # SnapPy enabled
-    sage -python strand_passage_guiV3_4.py --dt "DT: [(4,6,2)]"
-    python3 strand_passage_guiV3_4.py --gui-backend agg    # if TkAgg won't load
+    sage -python strand_passage_guiV3_5.py                 # SnapPy enabled
+    sage -python strand_passage_guiV3_5.py --dt "DT: [(4,6,2)]"
+    python3 strand_passage_guiV3_5.py --gui-backend agg    # if TkAgg won't load
 
 Headless cascade figure (no display needed):
-    python3 strand_passage_guiV3_4.py --dt "DT: [(4,6,2)]" --demo 2 1 --out chain.png
+    python3 strand_passage_guiV3_5.py --dt "DT: [(4,6,2)]" --demo 2 1 --out chain.png
 """
 
 from __future__ import annotations
@@ -89,12 +100,12 @@ import numpy as np
 os.environ.setdefault("MPLBACKEND", "Agg")
 
 import draw_dt_original_labelsV3_11 as D          # noqa: E402
-import link_engine_v3_4 as E                       # noqa: E402
+import link_engine_v3_5 as E                       # noqa: E402
 
 TAB10_NAMES = ["blue", "orange", "green", "red", "purple",
                "brown", "pink", "gray", "olive", "cyan"]
 DEFAULT_DT = "DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]"
-VERSION = "3.4"
+VERSION = "3.5"
 DEFAULT_BACKTRACK_ROUNDS = getattr(E, "DEFAULT_BACKTRACK_ROUNDS", 200)
 DEFAULT_BACKTRACK_STEPS = getattr(E, "DEFAULT_BACKTRACK_STEPS", 30)
 
@@ -195,7 +206,7 @@ def warn_if_no_sage():
         "[warning] Not running under Sage: Jones polynomials (and the SnapPy "
         "invariant colour-matching that relies on them) cannot be computed. "
         "For full functionality run this with 'sage -python "
-        "strand_passage_guiV3_4.py ...'.\n")
+        "strand_passage_guiV3_5.py ...'.\n")
 
 
 # --------------------------------------------------------------------------- #
@@ -656,6 +667,55 @@ def _label_sort_key(s):
     return int(s) if t.isdigit() else 0
 
 
+def _safe_sheet_name(base, used):
+    """Excel-safe unique sheet name, limited to 31 characters."""
+    cleaned = "".join("_" if ch in r'[]:*?/\\' else ch for ch in str(base))
+    cleaned = cleaned.strip() or "sheet"
+    root = cleaned[:31]
+    name = root
+    i = 2
+    while name in used:
+        suffix = "_%d" % i
+        name = root[:31 - len(suffix)] + suffix
+        i += 1
+    used.add(name)
+    return name
+
+
+def _edge_list_from_map(edge_map):
+    """Convert the overview edge accumulator into a sorted serializable list."""
+    return [{"src": s, "dst": d, "labels": sorted(l, key=_label_sort_key)}
+            for (s, d), l in edge_map.items()]
+
+
+def _renumber_passage_graph(node_list, edge_list):
+    """Make node ids contiguous after reconciliation drops merged-away nodes."""
+    old_to_new = {}
+    new_nodes = []
+    for new_id, node in enumerate(node_list):
+        old_id = node["id"]
+        nd = dict(node)
+        nd["id"] = new_id
+        fp = nd.get("fp")
+        if fp is not None:
+            nd["fp"] = (int(nd["depth"]), int(nd["n_crossings"]),
+                        int(nd["n_components"]), fp[3])
+        old_to_new[old_id] = new_id
+        new_nodes.append(nd)
+
+    from collections import defaultdict
+    emap = defaultdict(set)
+    for edge in edge_list:
+        if edge["src"] not in old_to_new or edge["dst"] not in old_to_new:
+            continue
+        emap[(old_to_new[edge["src"]], old_to_new[edge["dst"]])].update(
+            str(x) for x in edge["labels"])
+    new_edges = [{"src": s, "dst": d,
+                  "labels": sorted(v, key=_label_sort_key)}
+                 for (s, d), v in emap.items()]
+    return new_nodes, new_edges
+
+
 def reconcile_steps(snappy, node_list, edge_list, rounds=400, steps=30,
                     max_passes=3):
     """Targeted per-step reconciliation of incompletely-simplified structures.
@@ -1068,11 +1128,13 @@ def render_overview_svg(nodes, edges, out_path, negative_even="over",
 def run_nongui(dt_string, out_path, negative_even="over",
                backtrack_rounds=0, backtrack_steps=20,
                crossing_order=None, crossing_map=None):
-    """Two-pass strand-passage spreadsheet (like the original batch workflow),
-    plus a large overview SVG of every resulting structure with merged duplicates.
+    """Two-pass strand-passage spreadsheet plus a merged overview SVG.
 
     ``backtrack_rounds`` > 0 (V3.4) applies backtrack-assisted simplification to
     every SnapPy simplification here (original link and every passage result).
+
+    V3.5 enumerates the second pass once per merged/reconciled first-step
+    structure, not once per raw first-step crossing.
     """
     try:
         import snappy  # type: ignore
@@ -1156,29 +1218,100 @@ def run_nongui(dt_string, out_path, negative_even="over",
         snappy, dt_code, backtrack_rounds=backtrack_rounds,
         backtrack_steps=backtrack_steps)
 
-    print("[info] second pass ...")
+    print("[info] first-step merge ...")
     second_pass_results_dict = {}
+    eligible_by_label: Dict[str, Dict[str, Any]] = {}
+    eligible_first_passages = 0
     for res, chosen_code in zip(results, chosen_codes):
         nid = get_node(chosen_code, 1, res['snappy_crossings'],
                        res['new_components'], res['Jones_polynomial'])
-        edges.setdefault((root_id, nid), set()).add(str(res['flipped_crossing']))
+        label = str(res['flipped_crossing'])
+        edges.setdefault((root_id, nid), set()).add(label)
         if (res['new_components'] == res['orig_components']
                 and res['new_components'] is not None
                 and chosen_code):
-            try:
-                second_results, second_chosen = strand_passage_nongui(
-                    snappy, list(chosen_code),
-                    backtrack_rounds=backtrack_rounds,
-                    backtrack_steps=backtrack_steps)
-                second_pass_results_dict[res['flipped_crossing']] = second_results
-                for r2, c2 in zip(second_results, second_chosen):
-                    nid2 = get_node(c2, 2, r2['snappy_crossings'],
-                                    r2['new_components'], r2['Jones_polynomial'])
-                    edges.setdefault((nid, nid2), set()).add(
-                        str(r2['flipped_crossing']))
-            except Exception as exc:  # noqa: BLE001
-                print("[warn] second pass failed for crossing %s: %s"
-                      % (res['flipped_crossing'], exc), file=sys.stderr)
+            eligible_first_passages += 1
+            eligible_by_label[label] = res
+
+    # V3.5: before enumerating the second pass, collapse the first-step graph to
+    # the same merged representatives shown in the overview.  That prevents
+    # equivalent first-pass diagrams from spawning duplicate second-pass sheets.
+    first_node_list = [nodes[fp] for fp in order]
+    first_edge_list = _edge_list_from_map(edges)
+    if backtrack_rounds:
+        before_n = len(first_node_list)
+        first_node_list, first_edge_list = reconcile_steps(
+            snappy, first_node_list, first_edge_list,
+            rounds=max(300, int(backtrack_rounds)), steps=backtrack_steps)
+        if len(first_node_list) < before_n:
+            print("[info] first-step reconciliation merged %d redundant "
+                  "structure(s) before continuation"
+                  % (before_n - len(first_node_list)))
+    first_node_list, first_edge_list = _renumber_passage_graph(
+        first_node_list, first_edge_list)
+
+    # Rebuild the node/edge accumulators from the merged first-step graph, then
+    # append second-step nodes below using the same get_node() merge key.
+    nodes.clear()
+    order[:] = []
+    edges.clear()
+    for nd in first_node_list:
+        nodes[nd["fp"]] = nd
+        order.append(nd["fp"])
+    for edge in first_edge_list:
+        edges[(edge["src"], edge["dst"])] = set(edge["labels"])
+
+    root_id = next((nd["id"] for nd in first_node_list if nd["depth"] == 0),
+                   root_id)
+    id_to_node = {nd["id"]: nd for nd in first_node_list}
+    first_step_labels: Dict[int, set] = {}
+    for edge in first_edge_list:
+        if edge["src"] != root_id:
+            continue
+        dst = id_to_node.get(edge["dst"])
+        if dst is None or dst["depth"] != 1:
+            continue
+        labels = [str(x) for x in edge["labels"] if str(x) in eligible_by_label]
+        if labels:
+            first_step_labels.setdefault(edge["dst"], set()).update(labels)
+
+    if eligible_first_passages:
+        print("[info] second pass uses %d merged first-step structure(s) "
+              "from %d eligible first-step passage(s)"
+              % (len(first_step_labels), eligible_first_passages))
+
+    used_sheet_names = set()
+    print("[info] second pass ...")
+    for nid in sorted(first_step_labels,
+                      key=lambda x: (id_to_node[x]["n_crossings"], x)):
+        node = id_to_node[nid]
+        chosen_code = node["dt_code"]
+        labels = sorted(first_step_labels[nid], key=_label_sort_key)
+        provenance = ", ".join(labels)
+        representative = labels[0]
+        sheet_name = _safe_sheet_name(
+            "merged_%s_%s" % (nid, "_".join(labels[:3])),
+            used_sheet_names)
+        try:
+            second_results, second_chosen = strand_passage_nongui(
+                snappy, list(chosen_code),
+                backtrack_rounds=backtrack_rounds,
+                backtrack_steps=backtrack_steps)
+            for item in second_results:
+                item['first_step_node_id'] = nid
+                item['first_step_passages'] = provenance
+                item['first_step_representative'] = representative
+            second_pass_results_dict[sheet_name] = second_results
+            for r2, c2 in zip(second_results, second_chosen):
+                nid2 = get_node(c2, 2, r2['snappy_crossings'],
+                                r2['new_components'], r2['Jones_polynomial'])
+                edges.setdefault((nid, nid2), set()).add(
+                    str(r2['flipped_crossing']))
+        except Exception as exc:  # noqa: BLE001
+            print("[warn] second pass failed for merged first-step node %s "
+                  "(passage%s %s): %s"
+                  % (nid, "" if len(labels) == 1 else "s",
+                     provenance, exc), file=sys.stderr)
 
     if not out_path:
         out_path = "strand_passage_results.xlsx"
@@ -1187,8 +1320,7 @@ def run_nongui(dt_string, out_path, negative_even="over",
 
     with pd.ExcelWriter(out_path, engine='openpyxl') as writer:
         pd.DataFrame(results).to_excel(writer, index=False, sheet_name='first_pass')
-        for flipped_crossing, sheet_data in second_pass_results_dict.items():
-            sheet_name = str(flipped_crossing).replace('/', '_').replace('\\', '_')[:31]
+        for sheet_name, sheet_data in second_pass_results_dict.items():
             pd.DataFrame(sheet_data).to_excel(writer, index=False,
                                               sheet_name=sheet_name)
     print("[ok] wrote %s" % out_path)
@@ -1667,7 +1799,7 @@ def run_gui(dt_string=None, negative_even="over", use_snappy_global=True,
 # --------------------------------------------------------------------------- #
 def main():
     ap = argparse.ArgumentParser(
-        prog="strand_passage_guiV3_4.py",
+        prog="strand_passage_guiV3_5.py",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description=(
             "Strand passage explorer V%s\n"
@@ -1684,17 +1816,17 @@ def main():
             % VERSION),
         epilog=(
             "examples:\n"
-            "  sage -python strand_passage_guiV3_4.py\n"
-            "  sage -python strand_passage_guiV3_4.py --dt \"DT: [(4,6,2)]\"\n"
-            "  sage -python strand_passage_guiV3_4.py --backtrack "
+            "  sage -python strand_passage_guiV3_5.py\n"
+            "  sage -python strand_passage_guiV3_5.py --dt \"DT: [(4,6,2)]\"\n"
+            "  sage -python strand_passage_guiV3_5.py --backtrack "
             "--backtrack-rounds 50 --backtrack-steps 25\n"
-            "  sage -python strand_passage_guiV3_4.py --nongui \\\n"
+            "  sage -python strand_passage_guiV3_5.py --nongui \\\n"
             "       --dt \"DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),"
             "(-20,-6,-18,-4)]\" \\\n"
             "       --out results.xlsx --backtrack --backtrack-rounds 50\n"
-            "  python3 strand_passage_guiV3_4.py --dt \"DT: [(4,6,2)]\" "
+            "  python3 strand_passage_guiV3_5.py --dt \"DT: [(4,6,2)]\" "
             "--demo 2 1 --out chain.png\n"
-            "  python3 strand_passage_guiV3_4.py --gui-backend agg   "
+            "  python3 strand_passage_guiV3_5.py --gui-backend agg   "
             "# if TkAgg won't load\n"))
     ap.add_argument("--dt", default=None, metavar="STR",
                     help="signed DT code string, e.g. \"DT: [(4,6,2)]\" "
@@ -1725,10 +1857,10 @@ def main():
                          "do not combine with --crossing-order")
     ap.add_argument("--backtrack", action="store_true",
                     help="(kept for compatibility; backtrack is ON by default "
-                         "in V3.4 -- use --no-backtrack to disable)")
+                         "in V3.5 -- use --no-backtrack to disable)")
     ap.add_argument("--no-backtrack", action="store_true",
                     help="disable backtrack-assisted SnapPy simplification "
-                         "(V3.4 enables it by default)")
+                         "(V3.5 enables it by default)")
     ap.add_argument("--backtrack-rounds", type=int, metavar="N",
                     default=DEFAULT_BACKTRACK_ROUNDS,
                     help="backtrack rounds (default %d)"
@@ -1740,7 +1872,7 @@ def main():
     args = ap.parse_args()
 
     use_snappy_global = not args.no_snappy_global
-    backtrack_enabled = not args.no_backtrack           # ON by default (V3.4)
+    backtrack_enabled = not args.no_backtrack           # ON by default (V3.5)
     backtrack_rounds = args.backtrack_rounds if backtrack_enabled else 0
     backtrack_steps = args.backtrack_steps
 
@@ -1760,7 +1892,7 @@ def main():
 
     if args.demo is not None:
         dt = args.dt or "DT: [(4,6,2)]"
-        out = args.out or "strand_passage_chain_v3_4.png"
+        out = args.out or "strand_passage_chain_v3_5.png"
         render_chain(dt, args.demo, out, negative_even=args.negative_even,
                      use_snappy_global=use_snappy_global,
                      backtrack_rounds=backtrack_rounds,
