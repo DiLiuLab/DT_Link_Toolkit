@@ -30,6 +30,7 @@ strand_passage_guiV3_6.py        Main entry point: GUI, --nongui, and --demo
 link_engine_v3_6.py              Diagram engine and SnapPy bridge
 draw_dt_original_labelsV3_11.py  DT parser, layout, renderer, and standalone GUI
 check_two_dt.py                  Standalone SnapPy/Sage DT-comparison utility
+find_link_in_snappy.py           Search SnapPy link databases for DT matches
 assets/strand_passage_icon.png   Optional window/task-menu icon
 bin/strand-passage               Convenience launcher
 requirements.txt                 Python package notes
@@ -170,6 +171,21 @@ Standalone DT comparison utility:
 sage -python check_two_dt.py
 ```
 
+SnapPy database search utility:
+
+```bash
+sage -python find_link_in_snappy.py --dt "DT: [(4,6,2)]" --output matches.tsv
+sage -python find_link_in_snappy.py --input links.tsv --output matches.tsv
+```
+
+`find_link_in_snappy.py` searches SnapPy's `HTLinkExteriors` and
+`LinkExteriors` databases for links matching one or more DT codes. For each
+query it compares, in order: extended alphabetic DT code with flip data, exact
+numeric DT code, optional loose numeric DT code, and then meridian-preserving
+exterior identification for hyperbolic links. Use `--strict` to disable the
+loose numeric fallback. Input files may contain one DT code per line, or
+`label<TAB>DT_code`; output is a TSV table.
+
 ## Pull Updates
 
 To update an existing clone:
@@ -206,6 +222,7 @@ To make the Python scripts directly executable on macOS/Linux:
 chmod +x strand_passage_guiV3_6.py
 chmod +x draw_dt_original_labelsV3_11.py
 chmod +x check_two_dt.py
+chmod +x find_link_in_snappy.py
 ```
 
 Then they can be run as:

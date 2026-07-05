@@ -16,6 +16,7 @@ Files
     draw_dt_original_labelsV3_11.py   (V3.11) drawing + model layer
     check_two_dt.py                   standalone SnapPy/Sage utility: compare two
                                       DT codes (topology + Jones + backtrack test)
+    find_link_in_snappy.py            standalone SnapPy database search utility
     assets/strand_passage_icon.png    optional Tk window/task-menu icon
     bin/strand-passage                convenience launcher
     DEVELOPMENT_LOG.md
@@ -47,6 +48,15 @@ Non-interactive two-pass spreadsheet:
 
 Headless cascade figure (no display needed):
     python3 strand_passage_guiV3_6.py --dt "DT: [(4,6,2)]" --demo 2 1 --out chain.png
+
+
+Utility update (SnapPy database search)
+---------------------------------------
+  * Added find_link_in_snappy.py, a standalone utility that searches SnapPy's
+    HTLinkExteriors and LinkExteriors databases for DT-code matches.
+  * Search order is extended alphabetic DT with flips, exact numeric DT,
+    optional loose numeric DT, then meridian-preserving exterior identification
+    for hyperbolic links.  Output is a TSV table.
 
 
 What is new in V3.6 (continuation rule + run metadata)
