@@ -492,13 +492,29 @@ def strand_passage_nongui(snappy, dt_code, orig_components=None,
     results = []
     chosen_codes = []
 
+    # First make the source diagram agree with the baseline crossing count used
+    # for this pass.  Otherwise a later backtrack can discover that the parent
+    # DT code was still on a higher-crossing plateau, while this routine still
+    # enumerates crossings on that unreduced parent.  That mismatch is exactly
+    # how a second-pass row can appear to "increase" from a 10-crossing baseline
+    # to a 12-crossing direct child.
+    source_crossings = _crossing_count(dt_code)
     link = snappy.Link(_dt_code_to_str(dt_code))
     link = E.backtrack_simplify(snappy, link, mode='global',
                                 rounds=backtrack_rounds, steps=backtrack_steps)
+    simplified_source_crossings = len(link.crossings)
+    if simplified_source_crossings < source_crossings:
+        try:
+            simplified_source_code = _normalize_dt_code(link.DT_code())
+            if _crossing_count(simplified_source_code) == simplified_source_crossings:
+                dt_code = simplified_source_code
+                source_crossings = simplified_source_crossings
+        except Exception:  # noqa: BLE001
+            pass
     if orig_components is None:
         orig_components = len(link.link_components)
     if orig_crossings is None:
-        orig_crossings = len(link.crossings)
+        orig_crossings = source_crossings
 
     intervals = _build_label_intervals(dt_code)
 
@@ -570,14 +586,14 @@ def strand_passage_nongui(snappy, dt_code, orig_components=None,
                 elif new_components < orig_components:
                     cat_parts.append('fewer components (%s -> %s)'
                                      % (orig_components, new_components))
-                if snappy_crossings < orig_crossings:
+                if chosen_crossings < orig_crossings:
                     cat_parts.append('fewer crossings (%s -> %s)'
-                                     % (orig_crossings, snappy_crossings))
+                                     % (orig_crossings, chosen_crossings))
                 if (not cat_parts and new_components == orig_components
-                        and snappy_crossings == orig_crossings):
+                        and chosen_crossings == orig_crossings):
                     cat_parts.append('no change')
                 if (not cat_parts and (new_components > orig_components
-                                       or snappy_crossings > orig_crossings)):
+                                       or chosen_crossings > orig_crossings)):
                     cat_parts.append('increase')
                 category = ' and '.join(cat_parts)
             except Exception as exc:  # noqa: BLE001

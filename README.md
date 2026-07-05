@@ -134,6 +134,10 @@ Spreadsheet columns to know:
 
 - `DT_code_chosen` is the visible DT code used for the drawn structure and for
   any next passage step.
+- Before a pass is enumerated, the source DT is simplified to the representative
+  used for that pass's crossing-count baseline. This keeps continuation rows
+  from being generated on a higher-crossing stale parent and prevents invalid
+  `increase` outcomes.
 - `Jones_polynomial` is computed from that exact visible DT code, so pasting
   `DT_code_chosen` into Sage/SnapPy should give the same polynomial.
 - `topological_Jones_polynomial` records the SnapPy simplified link object

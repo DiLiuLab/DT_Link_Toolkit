@@ -74,6 +74,11 @@ What is new in V3.4 (GitHub packaging + icon)
     `--crossing-map`, and the interactive GUI exposes matching fields. These
     options use the same syntax as draw_dt_original_labelsV3_11.py and affect
     the displayed crossing IDs without changing the internal passage engine.
+  * Bug fix: each --nongui pass now first normalizes its source DT code to the
+    same simplified representative used for that pass's crossing-count
+    baseline. This prevents second-pass rows from flipping crossings on an
+    unreduced parent while comparing against a lower-crossing parent baseline,
+    which could previously produce an invalid `increase` outcome.
 
 
 What is new in V3.3 (backtrack-assisted simplification)
