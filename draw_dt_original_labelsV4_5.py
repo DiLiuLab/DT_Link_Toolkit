@@ -1,11 +1,152 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-draw_dt_original_labelsV3_14.py
-===============================
+draw_dt_original_labelsV4_5.py
+==============================
 
 Draw a smooth planar oriented link diagram from a signed Dowker-Thistlethwaite
 (DT) code while preserving the original traversal labels supplied by the user.
+
+V4.5 changes
+------------
+* GUI: the right-hand parameter panel is now split into two tabs -- "2D diagram"
+  (layout / tutte / holed-tutte / drawing options / crossing order & map) and
+  "3D XYZ" (sphere layout and surface / smoothing parameters) -- so only the
+  relevant fields are shown at a time instead of one long scrolling list.  Each
+  tab scrolls independently.
+
+V4.4 changes
+------------
+* holed-tutte now builds the balanced 'closed principal curve' from a 3D torus
+  layout: a 3D Kamada-Kawai layout naturally arranges a symmetric multi-component
+  link on a torus, and its azimuth about the torus axis (the longitudinal 'long way
+  around', recovered by PCA) is spread far more evenly than a 2D layout -- so links
+  like the 4BL / C5BL / L6BL / 6-component come out as near-perfectly symmetric
+  wreaths.  The top-down projection of that torus is the annulus (outer equator ->
+  outer rim, inner equator -> inner rim); its two boundary cycles are pinned to the
+  holed shape and the interior is Tutte-solved, then refined by a few fixed-point
+  rounds.  When a link is not annular this way (or SciPy is missing) it falls back
+  to the circular-Tutte probe, which still forces a clean annulus.
+* GUI: the Output-image and Sphere-XYZ path fields were removed (the Save buttons
+  prompt for the directory and filename), and the 'Save all' button was removed.
+* holed-tutte: the 3D torus layout is now deterministic (seeded) and cached per
+  crossing graph, so it is only recomputed when the DT code changes -- tweaking
+  rotate / swap / hole ratio / ring tilt no longer re-rolls the 3D layout, and the
+  diagram stays put instead of jumping.
+* Orientation arrowheads now scale with the strand line width (in both the live
+  preview and the saved image), instead of a fixed size.
+* holed-tutte: new 'invert ring (inside-out)' option (--invert-ring) that turns the
+  ring inside-out by reflecting each crossing's radius about the ring mid-line, so
+  the inner boundary ends up outside and vice versa.  This is distinct from 'swap
+  inner/outer face', which instead re-solves with the two boundary faces exchanged.
+* GUI: the Save image / Save table / Save XYZ buttons now always open a Save-As
+  dialog for the directory and filename (like 'Save as session').
+* GUI: 'Refresh 2D' is now 'Redraw 2D' -- it clears the cached 3D-torus layout and
+  rerolls its seed, so holed-tutte is recomputed from scratch (a fresh layout) even
+  when no parameter changed.  Normal parameter tweaks still reuse the cached layout.
+* GUI: the DT code box is kept on a single line -- line breaks from a multi-line
+  paste are stripped automatically.
+* The DT parser tolerates look-alike Unicode dashes (math minus, en/em dash, ...)
+  and non-ASCII spaces pasted from documents.
+* holed-tutte 'ring tilt' (0-90 deg) is now a bucket view: the flat annulus is the
+  top-down view of a bucket whose wall carries the crossings.  At 90 (default) you
+  look straight down -> the flat top-view wreath (closed principal curve around the
+  whole circumference).  Lower tilts rotate the bucket about the horizontal axis so
+  the wall opens toward a side view.  The tilt lifts each crossing onto the 3D
+  bucket wall and projects it, so it is intrinsic to the mapping, not a post-hoc
+  rotation of the finished picture.
+* The shaped-tutte / holed-tutte shape menu drops the redundant 'circle' and
+  'rectangle' choices: an ellipse at aspect 1 already is a circle, and a rounded
+  rectangle at corner radius 0 already is a sharp rectangle.  Only 'ellipse' and
+  'rounded-rectangle' are offered now (old saved sessions naming circle/rectangle
+  still load and render).
+* GUI: 'Save session' is now 'Save as session', and 'Quit' moved to a second row
+  of the save-button area.
+
+V4.3 changes
+------------
+* New standalone 2D layout "holed-tutte": instead of pinning a single outer face
+  to a convex boundary, it pins TWO faces -- the outer face and an auto-picked
+  central 'hole' face -- to the outer and inner outlines of a holed shape
+  (annulus / elliptical or rectangular ring) and harmonically solves the ring, so
+  the diagram wraps around a central hole along its natural closed principal
+  curved axis.  Controls: shape / aspect / orient (as in shaped-tutte), a 'hole
+  ratio' (inner/outer size), and a 'swap inner/outer' checkbox.  The shape-outline
+  overlay shows both ring outlines; the PCA-axis overlay shows the mid-ring curved
+  axis.
+* GUI: when 'tutte auto aspect' is on, the panel now shows the computed aspect
+  value next to the checkbox (for shaped-tutte and holed-tutte).
+* Crossing-ID circles are now sized to snugly enclose the ID text (measured text
+  extent plus a small margin) instead of a fixed, over-large data fraction.
+* New 'min separation' control: a post-layout relaxation pushes apart non-incident
+  strand pieces that sit closer than the given fraction of the diagram span (with
+  a spring back to the original layout), opening up shallow / near-parallel runs.
+  0 = off.
+
+V4.2 changes
+------------
+* GUI: new "Save session" / "Load session" buttons write and restore every
+  setting/parameter on the panel to a JSON file, so a full working session can be
+  reproduced later.
+* GUI: the signed DT code (?) help now states that the default code is the 4BL
+  diagram and lists ready-to-copy example codes (TK, HL, BR, C5BL, L6BL); the help
+  popup is sized larger to hold them.
+* Crossing-ID circles are now drawn at the same data-space size in both the live
+  preview and the saved image, and remain true circle objects in the SVG (an
+  unfilled Circle patch) rather than being flattened into an expanded path.
+* GUI: editing any Sphere XYZ (3D-only) setting no longer triggers an automatic
+  2D preview redraw, so those fields respond smoothly without lag.  The 2D preview
+  still refreshes for every setting that actually affects it.
+
+V4.1 changes
+------------
+* Auto orientation and auto aspect are independent toggles for both the 2D
+  shaped-tutte layout and the 3D shaped-kamada surface.  Either can be auto while
+  the other is set manually.  (Auto aspect measures the diagram's own elongation
+  via PCA -- the ratio of its spread along its long vs. short principal axis --
+  and sizes the boundary / surface proportions to match it; it does not equalize
+  strand lengths.)
+* 2D shaped-tutte orientation is always relative to the diagram's PCA elongation
+  axis and works for every boundary shape.  Auto orient puts the PCA axis along
+  the view x-axis; when it is off, a manual 'tutte orient' angle rotates from the
+  PCA axis.  The global 'rotate degrees' still applies on top.
+* 3D shaped-kamada has two manual orientation controls, both relative to the PCA
+  axis and used when auto orient is off: 'surface orient' spins the mapping about
+  the surface's primary axis, and 'surface tilt' rotates that primary axis away
+  from the PCA axis (about the perpendicular secondary axis).
+* 2D decompression now has two independent controls: 'tutte decompress' (the
+  original boundary-depth weighting, referenced to the boundary/shape) and a new
+  'tutte COM expand' that radially expands interior structure about the crossing
+  center of mass so crowded crossings get more room and sit near the center.
+* Help (?) text for the new shaped-layout parameters states the suggested range
+  and whether the value is an absolute distance or a dimensionless ratio; the
+  short hints that used to sit under some fields were folded into their ? help.
+* The figure-size help now reports the current live-preview panel size.
+* The DPI field was removed from the GUI (vector SVG/PDF output is the common
+  case); PNG raster export still uses the command-line --dpi default.
+
+V4.0 changes
+------------
+* 2D: new "shaped-tutte" layout.  The Tutte (barycentric) boundary can now be a
+  circle, an ellipse, a rectangle, or a rounded rectangle with an adjustable
+  aspect ratio and corner radius, instead of only a circle.  With auto mode on
+  (default), the boundary aspect is derived from the diagram's own elongation
+  and the finished diagram is rotated so its principal (PCA) axis lies
+  horizontally, i.e. it is automatically oriented along the elongation axis.
+* 2D: both "tutte" and "shaped-tutte" gain an internal-decompression weight.
+  A single strength value (0 = classic Tutte) applies boundary-depth edge
+  weights in a convex-combination Tutte solve, which pushes interior structure
+  outward so it is not over-compressed toward the center.  Positive weights keep
+  the barycentric map valid, so no new crossings are introduced by the weighting.
+* 3D: new "shaped-kamada" sphere layout.  The sphere-native spherical-kamada
+  construction is warped onto other closed/oriented surfaces -- an ellipsoid, a
+  cylinder, or a torus -- with the over/under crossing offset applied along the
+  local surface normal.  Auto mode (default) aligns the surface's principal axis
+  to the diagram (3D PCA) and derives the surface aspect / tube ratio from the
+  diagram's own shape; manual mode exposes the shape parameters directly.
+* GUI: parameter fields that do not apply to the current 2D layout / sphere
+  layout / shape are now dynamically greyed out (disabled), so only relevant
+  controls are active.
 
 V3.14 changes
 -------------
@@ -93,7 +234,7 @@ Outputs:
   and a spherical XYZ coordinate file with blank lines between components.
 
 Example:
-  python draw_dt_original_labelsV3_14.py \
+  python draw_dt_original_labelsV4_5.py \
     --dt 'DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]' \
     --output example_v3.svg \
     --table example_v3.csv \
@@ -113,6 +254,7 @@ import argparse
 import ast
 import csv
 import io
+import json
 import math
 import os
 import re
@@ -129,7 +271,7 @@ matplotlib.rcParams["svg.fonttype"] = "none"
 matplotlib.rcParams["pdf.fonttype"] = 42
 matplotlib.rcParams["ps.fonttype"] = 42
 DIAGRAM_FONT_FAMILY = "Arial"
-SCRIPT_VERSION = "V3.14"
+SCRIPT_VERSION = "V4.5"
 VERSION = SCRIPT_VERSION
 DT_LABEL_BOX_PAD = 0.22
 CROSSING_ID_BOX_PAD = 0.28
@@ -140,7 +282,7 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.path import Path
-from matplotlib.patches import PathPatch
+from matplotlib.patches import PathPatch, Circle
 
 
 EXAMPLE_DT = (
@@ -150,21 +292,57 @@ EXAMPLE_DT = (
 
 
 GUI_HELP_TEXT = {
-    "dt": "Signed Dowker-Thistlethwaite code. Multi-component links use one tuple/list per component. Example:\n\nDT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]",
+    "dt": (
+        "Signed Dowker-Thistlethwaite code. Multi-component links use one "
+        "tuple/list per component.\n\n"
+        "The default code loaded in the box is the 4BL diagram:\n"
+        "DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]\n\n"
+        "Other example codes (copy and paste any line into the DT box):\n\n"
+        "TK:   [(4,6,2)]\n\n"
+        "HL:   [(4,), (2,)]\n\n"
+        "BR:   [(6, 8), (12, 10), (2, 4)]\n\n"
+        "C5BL: [(18,-28,-66,74,-20,26,-72,80),(34,4,-12,42,-36,10,-2,-44),"
+        "(50,30,-22,58,-64,24,-32,-56),(46,68,-78,-48,40,-70,76,-38),"
+        "(-6,16,54,-62,8,-14,60,-52)]\n\n"
+        "L6BL: [(14,18,-24,-16,-32,26),(2,-8),(6,34,-40,-4,10,-48,42,-12),"
+        "(22,50,-58,-20,28,-52,56,-30),(62,38,-46,-64,44,-36),(60,-54)]"
+    ),
     "output": "Path for the 2D diagram image. The extension controls the format: .svg, .pdf, .png, etc.",
     "table": "Optional CSV table listing each crossing, original odd/even DT labels, components, over/under label, and 2D coordinates.",
     "xyz": "Path for the spherical x y z coordinate file. The file is plain three-column coordinates. Blank lines separate link components.",
     "negative_even": "DT sign convention. Default: a negative even DT label means the even-labeled visit is over, matching the common Sage/KnotTheory convention. Choose 'under' for the opposite convention.",
-    "layout": "2D preview/image layout. tutte is usually smooth and clean; planar is safest; spring and kamada are aesthetic force-directed alternatives that are audited for false crossings.",
+    "layout": "2D preview/image layout. tutte is usually smooth and clean; shaped-tutte pins the Tutte boundary to a chosen shape (see tutte shape); holed-tutte pins two faces (outer + auto-picked central hole) to the outer/inner outlines of a holed shape (ring/annulus) so the diagram wraps around a central hole; planar is safest; spring and kamada are aesthetic force-directed alternatives that are audited for false crossings.",
+    "tutte_shape": "Boundary shape for the shaped-tutte and holed-tutte layouts: circle, ellipse, rectangle, or rounded-rectangle. All shapes are convex, so the Tutte solve stays valid. For holed-tutte this is the shape of both the outer and inner ring outlines.",
+    "hole_ratio": "Holed-tutte inner (hole) outline size as a fraction of the outer outline, in (0,1). Smaller values give a bigger hole/thinner ring wall; larger values give a small hole. Only used when layout is holed-tutte. Default: 0.4.",
+    "hole_swap": "Holed-tutte: swap which of the two chosen boundary FACES is pinned to the OUTER outline and which to the INNER (hole) outline, then re-solve. This is a structural change (a different face ends up on the rim), NOT a simple inside-out flip -- for that, use 'invert ring'. Only used when layout is holed-tutte.",
+    "invert_ring": "Holed-tutte: turn the ring inside-out (invert inner/outer outlines).  It reflects every crossing's radius about the ring's mid-line, so whatever is currently near the inner hole ends up on the outside and vice versa -- the same diagram, flipped radially (the mid-line curve is unchanged).  Unlike 'swap inner/outer face' (which re-solves with the two boundary faces exchanged), this keeps the layout and just flips it. Only used when layout is holed-tutte.",
+    "ring_tilt": "Holed-tutte ring tilt in degrees (0-90): the viewing angle of the ring seen as the wall of a bucket. The flat annulus is the top-down view of a bucket whose wall carries the crossings. At 90 (default) you look straight down the bucket -> the flat top-view wreath, with the closed principal curve running around the whole circumference. As you lower it, the bucket rotates about the horizontal axis so its wall opens toward a side view (0 = fully side-on). The tilt lifts each crossing onto the 3D bucket wall and projects it, so it redistributes the crossings along the tilted ring rather than rigidly rotating the finished picture. Only used when layout is holed-tutte.",
+    "min_sep": "Minimum separation between non-incident strand pieces, as a fraction of the diagram span (equivalently discourages very shallow near-parallel crossings). A post-layout relaxation pushes closer pieces apart while a spring keeps the overall layout; larger values separate more but can distort. 0 = off. Try 0.02-0.05. Applies to all 2D layouts.",
+    "tutte_aspect": "Dimensionless ratio (long axis / short axis) of the shaped-tutte ellipse or rectangle boundary. Suggested range 1.0-4.0 (1.0 = round/square). Used only when layout is shaped-tutte, the shape is not a circle, and auto aspect is off. Default: 1.8.",
+    "tutte_corner_radius": "Dimensionless ratio 0.0-1.0 giving the rounded-rectangle corner radius as a fraction of the short half-extent. 0 = sharp rectangle, 1 = fully rounded (stadium). Only used for the rounded-rectangle shape. Default: 0.25.",
+    "tutte_decompress": "Dimensionless internal decompression strength for tutte and shaped-tutte, measured RELATIVE TO THE BOUNDARY (not a geometric shape-center push). 0 reproduces the classic Tutte layout; suggested range 0.0-1.0 (values much above ~1 can push interior nodes far enough out to create flagged false crossings). It applies boundary-depth edge weights (graph distance from the outer face) that push deep interior structure outward toward the boundary. It does not target where crossings are crowded -- for that, use 'tutte COM expand'. Default: 0.0.",
+    "tutte_com_expand": "Dimensionless strength of a SEPARATE radial expansion about the crossing center of mass, for tutte and shaped-tutte. 0 = off. Unlike 'tutte decompress' (which references the boundary), this expands interior structure outward from the density-weighted crowded-crossing centroid, tapering to zero at the pinned boundary, so crowded crossings get more room and sit near the center. It is layered on top of 'tutte decompress'. Suggested range 0.0-1.0; larger values can create flagged false crossings. Default: 0.0.",
+    "tutte_auto_aspect": "Shaped-tutte auto aspect. When on, the boundary long/short ratio is measured from the diagram's own elongation (the PCA spread ratio of a circular Tutte solve) so a naturally long-thin knot gets a long-thin boundary. It does NOT equalize strand lengths. When off, the manual tutte aspect is used. Independent of orientation.",
+    "tutte_auto_orient": "Shaped-tutte auto orient (independent of auto aspect). Controls the on-screen framing only. When on, the whole diagram is rotated so its intrinsic (circular-Tutte) PCA elongation axis is horizontal; the tutte shape outline then appears tilted by 'tutte orient deg'. When off, the shape's long axis is left horizontal instead (the PCA axis then appears tilted). The global 'rotate degrees' field is applied on top of either mode.",
+    "tutte_orient": "Shaped-tutte shape tilt in degrees: the angle by which the tutte shape's aspect (long) axis is tilted AWAY FROM the diagram's intrinsic PCA elongation axis. 0 = shape long axis aligned with the PCA axis. Unlike a final rotation, this actually re-stretches the diagram into a boundary pointed in a new direction relative to the diagram's natural elongation. Only meaningful for non-circular shapes (a circle has no aspect axis). Turn on 'show shape outline' and 'show PCA axis' to see the angle between them. Any value; wraps at 360.",
+    "show_tutte_outline": "Overlay the layout's shape outline(s), in both the live preview and any saved image. For shaped-tutte: the boundary outline and its aspect (long) axis. For holed-tutte: both the outer and inner ring outlines. Only shown for the shaped-tutte / holed-tutte layouts.",
+    "show_tutte_pca": "Overlay the layout's principal axis, in both the live preview and any saved image. For shaped-tutte: the diagram's intrinsic (circular-Tutte) PCA elongation axis (with 'show shape outline', the angle between the two equals 'tutte orient deg'). For holed-tutte: the mid-ring closed principal curved axis. Only shown for the shaped-tutte / holed-tutte layouts.",
+    "surface_shape": "Target surface for the shaped-kamada sphere layout: ellipsoid, cylinder, or torus. The spherical construction is warped onto this surface and the over/under crossing offset follows the local surface normal. Only used when sphere layout is shaped-kamada.",
+    "surface_auto_orient": "Shaped-kamada auto orient. When on, the surface's primary axis (ellipsoid major, cylinder length, torus symmetry) is aligned to the diagram's principal (3D PCA) axis. When off, 'surface orient deg' spins the mapping about that primary axis, measured from the PCA axis. Independent of auto aspect.",
+    "surface_auto_aspect": "Shaped-kamada auto aspect. When on, the surface proportions (ellipsoid axis ratios, cylinder length/radius, or torus tube ratio) are derived from the diagram's own 3D PCA magnitudes so the surface is as elongated as the diagram. It does NOT equalize strand lengths. When off, the manual surface aspect / tube values are used. Independent of orientation.",
+    "surface_aspect": "Dimensionless ratio for shaped-kamada when auto aspect is off: ellipsoid major/minor, or cylinder length/radius. Suggested range 1.0-3.0. Ignored by the torus. Default: 1.6.",
+    "surface_tube": "Dimensionless torus tube ratio (minor radius / major radius) for shaped-kamada when auto aspect is off. Suggested range 0.15-0.60. Only used by the torus surface. Default: 0.35.",
+    "surface_orient": "Manual shaped-kamada spin in degrees (any value; wraps at 360). Rotates the mapping ABOUT the surface's primary axis, measured from the diagram's PCA axis (a spin around the PCA axis). Used only when surface auto orient is off. Default: 0.",
+    "surface_tilt": "Manual shaped-kamada tilt in degrees (any value; wraps at 360). Rotates the surface's primary axis AWAY from the diagram's PCA axis, about the perpendicular secondary axis, so the mapping is no longer aligned with the PCA axis. Complements 'surface orient deg' (which spins about it). Used only when surface auto orient is off. Default: 0.",
     "y_direction": "Controls the final 2D coordinate convention. top-to-bottom is the default drawing orientation; bottom-to-top flips it.",
-    "rotate": "Rotates the final 2D scheme by this many degrees. This affects the 2D drawing and the stereographic sphere layout, but not the native spherical-kamada XYZ layout.",
+    "rotate": "Rotates the final 2D scheme by this many degrees, applied on top of the shaped-tutte orientation (see 'tutte auto orient' / 'tutte orient deg'). Affects the 2D drawing and the stereographic sphere layout, but not the native spherical-kamada / shaped-kamada XYZ layout.",
     "dpi": "Raster resolution for PNG output. SVG/PDF are vector formats and are mostly unaffected.",
-    "figsize": "Square Matplotlib figure size in inches for the saved 2D image.",
+    "figsize": "Square Matplotlib figure size in inches for the saved 2D image (absolute size, not a ratio).",
     "font_size": "Font size for the original DT traversal labels such as 1, -8, 16. Default: 7.",
     "crossing_id_font_size": "Font size for displayed crossing IDs such as c1, c7, c14. Default: 6.",
     "line_width": "2D strand line width in Matplotlib points. Default: 2.0.",
     "gap_frac": "Under-strand gap size in the 2D image. This is a ratio of the overall 2D diagram span, not an absolute coordinate distance. Default: 0.025.",
-    "sphere_layout": "XYZ sphere layout. spherical-kamada distributes the graph directly over the sphere and is best for symmetric spherical models. stereographic maps the current 2D drawing onto a sphere.",
+    "sphere_layout": "XYZ sphere layout. spherical-kamada distributes the graph directly over the sphere and is best for symmetric spherical models. shaped-kamada warps that spherical construction onto a shaped surface (see surface shape). stereographic maps the current 2D drawing onto a sphere.",
     "sphere_radius": "Base radius of the sphere in XYZ coordinate units. Default: 50.0. With crossing offset = 0, all XYZ points lie at this radius.",
     "sphere_extent": "Only used by stereographic. Dimensionless. After centering the 2D drawing, the farthest planar point is scaled to this radius before inverse stereographic projection. 1.0 reaches the equator; larger values use more of the southern hemisphere.",
     "crossing_offset": "Absolute radial offset in XYZ coordinate units, not a ratio. Over-layer radius is R + offset; under-layer radius is R - offset. Default: 5.0. Use 0 for a perfect sphere with no height separation.",
@@ -194,6 +372,14 @@ GUI_HELP_TEXT = {
 # --------------------------------------------------------------------------- #
 def parse_dt(text):
     """Parse a string like 'DT: [(-8,-12,16),(-24,...)]'."""
+    # Copy-pasting from documents often turns the ASCII hyphen-minus into a
+    # look-alike Unicode dash (math minus, en/em dash, fullwidth minus) or a
+    # non-ASCII space; normalize those so ast.literal_eval accepts the code.
+    text = str(text)
+    for ch in ("−", "–", "—", "‐", "‑", "－", "―"):
+        text = text.replace(ch, "-")
+    for ch in (" ", " ", " ", " ", " ", "　"):
+        text = text.replace(ch, " ")
     m = re.search(r"\[.*\]", text.strip(), re.DOTALL)
     if not m:
         raise ValueError("Could not find a '[...]' list in the DT input.")
@@ -529,8 +715,254 @@ def planar_faces(emb):
     return faces
 
 
-def tutte_layout_connected(G, emb):
-    """Barycentric/Tutte embedding for one connected planar graph."""
+TUTTE_SHAPES = ("circle", "ellipse", "rectangle", "rounded-rectangle")
+# Shapes offered in the GUI / CLI.  'circle' and 'rectangle' are dropped as
+# redundant (an ellipse at aspect 1 is a circle; a rounded rectangle at corner
+# radius 0 is a sharp rectangle).  The full TUTTE_SHAPES set is still accepted by
+# the geometry / normalization so older saved sessions keep working.
+TUTTE_SHAPE_CHOICES = ("ellipse", "rounded-rectangle")
+
+
+def _normalize_tutte_shape(shape):
+    s = str(shape or "circle").strip().lower().replace("_", "-")
+    if s in ("round-rectangle", "roundrect", "rounded-rect"):
+        s = "rounded-rectangle"
+    if s in ("rect",):
+        s = "rectangle"
+    return s if s in TUTTE_SHAPES else "circle"
+
+
+def _resample_polyline_by_arclength_closed_2d(poly, n):
+    """Return n points evenly spaced by arc length around a closed 2D polyline."""
+    poly = np.asarray(poly, float)
+    n = int(n)
+    if len(poly) == 0 or n <= 0:
+        return np.zeros((n, 2), float)
+    seg = np.linalg.norm(np.roll(poly, -1, axis=0) - poly, axis=1)
+    total = float(np.sum(seg))
+    if total <= 1.0e-12:
+        return np.repeat(poly[:1], n, axis=0)
+    cum = np.concatenate(([0.0], np.cumsum(seg)))
+    out = np.zeros((n, 2), float)
+    for i in range(n):
+        target = total * i / float(n)
+        j = int(np.searchsorted(cum, target, side="right") - 1)
+        j = max(0, min(j, len(seg) - 1))
+        t = 0.0 if seg[j] <= 1.0e-12 else (target - cum[j]) / seg[j]
+        j2 = (j + 1) % len(poly)
+        out[i] = (1.0 - t) * poly[j] + t * poly[j2]
+    return out
+
+
+def _rounded_rectangle_dense(half_w, half_h, radius, per_side=200):
+    """Dense CCW boundary polyline of a (possibly rounded) rectangle centered at origin."""
+    W = float(half_w)
+    H = float(half_h)
+    r = max(0.0, min(float(radius), min(W, H)))
+    pts = []
+    # Right edge (bottom -> top), top-right arc, top edge, top-left arc,
+    # left edge, bottom-left arc, bottom edge, bottom-right arc.  CCW order.
+    pts.append((W, -(H - r)))
+    pts.append((W, (H - r)))
+    if r > 0:
+        for a in np.linspace(0.0, np.pi / 2, per_side // 4 + 2)[1:]:
+            pts.append((W - r + r * np.cos(a), H - r + r * np.sin(a)))
+    pts.append((-(W - r), H))
+    if r > 0:
+        for a in np.linspace(np.pi / 2, np.pi, per_side // 4 + 2)[1:]:
+            pts.append((-(W - r) + r * np.cos(a), H - r + r * np.sin(a)))
+    pts.append((-W, -(H - r)))
+    if r > 0:
+        for a in np.linspace(np.pi, 1.5 * np.pi, per_side // 4 + 2)[1:]:
+            pts.append((-(W - r) + r * np.cos(a), -(H - r) + r * np.sin(a)))
+    pts.append(((W - r), -H))
+    if r > 0:
+        for a in np.linspace(1.5 * np.pi, 2.0 * np.pi, per_side // 4 + 2)[1:]:
+            pts.append((W - r + r * np.cos(a), -(H - r) + r * np.sin(a)))
+    return np.asarray(pts, float)
+
+
+def _boundary_shape_points(n, shape="circle", aspect=1.0, corner_radius=0.0):
+    """
+    Return n points placed in CCW cyclic order on a convex boundary shape,
+    centered at the origin.
+
+    For ``circle``/``ellipse`` the points are evenly spaced in angle; for the
+    rectangles they are evenly spaced by arc length around the perimeter.  All
+    shapes are convex, so the fixed boundary keeps the Tutte solve valid.  With
+    ``shape='circle'`` and ``aspect=1`` this reproduces the classic unit-circle
+    boundary exactly.
+    """
+    n = int(n)
+    if n <= 0:
+        return np.zeros((0, 2), float)
+    shape = _normalize_tutte_shape(shape)
+    aspect = float(aspect)
+    if not np.isfinite(aspect) or aspect <= 0.0:
+        aspect = 1.0
+
+    if shape in ("circle", "ellipse"):
+        # a/b = aspect, a*b = 1 so a round diagram (aspect=1) stays a unit circle.
+        a = math.sqrt(aspect)
+        b = 1.0 / math.sqrt(aspect)
+        th = 2.0 * np.pi * np.arange(n) / float(max(n, 1))
+        return np.column_stack([a * np.cos(th), b * np.sin(th)])
+
+    # Rectangle / rounded rectangle: half-extents with W/H = aspect, W*H = 1.
+    W = math.sqrt(aspect)
+    H = 1.0 / math.sqrt(aspect)
+    radius = 0.0
+    if shape == "rounded-rectangle":
+        frac = max(0.0, min(float(corner_radius), 0.999))
+        radius = frac * min(W, H)
+    dense = _rounded_rectangle_dense(W, H, radius)
+    return _resample_polyline_by_arclength_closed_2d(dense, n)
+
+
+def _boundary_depth(G, boundary):
+    """Multi-source BFS graph distance of every node from the boundary node set."""
+    from collections import deque
+
+    depth = {}
+    dq = deque()
+    for node in boundary:
+        depth[node] = 0
+        dq.append(node)
+    while dq:
+        u = dq.popleft()
+        for v in G[u]:
+            if v not in depth:
+                depth[v] = depth[u] + 1
+                dq.append(v)
+    return depth
+
+
+def _pca_axes_2d(coords):
+    """Return (major_axis, minor_axis, eigenvalues_desc) for a 2D point cloud."""
+    pts = np.asarray(coords, float)
+    if len(pts) < 2:
+        return np.array([1.0, 0.0]), np.array([0.0, 1.0]), np.array([1.0, 1.0])
+    q = pts - pts.mean(axis=0)
+    cov = q.T @ q
+    evals, evecs = np.linalg.eigh(cov)
+    order = np.argsort(evals)[::-1]
+    evals = evals[order]
+    evecs = evecs[:, order]
+    return evecs[:, 0], evecs[:, 1], np.maximum(evals, 0.0)
+
+
+def _pca_axis_ratio_2d(coords):
+    """Elongation ratio (major/minor standard deviation) of a 2D point cloud."""
+    _major, _minor, evals = _pca_axes_2d(coords)
+    lo = float(evals[1])
+    hi = float(evals[0])
+    if lo <= 1.0e-12:
+        return 1.0
+    return math.sqrt(hi / lo)
+
+
+def auto_orient_positions(P, mode="off"):
+    """
+    Rotate a 2D position map so its principal (PCA) axis is aligned with an axis.
+
+    mode='horizontal' aligns the elongation axis with the x-axis; 'vertical'
+    with the y-axis; 'off'/None leaves the map unchanged.
+    """
+    m = str(mode or "off").strip().lower()
+    if not P or m in ("off", "none", ""):
+        return P
+    coords = np.array(list(P.values()), float)
+    major, _minor, _evals = _pca_axes_2d(coords)
+    angle = -math.atan2(float(major[1]), float(major[0]))
+    if m == "vertical":
+        angle += math.pi / 2.0
+    c = math.cos(angle)
+    s = math.sin(angle)
+    R = np.array([[c, -s], [s, c]])
+    center = coords.mean(axis=0)
+    return {k: R.dot(np.asarray(xy, float) - center) + center for k, xy in P.items()}
+
+
+def rotate_positions_2d(P, degrees):
+    """Rotate a 2D position map about its centroid by a fixed angle in degrees."""
+    if not P:
+        return P
+    theta = math.radians(float(degrees or 0.0))
+    if abs(theta) < 1.0e-12:
+        return P
+    c = math.cos(theta)
+    s = math.sin(theta)
+    R = np.array([[c, -s], [s, c]])
+    coords = np.array(list(P.values()), float)
+    center = coords.mean(axis=0)
+    return {k: R.dot(np.asarray(xy, float) - center) + center for k, xy in P.items()}
+
+
+def orient_positions_2d(P, auto_orient=True, orient_degrees=0.0):
+    """
+    Orient a shaped 2D layout relative to its principal (PCA) elongation axis.
+
+    The diagram is always first aligned so its PCA major axis is horizontal
+    (along the view x-axis).  With auto_orient=True that PCA alignment is the
+    final orientation.  With auto_orient=False an additional rotation of
+    orient_degrees is applied, so the manual angle is measured relative to the
+    PCA axis (0 = along the PCA axis / horizontal).  This works for every
+    boundary shape, since it is a post-layout rotation of the whole diagram.
+    """
+    P2 = auto_orient_positions(P, mode="horizontal")
+    if auto_orient:
+        return P2
+    return rotate_positions_2d(P2, orient_degrees)
+
+
+def _expand_about_center_of_mass(pos, G, outer_set, com_expand):
+    """
+    Radially expand interior nodes outward from the density-weighted crossing
+    center of mass, tapered to zero at the boundary so pinned boundary nodes do
+    not move.
+
+    ``pos`` maps every node to a 2D coordinate.  The center of mass is the mean
+    of the crossing-corner node positions -- a region with more (crowded)
+    crossings contributes more corners, so the COM sits in the crowded area.
+    Deep interior nodes (far from the boundary in graph distance) are expanded
+    the most, giving crowded crossings more room and making that region the
+    focal center.  Strength 0 leaves ``pos`` unchanged.
+    """
+    strength = float(com_expand or 0.0)
+    if strength <= 0.0:
+        return pos
+    corners = [n for n in pos if not (isinstance(n, tuple) and len(n) == 2 and n[0] == "seg")]
+    if not corners:
+        return pos
+    com = np.mean([pos[n] for n in corners], axis=0)
+    depth = _boundary_depth(G, outer_set)
+    max_depth = max(depth.values()) if depth else 0
+    if max_depth <= 0:
+        return pos
+    out = {}
+    for n, xy in pos.items():
+        f = float(depth.get(n, 0)) / float(max_depth)   # 0 at boundary, 1 deepest
+        out[n] = xy + strength * f * (xy - com)
+    return out
+
+
+def tutte_layout_connected(G, emb, shape="circle", aspect=1.0, corner_radius=0.0,
+                           decompress=0.0, auto_aspect=False, com_expand=0.0):
+    """
+    Barycentric/Tutte embedding for one connected planar graph.
+
+    The outer face is pinned to a convex boundary ``shape`` (circle, ellipse,
+    rectangle, or rounded rectangle).  ``decompress`` >= 0 applies boundary-depth
+    edge weights in a convex-combination solve so interior structure is pushed
+    outward instead of being over-compressed toward the center; 0 reproduces the
+    classic uniform Tutte solve.  ``auto_aspect`` derives the boundary aspect
+    ratio from the diagram's own elongation (measured from a circular solve).
+    ``com_expand`` >= 0 is a separate post-solve radial expansion about the
+    crossing center of mass (see _expand_about_center_of_mass).
+
+    With shape='circle', aspect=1, decompress=0, com_expand=0 this reproduces the
+    previous behavior exactly.
+    """
     faces = planar_faces(emb)
     if not faces:
         return {n: np.array([0.0, 0.0]) for n in G.nodes()}
@@ -539,45 +971,846 @@ def tutte_layout_connected(G, emb):
     nodes = list(G.nodes())
     idx = {n: i for i, n in enumerate(nodes)}
     N = len(nodes)
-
-    fixed = {}
+    outer_set = set(outer)
     m = len(outer)
-    for j, n in enumerate(outer):
-        th = 2.0 * np.pi * j / max(m, 1)
-        fixed[n] = np.array([np.cos(th), np.sin(th)])
 
+    beta = float(decompress or 0.0)
+    depth = _boundary_depth(G, outer_set) if beta > 0.0 else None
+
+    # The left-hand side depends only on the interior weighting and which nodes
+    # are pinned; the boundary shape only changes the right-hand side, so we can
+    # factor A once and reuse it for both a probe (circle) and the final solve.
     A = np.zeros((N, N))
-    bx = np.zeros(N)
-    by = np.zeros(N)
     for n in nodes:
         i = idx[n]
-        if n in fixed:
+        if n in outer_set:
             A[i, i] = 1.0
-            bx[i], by[i] = fixed[n]
         else:
             nbrs = list(G[n])
-            A[i, i] = float(len(nbrs))
-            for w in nbrs:
-                A[i, idx[w]] -= 1.0
+            if beta > 0.0 and depth is not None:
+                di = depth.get(n, 0)
+                w = np.array([math.exp(beta * (di - depth.get(nb, 0))) for nb in nbrs], float)
+                A[i, i] = float(np.sum(w))
+                for nb, wij in zip(nbrs, w):
+                    A[i, idx[nb]] -= wij
+            else:
+                A[i, i] = float(len(nbrs))
+                for nb in nbrs:
+                    A[i, idx[nb]] -= 1.0
 
-    X = np.linalg.solve(A, bx)
-    Y = np.linalg.solve(A, by)
-    return {n: np.array([X[idx[n]], Y[idx[n]]]) for n in nodes}
+    def _solve_with(bpts):
+        bx = np.zeros(N)
+        by = np.zeros(N)
+        for j, node in enumerate(outer):
+            bx[idx[node]], by[idx[node]] = bpts[j]
+        X = np.linalg.solve(A, bx)
+        Y = np.linalg.solve(A, by)
+        return X, Y
+
+    shp = _normalize_tutte_shape(shape)
+    if auto_aspect and shp in ("ellipse", "rectangle", "rounded-rectangle"):
+        Xc, Yc = _solve_with(_boundary_shape_points(m, "circle", 1.0, 0.0))
+        ratio = _pca_axis_ratio_2d(np.column_stack([Xc, Yc]))
+        aspect = float(np.clip(ratio, 1.0, 6.0))
+
+    bpts = _boundary_shape_points(m, shp, aspect, corner_radius)
+    X, Y = _solve_with(bpts)
+    pos = {n: np.array([X[idx[n]], Y[idx[n]]]) for n in nodes}
+    if float(com_expand or 0.0) > 0.0:
+        pos = _expand_about_center_of_mass(pos, G, outer_set, com_expand)
+    return pos
 
 
-def compute_positions_connected(G, layout):
+def _shape_radius_interpolator(dense):
+    """
+    Build a periodic polar-radius lookup r(angle) for a convex outline centered
+    at the origin.  ``dense`` is an Nx2 CCW polyline; returns a callable mapping
+    an angle (radians) to the boundary radius along that ray.
+    """
+    dense = np.asarray(dense, float)
+    th = np.arctan2(dense[:, 1], dense[:, 0])
+    r = np.hypot(dense[:, 0], dense[:, 1])
+    order = np.argsort(th)
+    th_s = th[order]
+    r_s = r[order]
+    # Extend one period on each side so np.interp wraps smoothly across +-pi.
+    th_ext = np.concatenate([th_s - 2.0 * np.pi, th_s, th_s + 2.0 * np.pi])
+    r_ext = np.concatenate([r_s, r_s, r_s])
+
+    def rad(angle):
+        a = (float(angle) + np.pi) % (2.0 * np.pi) - np.pi
+        return float(np.interp(a, th_ext, r_ext))
+
+    return rad
+
+
+def shaped_tutte_layout(G, emb, shape="ellipse", aspect=1.0, corner_radius=0.0,
+                        decompress=0.0, auto_aspect=False, com_expand=0.0,
+                        orient_degrees=0.0, auto_orient=True, meta_out=None):
+    """
+    Shaped-tutte layout in which the boundary shape's aspect (long) axis is tilted
+    relative to the diagram's *intrinsic* elongation axis.
+
+    The intrinsic axis is the principal (PCA) direction of a plain circular Tutte
+    solve -- it depends only on the graph, not on the imposed shape.  The boundary
+    is then pinned so its long axis makes an angle ``orient_degrees`` with that
+    intrinsic PCA axis (0 = shape long axis along the PCA axis).  This genuinely
+    re-stretches the diagram in a new direction rather than merely spinning the
+    finished picture.
+
+    With ``auto_orient`` the final frame is rotated so the intrinsic PCA axis is
+    horizontal (the shape outline then appears tilted by ``orient_degrees``);
+    otherwise the shape long axis is left horizontal.
+
+    When ``meta_out`` is a dict it is filled with guide geometry (in the returned
+    coordinate frame): ``boundary`` (Nx2 shape outline), ``shape_axis`` and
+    ``pca_axis`` (each a 2x2 pair of endpoints), for optional overlay drawing.
+    """
+    faces = planar_faces(emb)
+    if not faces:
+        return {n: np.array([0.0, 0.0]) for n in G.nodes()}
+
+    outer = max(faces, key=len)
+    nodes = list(G.nodes())
+    idx = {n: i for i, n in enumerate(nodes)}
+    N = len(nodes)
+    outer_set = set(outer)
+    m = len(outer)
+
+    beta = float(decompress or 0.0)
+    depth = _boundary_depth(G, outer_set) if beta > 0.0 else None
+
+    A = np.zeros((N, N))
+    for n in nodes:
+        i = idx[n]
+        if n in outer_set:
+            A[i, i] = 1.0
+        else:
+            nbrs = list(G[n])
+            if beta > 0.0 and depth is not None:
+                di = depth.get(n, 0)
+                w = np.array([math.exp(beta * (di - depth.get(nb, 0))) for nb in nbrs], float)
+                A[i, i] = float(np.sum(w))
+                for nb, wij in zip(nbrs, w):
+                    A[i, idx[nb]] -= wij
+            else:
+                A[i, i] = float(len(nbrs))
+                for nb in nbrs:
+                    A[i, idx[nb]] -= 1.0
+
+    def _solve_with(bpts):
+        bx = np.zeros(N)
+        by = np.zeros(N)
+        for j, node in enumerate(outer):
+            bx[idx[node]], by[idx[node]] = bpts[j]
+        X = np.linalg.solve(A, bx)
+        Y = np.linalg.solve(A, by)
+        return X, Y
+
+    # 1) Circular probe -> intrinsic PCA elongation axis (graph-only property).
+    Xc, Yc = _solve_with(_boundary_shape_points(m, "circle", 1.0, 0.0))
+    coords_c = np.column_stack([Xc, Yc])
+    major, _minor, _evals = _pca_axes_2d(coords_c)
+    alpha = math.atan2(float(major[1]), float(major[0]))
+
+    shp = _normalize_tutte_shape(shape)
+    asp = float(aspect)
+    if not np.isfinite(asp) or asp <= 0.0:
+        asp = 1.0
+    if auto_aspect and shp in ("ellipse", "rectangle", "rounded-rectangle"):
+        asp = float(np.clip(_pca_axis_ratio_2d(coords_c), 1.0, 6.0))
+
+    orient = math.radians(float(orient_degrees or 0.0))
+
+    # 2) Pin the outer face onto the shape by polar angle, offsetting the whole
+    #    angular assignment by -(alpha + orient).  This places the intrinsic
+    #    PCA-tip node at boundary polar angle -orient, so the shape long axis
+    #    (polar 0) ends up 'orient' away from the intrinsic PCA axis.
+    dense = _boundary_shape_points(720, shp, asp, corner_radius)
+    rad = _shape_radius_interpolator(dense)
+    bpts = np.zeros((m, 2))
+    for i in range(m):
+        theta_i = 2.0 * np.pi * i / float(max(m, 1))
+        b = theta_i - alpha - orient
+        rr = rad(b)
+        bpts[i] = [rr * math.cos(b), rr * math.sin(b)]
+
+    X, Y = _solve_with(bpts)
+    pos = {n: np.array([X[idx[n]], Y[idx[n]]]) for n in nodes}
+    if float(com_expand or 0.0) > 0.0:
+        pos = _expand_about_center_of_mass(pos, G, outer_set, com_expand)
+
+    # 3) Final framing rotation about the content centroid.
+    #    In the canonical frame the shape long axis is along +x and the intrinsic
+    #    PCA axis is at angle -orient.  auto_orient rotates the PCA axis to
+    #    horizontal (shape then tilts by +orient); otherwise leave as is.
+    phi = orient if auto_orient else 0.0
+    c = math.cos(phi)
+    s = math.sin(phi)
+    R = np.array([[c, -s], [s, c]])
+    ctr = np.mean(list(pos.values()), axis=0) if pos else np.zeros(2)
+    pos = {n: R.dot(xy - ctr) + ctr for n, xy in pos.items()}
+
+    if meta_out is not None:
+        def _frame(arr):
+            return np.array([R.dot(np.asarray(p, float) - ctr) + ctr for p in arr])
+
+        L_shape = rad(0.0)
+        ang_pca = -orient
+        L_pca = rad(ang_pca)
+        shape_axis = np.array([[-L_shape, 0.0], [L_shape, 0.0]])
+        pca_axis = np.array([
+            [-L_pca * math.cos(ang_pca), -L_pca * math.sin(ang_pca)],
+            [L_pca * math.cos(ang_pca), L_pca * math.sin(ang_pca)],
+        ])
+        meta_out.clear()
+        meta_out["kind"] = "shaped"
+        meta_out["aspect_value"] = float(asp)
+        meta_out["boundary"] = _frame(dense)
+        meta_out["shape_axis"] = _frame(shape_axis)
+        meta_out["pca_axis"] = _frame(pca_axis)
+
+    return pos
+
+
+def _face_angular_spread(face, coords, idx, center):
+    """Angular coverage (0..2pi) of a face's vertices about ``center``.
+
+    Returns 2*pi minus the largest angular gap between consecutive vertex angles;
+    a value near 2*pi means the face encircles the center (good annulus hole).
+    """
+    angs = []
+    for v in face:
+        p = np.asarray(coords[idx[v]], float) - center
+        angs.append(math.atan2(float(p[1]), float(p[0])))
+    if len(angs) < 2:
+        return 0.0
+    angs = sorted(angs)
+    gaps = [angs[i + 1] - angs[i] for i in range(len(angs) - 1)]
+    gaps.append(2.0 * math.pi - (angs[-1] - angs[0]))
+    return 2.0 * math.pi - max(gaps)
+
+
+def _pick_hole_face(faces, outer_set, coords, idx, G, center):
+    """
+    Choose an inner 'hole' face for the holed-tutte layout.
+
+    Candidates are faces vertex-disjoint from the outer face.  We prefer faces
+    that both encircle the diagram center (large angular spread in the probe
+    layout, so the ring is not twisted) and sit deep/central in the graph.
+    Returns the chosen face (list of nodes) or None.
+    """
+    depth = _boundary_depth(G, outer_set)
+    best = None
+    best_score = None
+    for f in faces:
+        if len(f) < 3:
+            continue
+        fs = set(f)
+        if fs & outer_set:
+            continue  # must be vertex-disjoint from the outer boundary
+        spread = _face_angular_spread(f, coords, idx, center)
+        mean_depth = float(np.mean([depth.get(v, 0) for v in f]))
+        # Encircling first (rounded so near-ties defer to depth), then depth, size.
+        score = (round(spread, 2), mean_depth, len(f))
+        if best_score is None or score > best_score:
+            best_score = score
+            best = f
+    return best
+
+
+# Cache of the (expensive, otherwise non-deterministic) 3D-torus longitudinal
+# projection used by holed-tutte, keyed on the crossing graph.  This keeps the
+# holed layout stable while the user tweaks parameters (rotate, swap, hole ratio,
+# ring tilt, ...): the 3D layout is only recomputed when the graph itself changes
+# (i.e. a new DT code), not on every small adjustment.
+_HOLED_TORUS_CACHE = {}
+_HOLED_TORUS_CACHE_ORDER = []
+# Seed for the 3D layout.  It is fixed (so the diagram is stable while tweaking
+# parameters) but can be bumped to force a fresh recomputation -- see the GUI's
+# "Redraw 2D" button, which clears the cache and rerolls this.
+_HOLED_TORUS_SEED = [1]
+
+
+def clear_holed_cache(reroll=True):
+    """Clear the cached 3D-torus layouts so holed-tutte recomputes from scratch."""
+    _HOLED_TORUS_CACHE.clear()
+    _HOLED_TORUS_CACHE_ORDER.clear()
+    if reroll:
+        _HOLED_TORUS_SEED[0] += 1
+
+
+def _holed_torus_coords(G):
+    """
+    Deterministic 3D-torus longitudinal projection of the crossing graph, cached
+    per graph.  A 3D Kamada-Kawai layout (seeded so it is reproducible) is
+    projected onto the plane of its two largest principal axes; the azimuth there
+    is the torus longitudinal angle.  Returns a dict node -> (x, y), or None if
+    kamada is unavailable (e.g. SciPy missing).
+    """
+    try:
+        sig = (G.number_of_nodes(),
+               frozenset(frozenset((u, v)) for u, v in G.edges()))
+    except Exception:
+        sig = None
+    if sig is not None and sig in _HOLED_TORUS_CACHE:
+        return _HOLED_TORUS_CACHE[sig]
+
+    nodes = list(G.nodes())
+    coords = None
+    try:
+        # A seeded initial layout makes the 3D kamada reproducible (networkx uses a
+        # random init for dim>=3, which is what made the diagram jump around).
+        init = nx.random_layout(G, dim=3, seed=_HOLED_TORUS_SEED[0])
+        kpos3 = nx.kamada_kawai_layout(G, pos=init, dim=3)
+        c3 = np.array([kpos3[n] for n in nodes], float)
+        q3 = c3 - c3.mean(axis=0)
+        _ev, _evec = np.linalg.eigh(q3.T @ q3)
+        # [:, 0] = torus axis (thinnest spread); project onto the two largest.
+        e1 = _evec[:, 2].copy()
+        e2 = _evec[:, 1].copy()
+        # Deterministic sign so the projected annulus has a stable orientation.
+        if e1[int(np.argmax(np.abs(e1)))] < 0.0:
+            e1 = -e1
+        if e2[int(np.argmax(np.abs(e2)))] < 0.0:
+            e2 = -e2
+        proj = np.column_stack([q3 @ e1, q3 @ e2])
+        coords = {n: proj[i] for i, n in enumerate(nodes)}
+    except Exception:
+        coords = None
+
+    if sig is not None:
+        _HOLED_TORUS_CACHE[sig] = coords
+        _HOLED_TORUS_CACHE_ORDER.append(sig)
+        if len(_HOLED_TORUS_CACHE_ORDER) > 16:
+            _HOLED_TORUS_CACHE.pop(_HOLED_TORUS_CACHE_ORDER.pop(0), None)
+    return coords
+
+
+def holed_tutte_layout(G, emb, shape="circle", aspect=1.0, corner_radius=0.0,
+                       hole_ratio=0.4, swap=False, auto_aspect=False,
+                       orient_degrees=0.0, auto_orient=True, ring_tilt=90.0,
+                       invert_ring=False, meta_out=None):
+    """
+    'Holed' Tutte layout: two boundary cycles of the planar embedding are pinned,
+    one to an outer outline and one to an inner (hole) outline of a holed shape
+    (annulus / elliptical or rectangular ring).  The remaining vertices solve the
+    harmonic (barycentric) system -- a discrete harmonic map onto the ring -- so
+    the diagram wraps around a central hole along its natural closed 'principal
+    curved axis'.
+
+    The outer face is the largest planar face; the hole is an auto-picked central,
+    encircling face (see _pick_hole_face).  ``swap`` exchanges which cycle is
+    pinned to the outer vs. inner outline.  ``hole_ratio`` in (0,1) sets the inner
+    outline size as a fraction of the outer.  ``shape``/``aspect``/
+    ``corner_radius``/``orient_degrees`` behave as in shaped_tutte_layout and apply
+    to both outlines.
+
+    ``meta_out``, when given, is filled with ``boundary_outer``, ``boundary_inner``
+    and ``medial`` (the mid-ring closed curved axis) in the returned frame.
+
+    The angular distribution of the crossings around the ring (the 'closed
+    principal curve') is taken from a Kamada-Kawai layout of the crossing graph,
+    which spreads the components evenly around the diagram, so the ring is balanced
+    instead of lopsided.  ``ring_tilt`` then views the resulting ring as the wall of
+    a bucket: 90 deg looks straight down (flat top-view annulus), lower values tilt
+    the bucket so its wall opens toward a side view.  The tilt lifts each crossing
+    onto the 3D bucket wall and projects it, so it is intrinsic to the mapping (not
+    a post-hoc rotation of the finished picture).
+    """
+    faces = planar_faces(emb)
+    if not faces:
+        return {n: np.array([0.0, 0.0]) for n in G.nodes()}
+    nodes = list(G.nodes())
+    idx = {n: i for i, n in enumerate(nodes)}
+    N = len(nodes)
+
+    outer = max(faces, key=len)
+    outer_set = set(outer)
+    m_out = len(outer)
+
+    def _build_system(pinned):
+        A = np.zeros((N, N))
+        for n in nodes:
+            i = idx[n]
+            if n in pinned:
+                A[i, i] = 1.0
+            else:
+                nbrs = list(G[n])
+                A[i, i] = float(len(nbrs))
+                for nb in nbrs:
+                    A[i, idx[nb]] -= 1.0
+        return A
+
+    def _solve(A, bmap):
+        bx = np.zeros(N)
+        by = np.zeros(N)
+        for node, (px, py) in bmap.items():
+            bx[idx[node]] = px
+            by[idx[node]] = py
+        return np.linalg.solve(A, bx), np.linalg.solve(A, by)
+
+    # 1) 'Closed principal curve' from a 3D torus layout.  A 3D Kamada-Kawai layout
+    #    of the crossing graph naturally arranges a symmetric multi-component link
+    #    on a torus; its azimuth about the torus axis (the longitudinal 'long way
+    #    around') is spread far more evenly than a 2D kamada, which is what makes the
+    #    wreath symmetric.  We take that torus and view it top-down: the projection
+    #    onto the plane of its two largest principal axes is a clean annulus whose
+    #    angle is the longitudinal coordinate and whose radius is the meridional
+    #    coordinate (outer equator -> outer rim, inner equator -> inner rim).  When
+    #    a link is not annular this way (or SciPy is missing) we fall back to the
+    #    circular-Tutte probe, which forces a clean annulus.
+    def _mean_radius(coords, ctr, face):
+        return float(np.mean([np.linalg.norm(coords[idx[v]] - ctr) for v in face]))
+
+    coords_p = None
+    outer = None
+    hole = None
+    use_kamada = False
+
+    coords_k = None
+    _torus = _holed_torus_coords(G)  # cached per graph; only recomputed on DT change
+    if _torus is not None:
+        coords_k = np.array([_torus[n] for n in nodes], float)
+
+    if coords_k is not None:
+        ctr_k = coords_k.mean(axis=0)
+        encircling = [
+            f for f in faces
+            if len(f) >= 3
+            and _face_angular_spread(f, coords_k, idx, ctr_k) > 1.3 * np.pi
+        ]
+        if len(encircling) >= 2:
+            outer_c = max(encircling, key=lambda f: _mean_radius(coords_k, ctr_k, f))
+            outer_cs = set(outer_c)
+            hole_c = None
+            best_r = None
+            for f in encircling:
+                if set(f) & outer_cs:
+                    continue
+                r = _mean_radius(coords_k, ctr_k, f)
+                if best_r is None or r < best_r:
+                    best_r = r
+                    hole_c = f
+            if hole_c is not None:
+                coords_p, outer, hole = coords_k, outer_c, hole_c
+                use_kamada = True
+
+    if coords_p is None:
+        # Circular-probe fallback: pin the largest face to a unit circle (this
+        # forces an annulus even when the link is not naturally wreath-like), and
+        # pick a central encircling hole face from that probe layout.
+        outer = max(faces, key=len)
+        outer_set = set(outer)
+        A_probe = _build_system(outer_set)
+        probe_map = {}
+        for j, node in enumerate(outer):
+            th = 2.0 * np.pi * j / float(max(m_out, 1))
+            probe_map[node] = (math.cos(th), math.sin(th))
+        Xp, Yp = _solve(A_probe, probe_map)
+        coords_p = np.column_stack([Xp, Yp])
+        ctr_probe = coords_p.mean(axis=0)
+        outer = max(faces, key=len)
+        outer_set = set(outer)
+        hole = _pick_hole_face(faces, outer_set, coords_p, idx, G, ctr_probe)
+        if hole is None:
+            return shaped_tutte_layout(
+                G, emb, shape=shape, aspect=aspect, corner_radius=corner_radius,
+                auto_aspect=auto_aspect, orient_degrees=orient_degrees,
+                auto_orient=auto_orient, meta_out=meta_out,
+            )
+
+    shp = _normalize_tutte_shape(shape)
+    if auto_aspect and shp in ("ellipse", "rectangle", "rounded-rectangle"):
+        aspect = float(np.clip(_pca_axis_ratio_2d(coords_p), 1.0, 6.0))
+    orient = math.radians(float(orient_degrees or 0.0))
+    hr = float(hole_ratio)
+    if not np.isfinite(hr) or hr <= 0.0:
+        hr = 0.4
+    hr = min(max(hr, 0.05), 0.95)
+
+    dense = _boundary_shape_points(720, shp, float(aspect), corner_radius)
+    rad = _shape_radius_interpolator(dense)
+
+    def _cycle_angles(cycle, coords, ctr, alpha):
+        # Angular positions of a cycle's vertices from ``coords`` (monotonically
+        # unwrapped so the pinned polygon does not self-intersect).  The raw
+        # spacing is kept -- forcing even angles twists the interior into a mess,
+        # because the two rings then lose their natural radial correspondence.
+        n = len(cycle)
+        if n == 0:
+            return []
+        raw = []
+        for v in cycle:
+            p = coords[idx[v]] - ctr
+            raw.append((math.atan2(float(p[1]), float(p[0])) - alpha - orient) % (2.0 * np.pi))
+        start = int(np.argmin(raw))
+        order = [(start + k) % n for k in range(n)]
+        unwrapped = {order[0]: raw[order[0]]}
+        acc = raw[order[0]]
+        for k in range(1, n):
+            oi = order[k]
+            a = raw[oi]
+            while a <= acc + 1.0e-6:
+                a += 2.0 * np.pi
+            acc = a
+            unwrapped[oi] = a
+        return [unwrapped[i] for i in range(n)]
+
+    def _pick_ring(coords, ctr):
+        enc = [
+            f for f in faces
+            if len(f) >= 3 and _face_angular_spread(f, coords, idx, ctr) > 1.3 * np.pi
+        ]
+        if len(enc) < 2:
+            return None
+        o = max(enc, key=lambda f: _mean_radius(coords, ctr, f))
+        os = set(o)
+        h = None
+        br = None
+        for f in enc:
+            if set(f) & os:
+                continue
+            r = _mean_radius(coords, ctr, f)
+            if br is None or r < br:
+                br = r
+                h = f
+        return (o, h) if h is not None else None
+
+    A_cache = {}
+
+    def _one_round(coords, outer_face, hole_face):
+        ctr = coords.mean(axis=0)
+        maj, _mn, _e = _pca_axes_2d(coords)
+        a0 = math.atan2(float(maj[1]), float(maj[0]))
+        # 'swap' just exchanges which face is pinned to the outer vs inner outline.
+        face_out = hole_face if swap else outer_face
+        face_in = outer_face if swap else hole_face
+        key = frozenset(set(outer_face) | set(hole_face))
+        A = A_cache.get(key)
+        if A is None:
+            A = _build_system(set(outer_face) | set(hole_face))
+            A_cache[key] = A
+        pin = {}
+        for nd, a in zip(face_out, _cycle_angles(face_out, coords, ctr, a0)):
+            r = rad(a)
+            pin[nd] = (r * math.cos(a), r * math.sin(a))
+        for nd, a in zip(face_in, _cycle_angles(face_in, coords, ctr, a0)):
+            r = hr * rad(a)
+            pin[nd] = (r * math.cos(a), r * math.sin(a))
+        Xf, Yf = _solve(A, pin)
+        return np.column_stack([Xf, Yf])
+
+    # 2) Pin the outer + hole cycles onto the outlines at their (balanced) angles
+    #    and Tutte-solve the interior.  For the kamada ring we then re-run the same
+    #    step a few times, each round re-deriving the ring vertices' angles from the
+    #    previous result: this fixed-point refinement gradually evens out the
+    #    residual kamada jitter and improves the diagram's symmetry.  The two ring
+    #    faces are chosen ONCE (above) and held fixed across rounds -- re-picking
+    #    them by geometry each round would silently undo the 'swap' option, because
+    #    after a swap the inner face has become the geometrically-outer one.
+    current = coords_p
+    n_refine = 3 if use_kamada else 0
+    for _it in range(n_refine + 1):
+        current = _one_round(current, outer, hole)
+    pos = {n: current[idx[n]] for n in nodes}
+
+    # 2b) Optional 'invert ring (inside-out)': reflect every crossing's radius
+    #     about the ring's mid-line so the inner boundary ends up outside and the
+    #     outer boundary inside, turning the same diagram inside-out (the medial
+    #     curve is unchanged).  Unlike 'swap inner/outer face' (which re-solves with
+    #     the two boundary faces exchanged), this keeps the layout and just flips it
+    #     radially.
+    def _invert_pt(px, py):
+        r = math.hypot(px, py)
+        if r <= 1.0e-12:
+            return px, py
+        a = math.atan2(py, px)
+        r2 = (1.0 + hr) * rad(a) - r   # reflect about the medial radius
+        s = r2 / r
+        return px * s, py * s
+
+    if invert_ring:
+        pos = {n: np.array(_invert_pt(xy[0], xy[1])) for n, xy in pos.items()}
+
+    # 3) 'Ring tilt' as a bucket view.  The flat annulus is the top-down view of a
+    #    bucket whose wall carries the crossings; the radial distance across the
+    #    wall is the height up the wall.  Lift each crossing onto that 3D wall and
+    #    view the bucket from an angle: ring_tilt=90 looks straight down (the flat
+    #    annulus), lower tilts rotate the bucket about the horizontal axis so the
+    #    wall opens toward a side view.  This redistributes the crossings along the
+    #    tilted principal curve rather than rigidly rotating the finished diagram.
+    beta = math.radians(90.0) - math.radians(float(ring_tilt if ring_tilt is not None else 90.0))
+    cb = math.cos(beta)
+    sb = math.sin(beta)
+
+    def _bucket(px, py):
+        if abs(sb) <= 1.0e-9:
+            return px, py
+        r = math.hypot(px, py)
+        if r <= 1.0e-12:
+            return px, py
+        a = math.atan2(py, px)
+        r_bot = hr * rad(a)          # inner rim radius along this ray
+        h = r - r_bot                # height up the bucket wall (0 at inner rim)
+        return px, py * cb - h * sb
+
+    if abs(sb) > 1.0e-9:
+        pos = {n: np.array(_bucket(xy[0], xy[1])) for n, xy in pos.items()}
+
+    # 4) Framing (auto_orient -> PCA axis horizontal).
+    phi = orient if auto_orient else 0.0
+    c = math.cos(phi)
+    s = math.sin(phi)
+    R = np.array([[c, -s], [s, c]])
+    ctr = np.mean(list(pos.values()), axis=0) if pos else np.zeros(2)
+    pos = {n: R.dot(xy - ctr) + ctr for n, xy in pos.items()}
+
+    if meta_out is not None:
+        def _bucket_loop(arr):
+            arr = np.asarray(arr, float)
+            if abs(sb) <= 1.0e-9:
+                return arr
+            return np.array([_bucket(px, py) for px, py in arr])
+
+        def _frame(arr):
+            return np.array([R.dot(np.asarray(p, float) - ctr) + ctr for p in arr])
+
+        def _invert_loop(arr):
+            if not invert_ring:
+                return arr
+            return np.array([_invert_pt(px, py) for px, py in np.asarray(arr, float)])
+
+        # When inverted, the drawn 'outer' ring is the (reflected) inner outline and
+        # vice versa, so the big ring stays the outer boundary in the overlay.
+        outer_loop = (hr * dense) if invert_ring else dense
+        inner_loop = dense if invert_ring else (hr * dense)
+        meta_out.clear()
+        meta_out["kind"] = "holed"
+        meta_out["aspect_value"] = float(aspect)
+        meta_out["boundary_outer"] = _frame(_bucket_loop(_invert_loop(outer_loop)))
+        meta_out["boundary_inner"] = _frame(_bucket_loop(_invert_loop(inner_loop)))
+        meta_out["medial"] = _frame(_bucket_loop(_invert_loop(0.5 * (1.0 + hr) * dense)))
+    return pos
+
+
+def _transform_points_like(arr, center, y_direction="top-to-bottom", rotate_degrees=0.0):
+    """Apply the same drawing transform as ``transform_positions`` to a point array."""
+    arr = np.asarray(arr, float)
+    if arr.size == 0:
+        return arr
+    center = np.asarray(center, float)
+    theta = math.radians(float(rotate_degrees or 0.0))
+    c = math.cos(theta)
+    s = math.sin(theta)
+    R = np.array([[c, -s], [s, c]])
+    out = np.zeros_like(arr)
+    for i, xy in enumerate(arr):
+        q = np.asarray(xy, float) - center
+        if y_direction == "top-to-bottom":
+            q = np.array([q[0], -q[1]])
+        elif y_direction == "bottom-to-top":
+            pass
+        else:
+            raise ValueError("Unknown y_direction %r" % y_direction)
+        out[i] = R.dot(q)
+    return out
+
+
+def _transform_tutte_guides(meta, center, y_direction="top-to-bottom", rotate_degrees=0.0):
+    """Transform every guide-geometry array in ``meta`` like ``transform_positions``."""
+    if not meta:
+        return meta
+    out = {}
+    for k, v in meta.items():
+        # Non-geometry entries (e.g. the 'kind' tag) pass through untouched.
+        if not isinstance(v, np.ndarray):
+            out[k] = v
+            continue
+        out[k] = _transform_points_like(v, center, y_direction, rotate_degrees)
+    return out
+
+
+def _closest_points_segments(p1, p2, q1, q2):
+    """Closest points between 2D segments p1p2 and q1q2 (clamped)."""
+    d1 = p2 - p1
+    d2 = q2 - q1
+    r = p1 - q1
+    a = float(d1 @ d1)
+    e = float(d2 @ d2)
+    f = float(d2 @ r)
+    if a <= 1.0e-12 and e <= 1.0e-12:
+        return p1, q1
+    if a <= 1.0e-12:
+        s = 0.0
+        t = min(max(f / e, 0.0), 1.0)
+    else:
+        c = float(d1 @ r)
+        if e <= 1.0e-12:
+            t = 0.0
+            s = min(max(-c / a, 0.0), 1.0)
+        else:
+            b = float(d1 @ d2)
+            denom = a * e - b * b
+            s = min(max((b * f - c * e) / denom, 0.0), 1.0) if denom > 1.0e-12 else 0.0
+            t = (b * s + f) / e
+            if t < 0.0:
+                t = 0.0
+                s = min(max(-c / a, 0.0), 1.0)
+            elif t > 1.0:
+                t = 1.0
+                s = min(max((b - c) / a, 0.0), 1.0)
+    return p1 + d1 * s, q1 + d2 * t
+
+
+def nudge_min_separation(P, G, min_sep, iterations=8, damping=0.5, anchor=0.12):
+    """
+    Post-layout relaxation that pushes apart non-incident graph edges (strand
+    pieces) that come closer than ``min_sep`` (a fraction of the diagram span),
+    while a weak spring to each node's original position preserves the overall
+    layout.  This opens up shallow/near-parallel strand runs that would otherwise
+    read as a single thick line.  ``min_sep`` <= 0 disables it.
+
+    The whole layout is treated uniformly (no pinned boundary), so it applies to
+    every 2D layout; the spring keeps boundary shapes close to their target.
+    """
+    if not P or float(min_sep or 0.0) <= 0.0:
+        return P
+    nodes = list(P.keys())
+    coords = {n: np.asarray(P[n], float).copy() for n in nodes}
+    orig = {n: coords[n].copy() for n in nodes}
+    allc = np.array([orig[n] for n in nodes])
+    span = float(np.linalg.norm(allc.max(axis=0) - allc.min(axis=0))) or 1.0
+    thr = float(min_sep) * span
+    if thr <= 0.0:
+        return P
+    edges = [(u, v) for u, v in G.edges() if u != v]
+    ne = len(edges)
+    if ne < 2:
+        return P
+
+    for _ in range(int(iterations)):
+        # Per-edge bounding boxes (expanded by thr) for fast rejection.
+        boxes = []
+        for (u, v) in edges:
+            a = coords[u]
+            b = coords[v]
+            boxes.append((
+                min(a[0], b[0]) - thr, max(a[0], b[0]) + thr,
+                min(a[1], b[1]) - thr, max(a[1], b[1]) + thr,
+            ))
+        disp = {n: np.zeros(2) for n in nodes}
+        active = False
+        for i in range(ne):
+            u1, v1 = edges[i]
+            bx = boxes[i]
+            for j in range(i + 1, ne):
+                u2, v2 = edges[j]
+                if u1 == u2 or u1 == v2 or v1 == u2 or v1 == v2:
+                    continue  # incident edges share a node -> skip
+                bx2 = boxes[j]
+                if bx[1] < bx2[0] or bx2[1] < bx[0] or bx[3] < bx2[2] or bx2[3] < bx[2]:
+                    continue  # bounding boxes farther than thr apart
+                cp1, cp2 = _closest_points_segments(
+                    coords[u1], coords[v1], coords[u2], coords[v2]
+                )
+                d = cp2 - cp1
+                dist = float(np.linalg.norm(d))
+                if dist >= thr:
+                    continue
+                if dist < 1.0e-9:
+                    seg = coords[v1] - coords[u1]
+                    n_hat = np.array([-seg[1], seg[0]], float)
+                    nn = float(np.linalg.norm(n_hat))
+                    n_hat = n_hat / nn if nn > 1.0e-9 else np.array([1.0, 0.0])
+                else:
+                    n_hat = d / dist
+                push = 0.5 * (thr - dist)
+                disp[u1] -= 0.5 * push * n_hat
+                disp[v1] -= 0.5 * push * n_hat
+                disp[u2] += 0.5 * push * n_hat
+                disp[v2] += 0.5 * push * n_hat
+                active = True
+        if not active:
+            break
+        for n in nodes:
+            coords[n] = coords[n] + damping * disp[n]
+            coords[n] = coords[n] + anchor * (orig[n] - coords[n])
+    return {n: coords[n] for n in nodes}
+
+
+def compute_positions_connected(G, layout, tutte_opts=None, meta_out=None):
     ok, emb = nx.check_planarity(G)
     if not ok:
         raise RuntimeError(
             "The crossing graph is not planar; the DT code may be non-realizable."
         )
 
-    if layout == "tutte":
+    opts = tutte_opts or {}
+    if layout == "holed-tutte":
+        # 'holed-tutte' pins two faces (outer + auto-picked central hole) to the
+        # outer/inner outlines of a holed shape and harmonically solves the ring.
+        shape = _normalize_tutte_shape(opts.get("shape", "circle"))
+        aspect = float(opts.get("aspect", 1.0))
+        corner = float(opts.get("corner_radius", 0.0))
+        auto_aspect = bool(opts.get("auto_aspect", opts.get("auto", False)))
         try:
-            return tutte_layout_connected(G, emb)
+            return holed_tutte_layout(
+                G,
+                emb,
+                shape=shape,
+                aspect=aspect,
+                corner_radius=corner,
+                hole_ratio=float(opts.get("hole_ratio", 0.4)),
+                swap=bool(opts.get("hole_swap", False)),
+                auto_aspect=auto_aspect,
+                orient_degrees=float(opts.get("orient", 0.0)),
+                auto_orient=bool(opts.get("auto_orient", True)),
+                ring_tilt=float(opts.get("ring_tilt", 90.0)),
+                invert_ring=bool(opts.get("invert_ring", False)),
+                meta_out=meta_out,
+            )
+        except np.linalg.LinAlgError:
+            return {n: np.asarray(xy, float) for n, xy in nx.planar_layout(G).items()}
+    if layout == "shaped-tutte":
+        # 'shaped-tutte' pins the boundary to a chosen convex shape and tilts the
+        # shape's aspect axis relative to the diagram's intrinsic PCA axis.
+        shape = _normalize_tutte_shape(opts.get("shape", "circle"))
+        aspect = float(opts.get("aspect", 1.0))
+        corner = float(opts.get("corner_radius", 0.0))
+        auto_aspect = bool(opts.get("auto_aspect", opts.get("auto", False)))
+        try:
+            return shaped_tutte_layout(
+                G,
+                emb,
+                shape=shape,
+                aspect=aspect,
+                corner_radius=corner,
+                decompress=float(opts.get("decompress", 0.0)),
+                auto_aspect=auto_aspect,
+                com_expand=float(opts.get("com_expand", 0.0)),
+                orient_degrees=float(opts.get("orient", 0.0)),
+                auto_orient=bool(opts.get("auto_orient", True)),
+                meta_out=meta_out,
+            )
         except np.linalg.LinAlgError:
             # Some connected planar graphs are singular for this simple
             # barycentric solve. NetworkX planar_layout is a safe fallback.
+            return {n: np.asarray(xy, float) for n, xy in nx.planar_layout(G).items()}
+    if layout == "tutte":
+        # Plain 'tutte' always uses the classic unit-circle boundary.
+        try:
+            return tutte_layout_connected(
+                G,
+                emb,
+                shape="circle",
+                aspect=1.0,
+                corner_radius=0.0,
+                decompress=float(opts.get("decompress", 0.0)),
+                auto_aspect=False,
+                com_expand=float(opts.get("com_expand", 0.0)),
+            )
+        except np.linalg.LinAlgError:
             return {n: np.asarray(xy, float) for n, xy in nx.planar_layout(G).items()}
     if layout == "planar":
         return {n: np.asarray(xy, float) for n, xy in nx.planar_layout(G).items()}
@@ -592,21 +1825,26 @@ def compute_positions_connected(G, layout):
     raise ValueError("Unknown layout %r" % layout)
 
 
-def compute_positions(G, layout):
+def compute_positions(G, layout, tutte_opts=None, meta_out=None):
     """Compute graph coordinates; disconnected graph pieces are packed side-by-side."""
     if G.number_of_nodes() == 0:
         return {}
 
     components = [list(nodes) for nodes in nx.connected_components(G)]
     if len(components) == 1:
-        return compute_positions_connected(G, layout)
+        return compute_positions_connected(
+            G, layout, tutte_opts=tutte_opts, meta_out=meta_out
+        )
 
+    # Guide overlays are only defined for a single connected shaped-tutte diagram.
+    if meta_out is not None:
+        meta_out.clear()
     packed = {}
     x_offset = 0.0
     gap = 0.75
     for nodes in components:
         H = G.subgraph(nodes).copy()
-        P = compute_positions_connected(H, layout)
+        P = compute_positions_connected(H, layout, tutte_opts=tutte_opts)
         coords = np.array(list(P.values()))
         mn = coords.min(axis=0)
         mx = coords.max(axis=0)
@@ -894,9 +2132,15 @@ def _default_color_of(ci):
     return DEFAULT_PALETTE[ci % len(DEFAULT_PALETTE)]
 
 
-def _add_arrows(ax, dense, centers, color, scale, n_arrows=2):
+def _add_arrows(ax, dense, centers, color, scale, n_arrows=2, lw=2.0):
     if len(dense) < 4 or not centers:
         return
+    # Arrowhead size scales with the strand line width (mutation_scale is in
+    # points, as is lw, so this scales identically in the preview and saved image).
+    try:
+        head = max(6.0, 9.0 * float(lw))
+    except Exception:
+        head = 18.0
     n = len(dense)
     cvals = np.array(list(centers.values()))
     dmin = np.min(
@@ -917,7 +2161,7 @@ def _add_arrows(ax, dense, centers, color, scale, n_arrows=2):
             "",
             xy=b,
             xytext=a,
-            arrowprops=dict(arrowstyle="-|>", color=color, lw=0, mutation_scale=18),
+            arrowprops=dict(arrowstyle="-|>", color=color, lw=0, mutation_scale=head),
             zorder=5,
         )
         try:
@@ -967,7 +2211,10 @@ def _move_dt_labels_away_from_crossing_ids(ax, dt_label_entries, crossing_id_ent
             if artist is None or not artist.get_visible():
                 continue
             bbox = _artist_bbox(artist, 1.10, 1.15)
-            center_data = np.asarray(entry.get("center", artist.get_position()), float)
+            center = entry.get("center")
+            if center is None:
+                center = getattr(artist, "center", (0.0, 0.0))
+            center_data = np.asarray(center, float)
             id_infos.append((bbox, center_data))
         if not id_infos:
             break
@@ -1499,7 +2746,7 @@ def render_diagram(
 
     if arrows:
         for info in curve_infos:
-            _add_arrows(ax, info["dense"], crossing_xy, info["color"], span * sc)
+            _add_arrows(ax, info["dense"], crossing_xy, info["color"], span * sc, lw=lw)
 
     dt_label_entries = []
     if show_labels:
@@ -1527,6 +2774,11 @@ def render_diagram(
 
     crossing_id_entries = []
     if show_crossing_ids:
+        # Draw each ID text, then wrap it in a real Circle patch sized to snugly
+        # enclose the measured text extent (a small margin beyond the glyph box)
+        # rather than an over-large fixed data fraction.  The disk stays a clean
+        # circle object in the SVG.
+        id_texts = []
         for k in sorted(centers):
             cxy = crossing_xy[k]
             txt_color = "0.25"
@@ -1536,7 +2788,7 @@ def render_diagram(
                 over_comp = model["comp_of"][over_pos]
                 txt_color = color_of(over_comp)
                 edge_color = txt_color
-            artist = ax.text(
+            t = ax.text(
                 cxy[0],
                 cxy[1],
                 crossing_ids[k],
@@ -1548,10 +2800,43 @@ def render_diagram(
                 fontweight="bold" if color_crossing_ids_by_overstrand else "normal",
                 fontfamily=font_family,
                 clip_on=False,
-                bbox=dict(boxstyle="circle,pad=%s" % crossing_id_box_pad,
-                          fc="white", ec=edge_color, alpha=0.78),
             )
-            crossing_id_entries.append({"artist": artist, "center": cxy, "crossing_index": k})
+            id_texts.append((k, cxy, t, edge_color))
+
+        # Fallback radius (used if the text extent cannot be measured).
+        fallback_r = span * sc * 0.02
+        try:
+            renderer = _safe_canvas_draw(ax.figure)
+            inv = ax.transData.inverted()
+        except Exception:
+            renderer = None
+            inv = None
+        for k, cxy, t, edge_color in id_texts:
+            r = fallback_r
+            if renderer is not None and inv is not None:
+                try:
+                    ext = t.get_window_extent(renderer=renderer)
+                    p0 = inv.transform((ext.x0, ext.y0))
+                    p1 = inv.transform((ext.x1, ext.y1))
+                    half_w = 0.5 * abs(float(p1[0] - p0[0]))
+                    half_h = 0.5 * abs(float(p1[1] - p0[1]))
+                    # Circle through the text-box corners, plus a small margin, is
+                    # just enough to cover the text without being oversized.
+                    r = math.hypot(half_w, half_h) * 1.12
+                except Exception:
+                    r = fallback_r
+            disk = Circle(
+                (float(cxy[0]), float(cxy[1])),
+                radius=r,
+                facecolor="white",
+                edgecolor=edge_color,
+                linewidth=0.8,
+                alpha=0.78,
+                zorder=4.9,
+                clip_on=False,
+            )
+            ax.add_patch(disk)
+            crossing_id_entries.append({"artist": disk, "center": cxy, "crossing_index": k})
 
     if show_labels and show_crossing_ids:
         _move_dt_labels_away_from_crossing_ids(ax, dt_label_entries, crossing_id_entries)
@@ -1672,6 +2957,9 @@ def draw(
     match_view=None,
     dt_code=None,
     layout=None,
+    tutte_guides=None,
+    show_tutte_outline=False,
+    show_tutte_pca=False,
 ):
     """Render and save a 2-D diagram.
 
@@ -1713,6 +3001,11 @@ def draw(
         gap_frac=gap_frac,
         show_labels=show_labels,
         arrows=arrows,
+    )
+    _draw_tutte_guides(
+        ax, tutte_guides,
+        show_outline=bool(show_tutte_outline),
+        show_pca=bool(show_tutte_pca),
     )
     ax.set_aspect("equal")
     ax.axis("off")
@@ -2496,6 +3789,248 @@ def _build_spherical_kamada_xyz_components(
     return xyz_components
 
 
+SURFACE_SHAPES = ("ellipsoid", "cylinder", "torus")
+
+
+def _normalize_surface_shape(shape):
+    s = str(shape or "ellipsoid").strip().lower()
+    return s if s in SURFACE_SHAPES else "ellipsoid"
+
+
+def _pca_frame_3d(dirs):
+    """
+    Principal axes of a 3D direction cloud.
+
+    Returns (evecs, evals) with columns ordered by descending eigenvalue, so
+    evecs[:, 0] is the major axis and evecs[:, 2] is the minor axis.
+    """
+    pts = np.asarray(dirs, float)
+    if len(pts) < 3:
+        return np.eye(3), np.ones(3)
+    q = pts - pts.mean(axis=0)
+    cov = q.T @ q
+    evals, evecs = np.linalg.eigh(cov)
+    order = np.argsort(evals)[::-1]
+    evals = np.maximum(evals[order], 0.0)
+    evecs = evecs[:, order]
+    if np.linalg.det(evecs) < 0.0:
+        evecs[:, 2] = -evecs[:, 2]
+    return evecs, evals
+
+
+def _rot_about_canonical_axis(axis, angle):
+    """3x3 rotation about a canonical axis ('x', 'y', or 'z')."""
+    c = math.cos(float(angle))
+    s = math.sin(float(angle))
+    if axis == "x":
+        return np.array([[1.0, 0.0, 0.0], [0.0, c, -s], [0.0, s, c]], float)
+    if axis == "y":
+        return np.array([[c, 0.0, s], [0.0, 1.0, 0.0], [-s, 0.0, c]], float)
+    return np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]], float)
+
+
+def _surface_frame_and_params(kind, dirs_all, aspect, tube,
+                              orient_auto=True, aspect_auto=True,
+                              orient_degrees=0.0, tilt_degrees=0.0):
+    """
+    Resolve the surface's orientation frame ``M`` and its shape parameters.
+
+    Orientation and aspect are handled independently.
+
+    Orientation: the surface's primary axis (ellipsoid major -> +x; cylinder
+    length and torus symmetry -> +z) is always aligned to the diagram's principal
+    (PCA) axis.  When ``orient_auto`` is off, two manual rotations are applied
+    relative to that PCA axis: ``orient_degrees`` spins about the primary axis,
+    and ``tilt_degrees`` tilts the primary axis away from the PCA axis (a
+    rotation about the perpendicular secondary axis).
+
+    Aspect: with ``aspect_auto`` on, the ellipsoid axis ratios / cylinder height
+    / torus tube ratio are derived from the diagram's 3D PCA magnitudes so the
+    surface proportions match the diagram's own elongation.  Otherwise the
+    supplied ``aspect`` / ``tube`` are used.
+    """
+    kind = _normalize_surface_shape(kind)
+    aspect = float(aspect)
+    if not np.isfinite(aspect) or aspect <= 0.0:
+        aspect = 1.0
+    tube = float(tube)
+    if not np.isfinite(tube) or tube <= 0.0:
+        tube = 0.35
+
+    pts = np.asarray(dirs_all, float)
+    have_pca = pts.shape[0] >= 3
+    if have_pca:
+        evecs, evals = _pca_frame_3d(pts)
+        e0, e1, e2 = evecs[:, 0], evecs[:, 1], evecs[:, 2]
+        ev = np.maximum(evals, 1.0e-9)
+        gm = float(np.prod(ev) ** (1.0 / 3.0))
+
+    # Base PCA alignment of the surface primary axis, plus the canonical primary
+    # axis (for the manual spin) and a perpendicular secondary axis (for the tilt
+    # away from the PCA axis).
+    if kind == "cylinder":
+        primary, secondary = "z", "x"
+        M0 = np.column_stack([e2, e1, e0]) if have_pca else np.eye(3)
+    elif kind == "torus":
+        primary, secondary = "z", "x"
+        M0 = np.column_stack([e0, e1, e2]) if have_pca else np.eye(3)
+    else:  # ellipsoid
+        primary, secondary = "x", "y"
+        M0 = np.column_stack([e0, e1, e2]) if have_pca else np.eye(3)
+
+    if orient_auto:
+        M = M0
+    else:
+        M = (M0
+             @ _rot_about_canonical_axis(primary, math.radians(orient_degrees))
+             @ _rot_about_canonical_axis(secondary, math.radians(tilt_degrees)))
+
+    if aspect_auto and have_pca:
+        if kind == "ellipsoid":
+            resolved = {"axes": np.clip(np.sqrt(ev / gm), 0.4, 2.6)}
+        elif kind == "cylinder":
+            height = float(np.clip(math.sqrt(ev[0] / (0.5 * (ev[1] + ev[2]))), 1.0, 6.0))
+            resolved = {"radius": 1.0, "height": height}
+        else:  # torus
+            tr = float(np.clip(math.sqrt(ev[2] / (0.5 * (ev[0] + ev[1]))), 0.12, 0.55))
+            resolved = {"tube": tr}
+    else:
+        if kind == "ellipsoid":
+            axes = np.array([aspect, 1.0, 1.0 / max(aspect, 1.0e-6)], float)
+            gm2 = float(np.prod(axes) ** (1.0 / 3.0))
+            resolved = {"axes": axes / (gm2 if gm2 > 1.0e-12 else 1.0)}
+        elif kind == "cylinder":
+            resolved = {"radius": 1.0, "height": aspect}
+        else:  # torus
+            resolved = {"tube": tube}
+    return M, resolved
+
+
+def _surface_warp_fn(kind, sphere_radius, resolved, M):
+    """
+    Build warp(dirs, offsets) -> Nx3 mapping unit-sphere directions and signed
+    normal offsets onto the chosen surface.  Over/under offsets are applied along
+    the local outward surface normal, so with offset 0 all points lie exactly on
+    the base surface.  For the sphere this is the identity map used elsewhere.
+    """
+    kind = _normalize_surface_shape(kind)
+    R = float(sphere_radius)
+    Mrot = np.asarray(M, float)
+
+    def warp(dirs, offsets):
+        d = np.asarray(dirs, float)
+        if d.size == 0:
+            return np.zeros((0, 3), float)
+        d = d @ Mrot
+        x = d[:, 0]
+        y = d[:, 1]
+        z = np.clip(d[:, 2], -1.0, 1.0)
+        o = np.asarray(offsets, float)
+        if kind == "ellipsoid":
+            ax, ay, az = resolved["axes"]
+            base = np.column_stack([R * ax * x, R * ay * y, R * az * z])
+            nn = np.column_stack([x / ax, y / ay, z / az])
+        elif kind == "cylinder":
+            rad = R * float(resolved["radius"])
+            H = R * float(resolved["height"])
+            phi = np.arctan2(y, x)
+            base = np.column_stack([rad * np.cos(phi), rad * np.sin(phi), H * z])
+            nn = np.column_stack([np.cos(phi), np.sin(phi), np.zeros_like(phi)])
+        elif kind == "torus":
+            r_major = R
+            r_minor = float(resolved["tube"]) * R
+            u = np.arctan2(y, x)
+            theta = np.arccos(z)               # 0..pi from north to south pole
+            v = math.pi - 2.0 * theta          # full poloidal sweep, poles -> inner ridge
+            ring = r_major + r_minor * np.cos(v)
+            base = np.column_stack([ring * np.cos(u), ring * np.sin(u), r_minor * np.sin(v)])
+            nn = np.column_stack([np.cos(v) * np.cos(u), np.cos(v) * np.sin(u), np.sin(v)])
+        else:  # sphere
+            base = R * d
+            nn = d
+        norm = np.linalg.norm(nn, axis=1)
+        norm[norm < 1.0e-12] = 1.0
+        nn = nn / norm[:, None]
+        return base + o[:, None] * nn
+
+    return warp
+
+
+def _geom_resample_closed_3d(points, spacing):
+    """Even arc-length resample of a closed 3D polyline (surface-agnostic)."""
+    pts = np.asarray(points, float)
+    spacing = float(spacing)
+    if len(pts) < 4 or spacing <= 0.0:
+        return pts
+    seg = np.linalg.norm(np.roll(pts, -1, axis=0) - pts, axis=1)
+    total = float(np.sum(seg))
+    if total <= 1.0e-12:
+        return pts[:1].copy()
+    n_out = max(4, int(math.ceil(total / spacing)))
+    n_out = min(n_out, 200000)
+    actual = total / float(n_out)
+    cum = np.concatenate(([0.0], np.cumsum(seg)))
+    out = np.zeros((n_out, 3), float)
+    for i in range(n_out):
+        target = i * actual
+        j = int(np.searchsorted(cum, target, side="right") - 1)
+        j = max(0, min(j, len(seg) - 1))
+        t = 0.0 if seg[j] <= 1.0e-12 else (target - cum[j]) / seg[j]
+        j2 = (j + 1) % len(pts)
+        out[i] = (1.0 - t) * pts[j] + t * pts[j2]
+    return out
+
+
+def _warp_components_to_surface(xyz_components, sphere_radius, surface_shape,
+                                surface_aspect, surface_tube, xyz_spacing,
+                                surface_auto_orient=True, surface_auto_aspect=True,
+                                surface_orient=0.0, surface_tilt=0.0):
+    """
+    Warp spherical components (built on the base sphere of radius R) onto a
+    shaped surface.  Each spherical point is decomposed into a unit direction and
+    a signed radial offset, a common orientation frame + shape parameters are
+    resolved once from all components' directions, and every point is remapped
+    and then re-spaced evenly along the surface.
+    """
+    R = float(sphere_radius)
+    decomposed = []
+    all_dirs = []
+    for arr in xyz_components:
+        arr = np.asarray(arr, float)
+        if len(arr) == 0:
+            decomposed.append(None)
+            continue
+        r = np.linalg.norm(arr, axis=1)
+        safe = r > 1.0e-12
+        d = np.zeros_like(arr)
+        d[safe] = arr[safe] / r[safe, None]
+        if not np.all(safe):
+            d = _normalize_rows(d)
+        o = r - R
+        decomposed.append((d, o))
+        all_dirs.append(d)
+
+    dirs_all = np.vstack(all_dirs) if all_dirs else np.zeros((0, 3), float)
+    M, resolved = _surface_frame_and_params(
+        surface_shape, dirs_all, surface_aspect, surface_tube,
+        orient_auto=surface_auto_orient,
+        aspect_auto=surface_auto_aspect,
+        orient_degrees=surface_orient,
+        tilt_degrees=surface_tilt,
+    )
+    warp = _surface_warp_fn(surface_shape, R, resolved, M)
+
+    out = []
+    for item in decomposed:
+        if item is None:
+            out.append(np.zeros((0, 3), float))
+            continue
+        d, o = item
+        warped = warp(d, o)
+        out.append(_geom_resample_closed_3d(warped, xyz_spacing))
+    return out
+
+
 def build_spherical_xyz_components(
     model,
     P,
@@ -2512,6 +4047,13 @@ def build_spherical_xyz_components(
     xyz_final_smooth=True,
     xyz_smooth_window=10,
     xyz_smooth_passes=5,
+    surface_shape="ellipsoid",
+    surface_auto_orient=True,
+    surface_auto_aspect=True,
+    surface_aspect=1.6,
+    surface_tube=0.35,
+    surface_orient=0.0,
+    surface_tilt=0.0,
 ):
     """
     Return one Nx3 array per component for the spherical diagram.
@@ -2568,7 +4110,9 @@ def build_spherical_xyz_components(
             sphere_bump_frac=sphere_bump_frac,
             xyz_spacing=xyz_spacing,
         )
-    elif layout == "spherical-kamada":
+    elif layout in ("spherical-kamada", "shaped-kamada"):
+        # Both use the sphere-native construction; shaped-kamada additionally
+        # warps the finished spherical curve onto the chosen surface below.
         xyz_components = _build_spherical_kamada_xyz_components(
             model,
             G,
@@ -2582,7 +4126,7 @@ def build_spherical_xyz_components(
     else:
         raise ValueError("Unknown --sphere-layout %r." % sphere_layout)
 
-    return _apply_final_xyz_smoothing(
+    xyz_components = _apply_final_xyz_smoothing(
         xyz_components,
         sphere_radius=sphere_radius,
         xyz_spacing=xyz_spacing,
@@ -2590,6 +4134,22 @@ def build_spherical_xyz_components(
         smooth_window=xyz_smooth_window,
         smooth_passes=xyz_smooth_passes,
     )
+
+    if layout == "shaped-kamada":
+        xyz_components = _warp_components_to_surface(
+            xyz_components,
+            sphere_radius=sphere_radius,
+            surface_shape=surface_shape,
+            surface_aspect=surface_aspect,
+            surface_tube=surface_tube,
+            xyz_spacing=xyz_spacing,
+            surface_auto_orient=surface_auto_orient,
+            surface_auto_aspect=surface_auto_aspect,
+            surface_orient=surface_orient,
+            surface_tilt=surface_tilt,
+        )
+
+    return xyz_components
 
 
 def write_spherical_xyz(
@@ -2611,6 +4171,13 @@ def write_spherical_xyz(
     xyz_final_smooth=True,
     xyz_smooth_window=10,
     xyz_smooth_passes=5,
+    surface_shape="ellipsoid",
+    surface_auto_orient=True,
+    surface_auto_aspect=True,
+    surface_aspect=1.6,
+    surface_tube=0.35,
+    surface_orient=0.0,
+    surface_tilt=0.0,
 ):
     """
     Write spherical component polylines as plain x y z coordinates.
@@ -2636,6 +4203,13 @@ def write_spherical_xyz(
         xyz_final_smooth=xyz_final_smooth,
         xyz_smooth_window=xyz_smooth_window,
         xyz_smooth_passes=xyz_smooth_passes,
+        surface_shape=surface_shape,
+        surface_auto_orient=surface_auto_orient,
+        surface_auto_aspect=surface_auto_aspect,
+        surface_aspect=surface_aspect,
+        surface_tube=surface_tube,
+        surface_orient=surface_orient,
+        surface_tilt=surface_tilt,
     )
     ensure_parent_dir(path)
     nd = max(3, int(decimals))
@@ -2925,8 +4499,42 @@ def prepare_diagram(args, status_stream=None):
     )
 
     G = build_gadget_graph(model)
-    P = compute_positions(G, args.layout)
+    tutte_opts = {
+        "shape": getattr(args, "tutte_shape", "ellipse"),
+        "aspect": getattr(args, "tutte_aspect", 1.8),
+        "corner_radius": getattr(args, "tutte_corner_radius", 0.25),
+        "decompress": getattr(args, "tutte_decompress", 0.0),
+        "com_expand": getattr(args, "tutte_com_expand", 0.0),
+        "auto_aspect": bool(getattr(args, "tutte_auto_aspect", True)),
+        # Shaped-tutte orientation is now handled inside the layout solve: the
+        # boundary shape's aspect axis is tilted 'tutte orient' degrees from the
+        # diagram's intrinsic (circular-Tutte) PCA axis.  'auto orient' frames the
+        # PCA axis horizontally so the shape appears tilted by that angle.
+        "orient": getattr(args, "tutte_orient", 0.0),
+        "auto_orient": bool(getattr(args, "tutte_auto_orient", True)),
+        # holed-tutte controls.
+        "hole_ratio": getattr(args, "hole_ratio", 0.4),
+        "hole_swap": bool(getattr(args, "hole_swap", False)),
+        "ring_tilt": getattr(args, "ring_tilt", 90.0),
+        "invert_ring": bool(getattr(args, "invert_ring", False)),
+    }
+    tutte_guides = {}
+    P = compute_positions(G, args.layout, tutte_opts=tutte_opts, meta_out=tutte_guides)
+    # Optional post-layout relaxation that opens up strand pieces that sit closer
+    # than the requested minimum separation (0 = off).
+    P = nudge_min_separation(P, G, getattr(args, "min_sep", 0.0))
+    # Guide geometry (shape outline / PCA axis) must ride through the same drawing
+    # transform as the node positions, using the pre-transform node centroid.
+    guide_center = None
+    if P:
+        guide_center = np.mean(list(P.values()), axis=0)
     P = transform_positions(P, args.y_direction, args.rotate)
+    if tutte_guides and guide_center is not None:
+        tutte_guides = _transform_tutte_guides(
+            tutte_guides, guide_center, args.y_direction, args.rotate
+        )
+    else:
+        tutte_guides = {}
     centers = crossing_centers(model, P)
 
     false = audit_false_crossings(model, P, centers)
@@ -2958,7 +4566,59 @@ def prepare_diagram(args, status_stream=None):
         "centers": centers,
         "false_crossings": false,
         "used_layout": used_layout,
+        "tutte_guides": tutte_guides,
+        "aspect_value": tutte_guides.get("aspect_value") if tutte_guides else None,
     }
+
+
+def _draw_tutte_guides(ax, guides, show_outline=False, show_pca=False):
+    """
+    Overlay layout guides on an axis.  ``guides`` is the metadata dict produced by
+    ``shaped_tutte_layout`` or ``holed_tutte_layout`` (already in drawing
+    coordinates).  For shaped-tutte: the boundary outline + aspect axis (outline
+    toggle) and the intrinsic PCA axis (pca toggle).  For holed-tutte: the outer
+    and inner outlines (outline toggle) and the mid-ring closed 'principal curved
+    axis' (pca toggle).
+    """
+    if not guides:
+        return
+
+    def _plot_loop(arr, **kw):
+        arr = np.asarray(arr, float)
+        if len(arr) >= 2:
+            loop = np.vstack([arr, arr[:1]])
+            ax.plot(loop[:, 0], loop[:, 1], clip_on=False, **kw)
+
+    if guides.get("kind") == "holed":
+        if show_outline:
+            for key in ("boundary_outer", "boundary_inner"):
+                b = guides.get(key)
+                if b is not None:
+                    _plot_loop(b, color="#1f77b4", lw=1.2, ls=(0, (6, 4)),
+                               alpha=0.85, zorder=15)
+        if show_pca:
+            med = guides.get("medial")
+            if med is not None:
+                _plot_loop(med, color="#ff7f0e", lw=1.5, ls=(0, (2, 2)),
+                           alpha=0.95, zorder=16)
+        return
+
+    if show_outline:
+        b = guides.get("boundary")
+        if b is not None:
+            _plot_loop(b, color="#1f77b4", lw=1.2, ls=(0, (6, 4)),
+                       alpha=0.85, zorder=15)
+        sa = guides.get("shape_axis")
+        if sa is not None and len(sa) >= 2:
+            sa = np.asarray(sa, float)
+            ax.plot(sa[:, 0], sa[:, 1], color="#1f77b4", lw=1.3,
+                    ls="-", alpha=0.85, zorder=15, clip_on=False)
+    if show_pca:
+        pa = guides.get("pca_axis")
+        if pa is not None and len(pa) >= 2:
+            pa = np.asarray(pa, float)
+            ax.plot(pa[:, 0], pa[:, 1], color="#ff7f0e", lw=1.5,
+                    ls=(0, (2, 2)), alpha=0.95, zorder=16, clip_on=False)
 
 
 def render_prepared_diagram(ax, data, args):
@@ -2978,6 +4638,12 @@ def render_prepared_diagram(ax, data, args):
         gap_frac=args.gap_frac,
         show_labels=not args.hide_labels,
         arrows=not args.no_arrows,
+    )
+    _draw_tutte_guides(
+        ax,
+        data.get("tutte_guides"),
+        show_outline=bool(getattr(args, "show_tutte_outline", False)),
+        show_pca=bool(getattr(args, "show_tutte_pca", False)),
     )
     ax.set_aspect("equal")
     ax.axis("off")
@@ -3089,6 +4755,9 @@ def run_pipeline(args, status_stream=None):
             arrows=not args.no_arrows,
             dt_code=args.dt,
             layout=args.layout,
+            tutte_guides=data.get("tutte_guides"),
+            show_tutte_outline=bool(getattr(args, "show_tutte_outline", False)),
+            show_tutte_pca=bool(getattr(args, "show_tutte_pca", False)),
         )
         out.write("[ok] wrote %s\n" % args.output)
 
@@ -3124,6 +4793,13 @@ def run_pipeline(args, status_stream=None):
             xyz_final_smooth=args.xyz_final_smooth,
             xyz_smooth_window=args.xyz_smooth_window,
             xyz_smooth_passes=args.xyz_smooth_passes,
+            surface_shape=getattr(args, "surface_shape", "ellipsoid"),
+            surface_auto_orient=bool(getattr(args, "surface_auto_orient", True)),
+            surface_auto_aspect=bool(getattr(args, "surface_auto_aspect", True)),
+            surface_aspect=getattr(args, "surface_aspect", 1.6),
+            surface_tube=getattr(args, "surface_tube", 0.35),
+            surface_orient=getattr(args, "surface_orient", 0.0),
+            surface_tilt=getattr(args, "surface_tilt", 0.0),
         )
         out.write("[ok] wrote %s (%d xyz rows)\n" % (args.xyz_output, n_points))
 
@@ -3230,11 +4906,161 @@ def build_arg_parser():
     )
     ap.add_argument(
         "--layout",
-        choices=["tutte", "planar", "spring", "kamada"],
+        choices=["tutte", "shaped-tutte", "holed-tutte", "planar", "spring", "kamada"],
         default="tutte",
         help=(
-            "Layout engine. 'tutte' is default. If false crossings are detected, "
-            "the chosen layout is kept and the artifacts are highlighted."
+            "Layout engine. 'tutte' is default. 'shaped-tutte' pins the Tutte "
+            "boundary to a chosen convex shape (see --tutte-shape). 'holed-tutte' "
+            "pins two faces (outer + auto-picked central hole) to the outer/inner "
+            "outlines of a holed shape and solves the ring. If false crossings are "
+            "detected, the chosen layout is kept and the artifacts are highlighted."
+        ),
+    )
+    ap.add_argument(
+        "--tutte-shape",
+        choices=list(TUTTE_SHAPES),
+        default="ellipse",
+        metavar="{%s}" % ",".join(TUTTE_SHAPE_CHOICES),
+        help=(
+            "Boundary shape for --layout shaped-tutte / holed-tutte: ellipse or "
+            "rounded-rectangle (use aspect 1 for a circle, corner radius 0 for a "
+            "sharp rectangle). Default: ellipse."
+        ),
+    )
+    ap.add_argument(
+        "--tutte-aspect", type=float, default=1.8,
+        help=(
+            "Boundary aspect ratio (long/short) for shaped-tutte ellipse/"
+            "rectangle shapes when auto is off. Default: 1.8."
+        ),
+    )
+    ap.add_argument(
+        "--tutte-corner-radius", type=float, default=0.25,
+        help=(
+            "Corner radius as a fraction (0..1) of the short half-extent for the "
+            "shaped-tutte rounded-rectangle shape. Default: 0.25."
+        ),
+    )
+    ap.add_argument(
+        "--tutte-decompress", type=float, default=0.0,
+        help=(
+            "Internal decompression strength for 'tutte' and 'shaped-tutte'. "
+            "0 = classic Tutte. Larger values apply boundary-depth edge weights "
+            "that push interior structure outward from the boundary so it is not "
+            "over-compressed toward the center. Default: 0.0."
+        ),
+    )
+    ap.add_argument(
+        "--tutte-com-expand", type=float, default=0.0,
+        help=(
+            "Separate radial expansion strength about the crossing center of "
+            "mass for 'tutte' and 'shaped-tutte'. 0 = off. Expands interior "
+            "structure outward from the (density-weighted) crowded-crossing "
+            "centroid, tapering to zero at the boundary, so crowded crossings get "
+            "more room and sit near the center. Layered on top of "
+            "--tutte-decompress. Suggested range 0.0-1.0. Default: 0.0."
+        ),
+    )
+    ap.add_argument(
+        "--tutte-auto-orient",
+        dest="tutte_auto_orient",
+        action="store_true",
+        default=True,
+        help=(
+            "For shaped-tutte: frame the diagram so its intrinsic (circular-Tutte) "
+            "PCA elongation axis lies along the view x-axis. Default: on. The shape "
+            "outline then appears tilted by --tutte-orient. When off, the shape's "
+            "long axis is left horizontal instead. Works for every boundary shape."
+        ),
+    )
+    ap.add_argument(
+        "--no-tutte-auto-orient",
+        dest="tutte_auto_orient",
+        action="store_false",
+        help="Frame the shaped-tutte shape long axis horizontally instead of the PCA axis.",
+    )
+    ap.add_argument(
+        "--tutte-orient", type=float, default=0.0,
+        help=(
+            "Shaped-tutte shape tilt in degrees: the angle by which the boundary "
+            "shape's aspect (long) axis is tilted away from the diagram's intrinsic "
+            "PCA elongation axis. 0 = shape long axis along the PCA axis. This "
+            "re-stretches the layout in a new direction (it does not merely spin the "
+            "finished picture). Only meaningful for non-circular shapes. Default: 0."
+        ),
+    )
+    ap.add_argument(
+        "--show-tutte-outline",
+        dest="show_tutte_outline",
+        action="store_true",
+        default=False,
+        help="Overlay the shaped-tutte boundary outline and its aspect axis.",
+    )
+    ap.add_argument(
+        "--show-tutte-pca",
+        dest="show_tutte_pca",
+        action="store_true",
+        default=False,
+        help="Overlay the diagram's intrinsic PCA elongation axis.",
+    )
+    ap.add_argument(
+        "--tutte-auto-aspect",
+        dest="tutte_auto_aspect",
+        action="store_true",
+        default=True,
+        help=(
+            "For shaped-tutte: derive the boundary aspect ratio from the "
+            "diagram's own elongation (PCA). Default: on. When off, "
+            "--tutte-aspect is used."
+        ),
+    )
+    ap.add_argument(
+        "--no-tutte-auto-aspect",
+        dest="tutte_auto_aspect",
+        action="store_false",
+        help="Disable shaped-tutte auto aspect; use --tutte-aspect instead.",
+    )
+    ap.add_argument(
+        "--hole-ratio", type=float, default=0.4,
+        help=(
+            "For --layout holed-tutte: inner (hole) outline size as a fraction of "
+            "the outer outline, in (0,1). Smaller = bigger ring. Default: 0.4."
+        ),
+    )
+    ap.add_argument(
+        "--hole-swap",
+        dest="hole_swap",
+        action="store_true",
+        default=False,
+        help="For holed-tutte: swap which face is pinned to the outer vs inner outline.",
+    )
+    ap.add_argument(
+        "--invert-ring",
+        dest="invert_ring",
+        action="store_true",
+        default=False,
+        help=(
+            "For holed-tutte: turn the ring inside-out (reflect each crossing's "
+            "radius about the ring mid-line) so the inner boundary ends up outside "
+            "and the outer boundary inside."
+        ),
+    )
+    ap.add_argument(
+        "--ring-tilt", type=float, default=90.0,
+        help=(
+            "For holed-tutte: how far the closed principal ring is tilted UP to face "
+            "the viewer, 0-90 degrees. 90 = ring faces you -> the flat annulus / "
+            "donut 'top view' (curved axis a loop in the canvas plane). 0 = ring "
+            "edge-on -> 'side view' band with the curved axis perpendicular to the "
+            "canvas. Default: 90."
+        ),
+    )
+    ap.add_argument(
+        "--min-sep", type=float, default=0.0,
+        help=(
+            "Minimum separation between non-incident strand pieces, as a fraction "
+            "of the diagram span. A post-layout relaxation pushes closer pieces "
+            "apart (with a spring back to the layout). 0 = off. Try 0.02-0.05."
         ),
     )
     ap.add_argument("--title", default=None, help="Optional title for the figure.")
@@ -3281,12 +5107,89 @@ def build_arg_parser():
     )
     ap.add_argument(
         "--sphere-layout",
-        choices=["spherical-kamada", "stereographic"],
+        choices=["spherical-kamada", "shaped-kamada", "stereographic"],
         default="spherical-kamada",
         help=(
             "XYZ sphere layout. 'spherical-kamada' spreads the graph directly "
-            "on S^2 and is the V3.9 default; 'stereographic' uses the 2D diagram "
-            "and inverse stereographic projection."
+            "on S^2 and is the default; 'shaped-kamada' warps that spherical "
+            "construction onto a shaped surface (see --surface-shape); "
+            "'stereographic' uses the 2D diagram and inverse stereographic "
+            "projection."
+        ),
+    )
+    ap.add_argument(
+        "--surface-shape",
+        choices=list(SURFACE_SHAPES),
+        default="ellipsoid",
+        help=(
+            "Target surface for --sphere-layout shaped-kamada: ellipsoid, "
+            "cylinder, or torus. Default: ellipsoid."
+        ),
+    )
+    ap.add_argument(
+        "--surface-auto-orient",
+        dest="surface_auto_orient",
+        action="store_true",
+        default=True,
+        help=(
+            "For shaped-kamada: auto-align the surface's primary axis to the "
+            "diagram (3D PCA). Default: on. When off, --surface-orient spins the "
+            "mapping about that axis relative to the PCA axis."
+        ),
+    )
+    ap.add_argument(
+        "--no-surface-auto-orient",
+        dest="surface_auto_orient",
+        action="store_false",
+        help="Disable shaped-kamada auto orientation; use --surface-orient instead.",
+    )
+    ap.add_argument(
+        "--surface-orient", type=float, default=0.0,
+        help=(
+            "Manual shaped-kamada spin in degrees about the surface's primary "
+            "axis, measured from the diagram's PCA axis. Used only when "
+            "--no-surface-auto-orient. Default: 0."
+        ),
+    )
+    ap.add_argument(
+        "--surface-tilt", type=float, default=0.0,
+        help=(
+            "Manual shaped-kamada tilt in degrees that rotates the surface's "
+            "primary axis away from the diagram's PCA axis (about the "
+            "perpendicular secondary axis). Used only when "
+            "--no-surface-auto-orient. Default: 0."
+        ),
+    )
+    ap.add_argument(
+        "--surface-auto-aspect",
+        dest="surface_auto_aspect",
+        action="store_true",
+        default=True,
+        help=(
+            "For shaped-kamada: derive the surface aspect / tube ratio from the "
+            "diagram's own 3D shape (PCA). Default: on. When off, "
+            "--surface-aspect / --surface-tube are used."
+        ),
+    )
+    ap.add_argument(
+        "--no-surface-auto-aspect",
+        dest="surface_auto_aspect",
+        action="store_false",
+        help="Disable shaped-kamada auto aspect; use manual surface values.",
+    )
+    ap.add_argument(
+        "--surface-aspect", type=float, default=1.6,
+        help=(
+            "Manual surface aspect for shaped-kamada when auto aspect is off: "
+            "ellipsoid major/minor, or cylinder length/radius. Ignored by torus. "
+            "Default: 1.6."
+        ),
+    )
+    ap.add_argument(
+        "--surface-tube", type=float, default=0.35,
+        help=(
+            "Manual torus tube ratio (minor/major radius) for shaped-kamada when "
+            "auto aspect is off. Default: 0.35."
         ),
     )
     ap.add_argument(
@@ -3433,7 +5336,7 @@ def run_gui(initial_args):
         return 1
 
     apply_tk_window_icon(root, tk)
-    root.title("draw_dt_original_labelsV3_14")
+    root.title("draw_dt_original_labelsV4_5")
     root.geometry("1320x860")
     root.minsize(1050, 680)
 
@@ -3453,7 +5356,56 @@ def run_gui(initial_args):
     def show_arg_help(key):
         title = key.replace("_", " ").strip().title()
         message = GUI_HELP_TEXT.get(key, "No help text is available for this parameter.")
-        messagebox.showinfo(title, message)
+        if key == "figsize":
+            try:
+                w = int(canvas_widget.winfo_width())
+                h = int(canvas_widget.winfo_height())
+                if w > 1 and h > 1:
+                    message += (
+                        "\n\nCurrent live preview panel: %d x %d px "
+                        "(about %.1f x %.1f in at the preview's 100 dpi)."
+                        % (w, h, w / 100.0, h / 100.0)
+                    )
+            except Exception:
+                pass
+        # Show help in a resizable popup with a read-only, selectable Text widget
+        # so long entries (e.g. the DT example codes) fit and can be copied.
+        win = tk.Toplevel(root)
+        win.title(title)
+        try:
+            apply_tk_window_icon(win)
+        except Exception:
+            pass
+        win.transient(root)
+        # Size the popup to the content; the DT entry gets a wide, tall window.
+        lines = message.splitlines() or [""]
+        longest = max((len(ln) for ln in lines), default=40)
+        width_chars = max(48, min(100, longest + 2))
+        height_lines = max(8, min(34, len(lines) + 2))
+        if key == "dt":
+            width_chars = max(width_chars, 92)
+            height_lines = max(height_lines, 26)
+        frame = ttk.Frame(win, padding=8)
+        frame.pack(fill="both", expand=True)
+        frame.rowconfigure(0, weight=1)
+        frame.columnconfigure(0, weight=1)
+        txt = tk.Text(frame, wrap="word", width=width_chars, height=height_lines,
+                      font=("TkFixedFont",))
+        yscroll = ttk.Scrollbar(frame, orient="vertical", command=txt.yview)
+        txt.configure(yscrollcommand=yscroll.set)
+        txt.grid(row=0, column=0, sticky="nsew")
+        yscroll.grid(row=0, column=1, sticky="ns")
+        txt.insert("1.0", message)
+        txt.configure(state="disabled")
+        btns = ttk.Frame(win, padding=(8, 0, 8, 8))
+        btns.pack(fill="x")
+        ttk.Button(btns, text="Close", command=win.destroy).pack(side="right")
+        win.bind("<Escape>", lambda _e: win.destroy())
+        try:
+            win.update_idletasks()
+            win.minsize(win.winfo_reqwidth(), win.winfo_reqheight())
+        except Exception:
+            pass
 
     def _mk_help_button(parent, key):
         return tk.Button(
@@ -3503,7 +5455,7 @@ def run_gui(initial_args):
     left = ttk.Frame(main)
     left.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
     left.columnconfigure(0, weight=1)
-    left.rowconfigure(2, weight=1)
+    left.rowconfigure(1, weight=1)
 
     # DT code and output-path fields.  Placed above the preview because these
     # values can be very long.
@@ -3511,36 +5463,28 @@ def run_gui(initial_args):
     io_frame.grid(row=0, column=0, sticky="ew", pady=(0, 6))
     io_frame.columnconfigure(1, weight=1)
 
+    # Only the DT code is entered here; the Save buttons prompt for the output
+    # directory and filename, so the output-image / sphere-XYZ path fields are gone.
     ttk.Label(io_frame, text="Signed DT code").grid(row=0, column=0, sticky="nw", pady=3)
     dt_text = tk.Text(io_frame, height=2, width=48, wrap="word")
     dt_text.grid(row=0, column=1, sticky="ew", pady=3)
     dt_text.insert("1.0", initial_args.dt if initial_args.dt else EXAMPLE_DT)
     _mk_help_button(io_frame, "dt").grid(row=0, column=3, sticky="nw", padx=(5, 0), pady=3)
 
-    ttk.Label(io_frame, text="Output image").grid(row=1, column=0, sticky="w", pady=3)
-    ttk.Entry(io_frame, textvariable=output_var).grid(row=1, column=1, sticky="ew", pady=3)
-    ttk.Button(io_frame, text="Browse", command=browse_output).grid(
-        row=1, column=2, sticky="ew", padx=(4, 0), pady=3
-    )
-    _mk_help_button(io_frame, "output").grid(row=1, column=3, sticky="w", padx=(5, 0), pady=3)
-
-    ttk.Label(io_frame, text="Sphere XYZ").grid(row=2, column=0, sticky="w", pady=3)
-    ttk.Entry(io_frame, textvariable=xyz_var).grid(row=2, column=1, sticky="ew", pady=3)
-    ttk.Button(io_frame, text="Browse", command=browse_xyz).grid(
-        row=2, column=2, sticky="ew", padx=(4, 0), pady=3
-    )
-    _mk_help_button(io_frame, "xyz").grid(row=2, column=3, sticky="w", padx=(5, 0), pady=3)
-
-    ttk.Label(left, text="Live preview", font=("TkDefaultFont", 11, "bold")).grid(
-        row=1, column=0, sticky="w"
-    )
-
+    # The "Live preview" caption now lives inside the preview canvas (as a
+    # figure-level text that survives axis clears) to save vertical space, so the
+    # dedicated label row above the canvas is gone.
     preview_frame = ttk.Frame(left, relief="sunken", padding=2)
-    preview_frame.grid(row=2, column=0, sticky="nsew", pady=(4, 6))
+    preview_frame.grid(row=1, column=0, sticky="nsew", pady=(0, 6))
     preview_frame.columnconfigure(0, weight=1)
     preview_frame.rowconfigure(0, weight=1)
 
     fig = Figure(figsize=(6.4, 6.4), dpi=100)
+    fig.text(
+        0.012, 0.985, "Live preview",
+        ha="left", va="top",
+        fontsize=11, fontweight="bold", color="0.35",
+    )
     ax = fig.add_subplot(111)
     ax.axis("off")
     ax.text(
@@ -3556,17 +5500,17 @@ def run_gui(initial_args):
     canvas_widget.grid(row=0, column=0, sticky="nsew")
 
     save_bar = ttk.Frame(left)
-    save_bar.grid(row=3, column=0, sticky="ew", pady=(0, 4))
+    save_bar.grid(row=2, column=0, sticky="ew", pady=(0, 4))
     for j in range(7):
         save_bar.columnconfigure(j, weight=1)
 
     preview_control_bar = ttk.Frame(left)
-    preview_control_bar.grid(row=4, column=0, sticky="ew", pady=(0, 6))
-    for j in range(6):
+    preview_control_bar.grid(row=3, column=0, sticky="ew", pady=(0, 6))
+    for j in range(7):
         preview_control_bar.columnconfigure(j, weight=1)
 
     log_text = tk.Text(left, height=8, state="disabled", wrap="word")
-    log_text.grid(row=5, column=0, sticky="nsew")
+    log_text.grid(row=4, column=0, sticky="nsew")
 
     def set_log(text):
         log_text.configure(state="normal")
@@ -3582,62 +5526,68 @@ def run_gui(initial_args):
     right_outer.columnconfigure(0, weight=1)
     right_outer.rowconfigure(0, weight=1)
 
-    settings_canvas = tk.Canvas(right_outer, borderwidth=0, highlightthickness=0)
-    settings_scroll = ttk.Scrollbar(
-        right_outer, orient="vertical", command=settings_canvas.yview
-    )
-    settings_canvas.configure(yscrollcommand=settings_scroll.set)
-    settings_canvas.grid(row=0, column=0, sticky="nsew")
-    settings_scroll.grid(row=0, column=1, sticky="ns")
+    # The parameters are split into two tabs: 2D diagram settings and 3D XYZ
+    # settings, so only the relevant fields are shown at a time.  Each tab is an
+    # independently scrollable panel.
+    param_nb = ttk.Notebook(right_outer)
+    param_nb.grid(row=0, column=0, sticky="nsew")
 
-    settings = ttk.Frame(settings_canvas, padding=(0, 0, 6, 0))
-    settings_window = settings_canvas.create_window((0, 0), window=settings, anchor="nw")
+    def _make_scroll_tab(title):
+        outer = ttk.Frame(param_nb)
+        param_nb.add(outer, text=title)
+        outer.columnconfigure(0, weight=1)
+        outer.rowconfigure(0, weight=1)
+        cv = tk.Canvas(outer, borderwidth=0, highlightthickness=0)
+        sb = ttk.Scrollbar(outer, orient="vertical", command=cv.yview)
+        cv.configure(yscrollcommand=sb.set)
+        cv.grid(row=0, column=0, sticky="nsew")
+        sb.grid(row=0, column=1, sticky="ns")
+        inner = ttk.Frame(cv, padding=(0, 4, 6, 0))
+        win = cv.create_window((0, 0), window=inner, anchor="nw")
+        inner.bind("<Configure>",
+                   lambda _e, c=cv: c.configure(scrollregion=c.bbox("all")))
+        cv.bind("<Configure>",
+                lambda e, c=cv, w=win: c.itemconfigure(w, width=e.width))
 
-    def _settings_configure(_event=None):
-        settings_canvas.configure(scrollregion=settings_canvas.bbox("all"))
+        # Mouse-wheel scrolling only while the pointer is over this panel, so it
+        # does not fight the 2D preview canvas or the other tab.
+        def _wheel(event, c=cv):
+            if getattr(event, "num", None) == 4:
+                c.yview_scroll(-1, "units")
+            elif getattr(event, "num", None) == 5:
+                c.yview_scroll(1, "units")
+            else:
+                d = getattr(event, "delta", 0)
+                if d:
+                    c.yview_scroll(-1 if d > 0 else 1, "units")
+            return "break"
 
-    def _canvas_configure(event):
-        settings_canvas.itemconfigure(settings_window, width=event.width)
+        def _bind(_e=None, c=cv):
+            c.bind_all("<MouseWheel>", _wheel)
+            c.bind_all("<Button-4>", _wheel)
+            c.bind_all("<Button-5>", _wheel)
 
-    settings.bind("<Configure>", _settings_configure)
-    settings_canvas.bind("<Configure>", _canvas_configure)
+        def _unbind(_e=None, c=cv):
+            c.unbind_all("<MouseWheel>")
+            c.unbind_all("<Button-4>")
+            c.unbind_all("<Button-5>")
 
-    # Mouse-wheel scrolling for the right parameter panel.  Tk delivers wheel
-    # events as <MouseWheel> (Windows/macOS, via event.delta) or <Button-4>/
-    # <Button-5> (X11/Linux).  We grab the wheel only while the pointer is over
-    # the panel, then release it, so it does not fight the 2D preview canvas.
-    def _on_settings_mousewheel(event):
-        if getattr(event, "num", None) == 4:
-            settings_canvas.yview_scroll(-1, "units")
-        elif getattr(event, "num", None) == 5:
-            settings_canvas.yview_scroll(1, "units")
-        else:
-            delta = getattr(event, "delta", 0)
-            if delta:
-                settings_canvas.yview_scroll(-1 if delta > 0 else 1, "units")
-        return "break"
+        for _w in (cv, inner, sb):
+            _w.bind("<Enter>", _bind)
+            _w.bind("<Leave>", _unbind)
 
-    def _bind_settings_mousewheel(_event=None):
-        settings_canvas.bind_all("<MouseWheel>", _on_settings_mousewheel)
-        settings_canvas.bind_all("<Button-4>", _on_settings_mousewheel)
-        settings_canvas.bind_all("<Button-5>", _on_settings_mousewheel)
+        inner.columnconfigure(1, weight=1)
+        inner.columnconfigure(2, weight=0)
+        inner.columnconfigure(3, weight=0)
+        return inner
 
-    def _unbind_settings_mousewheel(_event=None):
-        settings_canvas.unbind_all("<MouseWheel>")
-        settings_canvas.unbind_all("<Button-4>")
-        settings_canvas.unbind_all("<Button-5>")
+    tab_2d = _make_scroll_tab("2D diagram")
+    tab_3d = _make_scroll_tab("3D XYZ")
 
-    for _w in (settings_canvas, settings, settings_scroll):
-        _w.bind("<Enter>", _bind_settings_mousewheel)
-        _w.bind("<Leave>", _unbind_settings_mousewheel)
-
-    settings.columnconfigure(1, weight=1)
-    settings.columnconfigure(2, weight=0)
-    settings.columnconfigure(3, weight=0)
-
-    ttk.Label(
-        settings, text="Parameters", font=("TkDefaultFont", 11, "bold")
-    ).grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 6))
+    # 'settings' points at the tab that new fields are added to; it is switched to
+    # the 3D tab before the sphere-XYZ block below.  add_help_button / add_entry
+    # read it lazily, so they always target the current tab.
+    settings = tab_2d
 
     def add_help_button(grid_row, key):
         btn = _mk_help_button(settings, key)
@@ -3653,7 +5603,6 @@ def run_gui(initial_args):
     layout_var = tk.StringVar(value=initial_args.layout)
     ydir_var = tk.StringVar(value=initial_args.y_direction)
     rotate_var = tk.StringVar(value=str(initial_args.rotate))
-    dpi_var = tk.StringVar(value=str(initial_args.dpi))
     font_var = tk.StringVar(value=str(initial_args.font_size))
     cid_font_var = tk.StringVar(value=str(initial_args.crossing_id_font_size))
     lw_var = tk.StringVar(value=str(initial_args.line_width))
@@ -3681,6 +5630,49 @@ def run_gui(initial_args):
     hide_labels_var = tk.BooleanVar(value=bool(initial_args.hide_labels))
     no_arrows_var = tk.BooleanVar(value=bool(initial_args.no_arrows))
 
+    # V4.0/V4.1 shaped-tutte (2D) and shaped-kamada (3D) controls.  Auto orient
+    # and auto aspect are independent.
+    tutte_shape_var = tk.StringVar(value=getattr(initial_args, "tutte_shape", "ellipse"))
+    tutte_aspect_var = tk.StringVar(value=str(getattr(initial_args, "tutte_aspect", 1.8)))
+    tutte_corner_var = tk.StringVar(value=str(getattr(initial_args, "tutte_corner_radius", 0.25)))
+    tutte_decompress_var = tk.StringVar(value=str(getattr(initial_args, "tutte_decompress", 0.0)))
+    tutte_com_expand_var = tk.StringVar(value=str(getattr(initial_args, "tutte_com_expand", 0.0)))
+    tutte_auto_aspect_var = tk.BooleanVar(value=bool(getattr(initial_args, "tutte_auto_aspect", True)))
+    tutte_auto_orient_var = tk.BooleanVar(value=bool(getattr(initial_args, "tutte_auto_orient", True)))
+    tutte_orient_var = tk.StringVar(value=str(getattr(initial_args, "tutte_orient", 0.0)))
+    show_tutte_outline_var = tk.BooleanVar(value=bool(getattr(initial_args, "show_tutte_outline", False)))
+    show_tutte_pca_var = tk.BooleanVar(value=bool(getattr(initial_args, "show_tutte_pca", False)))
+    hole_ratio_var = tk.StringVar(value=str(getattr(initial_args, "hole_ratio", 0.4)))
+    hole_swap_var = tk.BooleanVar(value=bool(getattr(initial_args, "hole_swap", False)))
+    invert_ring_var = tk.BooleanVar(value=bool(getattr(initial_args, "invert_ring", False)))
+    ring_tilt_var = tk.StringVar(value=str(getattr(initial_args, "ring_tilt", 90.0)))
+    min_sep_var = tk.StringVar(value=str(getattr(initial_args, "min_sep", 0.0)))
+    surface_shape_var = tk.StringVar(value=getattr(initial_args, "surface_shape", "ellipsoid"))
+    surface_auto_orient_var = tk.BooleanVar(value=bool(getattr(initial_args, "surface_auto_orient", True)))
+    surface_auto_aspect_var = tk.BooleanVar(value=bool(getattr(initial_args, "surface_auto_aspect", True)))
+    surface_aspect_var = tk.StringVar(value=str(getattr(initial_args, "surface_aspect", 1.6)))
+    surface_tube_var = tk.StringVar(value=str(getattr(initial_args, "surface_tube", 0.35)))
+    surface_orient_var = tk.StringVar(value=str(getattr(initial_args, "surface_orient", 0.0)))
+    surface_tilt_var = tk.StringVar(value=str(getattr(initial_args, "surface_tilt", 0.0)))
+
+    # Registry of parameter widgets that are dynamically greyed out when they do
+    # not apply to the current layout / sphere-layout / shape selection.  Each
+    # entry maps a key to a list of (widget, kind) pairs.
+    dynamic_widgets = {}
+
+    def add_entry(label, var, width=12, help_key=None, key=None):
+        nonlocal row
+        lbl = ttk.Label(settings, text=label)
+        lbl.grid(row=row, column=0, sticky="w", pady=3)
+        ent = ttk.Entry(settings, textvariable=var, width=width)
+        ent.grid(row=row, column=1, sticky="w", pady=3)
+        if help_key:
+            add_help_button(row, help_key)
+        if key:
+            dynamic_widgets.setdefault(key, []).extend([(lbl, "label"), (ent, "entry")])
+        row += 1
+        return lbl, ent
+
     ttk.Label(settings, text="negative even means").grid(row=row, column=0, sticky="w", pady=3)
     ttk.Combobox(
         settings, textvariable=neg_var, values=["over", "under"],
@@ -3692,11 +5684,80 @@ def run_gui(initial_args):
     ttk.Label(settings, text="layout").grid(row=row, column=0, sticky="w", pady=3)
     ttk.Combobox(
         settings, textvariable=layout_var,
-        values=["tutte", "planar", "spring", "kamada"],
-        width=13, state="readonly"
+        values=["tutte", "shaped-tutte", "holed-tutte", "planar", "spring", "kamada"],
+        width=15, state="readonly"
     ).grid(row=row, column=1, sticky="w", pady=3)
     add_help_button(row, "layout")
     row += 1
+
+    _tutte_shape_lbl = ttk.Label(settings, text="tutte shape")
+    _tutte_shape_lbl.grid(row=row, column=0, sticky="w", pady=3)
+    _tutte_shape_combo = ttk.Combobox(
+        settings, textvariable=tutte_shape_var,
+        values=list(TUTTE_SHAPE_CHOICES), width=18, state="readonly"
+    )
+    _tutte_shape_combo.grid(row=row, column=1, sticky="w", pady=3)
+    add_help_button(row, "tutte_shape")
+    dynamic_widgets.setdefault("tutte_shape", []).extend(
+        [(_tutte_shape_lbl, "label"), (_tutte_shape_combo, "combo")]
+    )
+    row += 1
+    _tutte_auto_aspect_chk = ttk.Checkbutton(
+        settings, text="tutte auto aspect (from PCA)", variable=tutte_auto_aspect_var
+    )
+    _tutte_auto_aspect_chk.grid(row=row, column=1, sticky="w", pady=2)
+    # Live readout of the computed auto-aspect value (updated after each preview).
+    auto_aspect_value_lbl = ttk.Label(settings, text="", foreground="gray40")
+    auto_aspect_value_lbl.grid(row=row, column=2, sticky="w", pady=2)
+    add_help_button(row, "tutte_auto_aspect")
+    dynamic_widgets.setdefault("tutte_auto_aspect", []).append((_tutte_auto_aspect_chk, "check"))
+    row += 1
+    add_entry("tutte aspect", tutte_aspect_var, help_key="tutte_aspect", key="tutte_aspect")
+    add_entry("tutte corner radius", tutte_corner_var,
+              help_key="tutte_corner_radius", key="tutte_corner")
+    add_entry("tutte decompress", tutte_decompress_var,
+              help_key="tutte_decompress", key="tutte_decompress")
+    add_entry("tutte COM expand", tutte_com_expand_var,
+              help_key="tutte_com_expand", key="tutte_com_expand")
+    _tutte_auto_orient_chk = ttk.Checkbutton(
+        settings, text="tutte auto orient (PCA to x)", variable=tutte_auto_orient_var
+    )
+    _tutte_auto_orient_chk.grid(row=row, column=1, columnspan=2, sticky="w", pady=2)
+    add_help_button(row, "tutte_auto_orient")
+    dynamic_widgets.setdefault("tutte_auto_orient", []).append((_tutte_auto_orient_chk, "check"))
+    row += 1
+    add_entry("tutte orient deg", tutte_orient_var, help_key="tutte_orient", key="tutte_orient")
+    _tutte_outline_chk = ttk.Checkbutton(
+        settings, text="show shape outline", variable=show_tutte_outline_var
+    )
+    _tutte_outline_chk.grid(row=row, column=1, columnspan=2, sticky="w", pady=2)
+    add_help_button(row, "show_tutte_outline")
+    dynamic_widgets.setdefault("show_tutte_outline", []).append((_tutte_outline_chk, "check"))
+    row += 1
+    _tutte_pca_chk = ttk.Checkbutton(
+        settings, text="show PCA / curved axis", variable=show_tutte_pca_var
+    )
+    _tutte_pca_chk.grid(row=row, column=1, columnspan=2, sticky="w", pady=2)
+    add_help_button(row, "show_tutte_pca")
+    dynamic_widgets.setdefault("show_tutte_pca", []).append((_tutte_pca_chk, "check"))
+    row += 1
+    add_entry("hole ratio", hole_ratio_var, help_key="hole_ratio", key="hole_ratio")
+    _hole_swap_chk = ttk.Checkbutton(
+        settings, text="swap inner/outer face", variable=hole_swap_var
+    )
+    _hole_swap_chk.grid(row=row, column=1, columnspan=2, sticky="w", pady=2)
+    add_help_button(row, "hole_swap")
+    dynamic_widgets.setdefault("hole_swap", []).append((_hole_swap_chk, "check"))
+    row += 1
+    _invert_ring_chk = ttk.Checkbutton(
+        settings, text="invert ring (inside-out)", variable=invert_ring_var
+    )
+    _invert_ring_chk.grid(row=row, column=1, columnspan=2, sticky="w", pady=2)
+    add_help_button(row, "invert_ring")
+    dynamic_widgets.setdefault("invert_ring", []).append((_invert_ring_chk, "check"))
+    row += 1
+    add_entry("ring tilt deg", ring_tilt_var, help_key="ring_tilt", key="ring_tilt")
+    add_entry("min separation", min_sep_var, help_key="min_sep", key="min_sep")
 
     ttk.Label(settings, text="y direction").grid(row=row, column=0, sticky="w", pady=3)
     ttk.Combobox(
@@ -3707,18 +5768,7 @@ def run_gui(initial_args):
     add_help_button(row, "y_direction")
     row += 1
 
-    def add_entry(label, var, width=12, help_key=None):
-        nonlocal row
-        ttk.Label(settings, text=label).grid(row=row, column=0, sticky="w", pady=3)
-        ttk.Entry(settings, textvariable=var, width=width).grid(
-            row=row, column=1, sticky="w", pady=3
-        )
-        if help_key:
-            add_help_button(row, help_key)
-        row += 1
-
     add_entry("rotate degrees", rotate_var, help_key="rotate")
-    add_entry("DPI", dpi_var, help_key="dpi")
     add_entry("figure size", figsize_var, help_key="figsize")
     add_entry("DT label font", font_var, help_key="font_size")
     add_entry("crossing ID font", cid_font_var, help_key="crossing_id_font_size")
@@ -3772,12 +5822,6 @@ def run_gui(initial_args):
         order_text.insert("1.0", initial_args.crossing_order)
     add_help_button(row, "crossing_order")
     row += 1
-    ttk.Label(
-        settings,
-        text="Optional: crossing IDs ordered by odd labels 1,3,5,...",
-        foreground="gray40",
-    ).grid(row=row, column=1, columnspan=2, sticky="w")
-    row += 1
 
     ttk.Label(settings, text="Explicit map").grid(row=row, column=0, sticky="nw", pady=3)
     map_text = tk.Text(settings, height=3, width=54, wrap="word")
@@ -3786,42 +5830,72 @@ def run_gui(initial_args):
         map_text.insert("1.0", initial_args.crossing_map)
     add_help_button(row, "crossing_map")
     row += 1
-    ttk.Label(
-        settings,
-        text="Alternative: c1=1, c7=3, c14=5, ...",
-        foreground="gray40",
-    ).grid(row=row, column=1, columnspan=2, sticky="w")
-    row += 1
 
-    # Sphere XYZ parameters live at the bottom of the panel.
-    ttk.Separator(settings, orient="horizontal").grid(
-        row=row, column=0, columnspan=4, sticky="ew", pady=(8, 6)
-    )
-    row += 1
-    ttk.Label(settings, text="Sphere XYZ", font=("TkDefaultFont", 10, "bold")).grid(
-        row=row, column=0, columnspan=4, sticky="w", pady=(0, 4)
-    )
-    row += 1
+    # ------------------------------------------------------------------
+    # Everything below goes on the second tab (3D XYZ / sphere parameters).
+    # Switching 'settings' redirects the field helpers to that tab; reset the row.
+    # ------------------------------------------------------------------
+    settings = tab_3d
+    row = 0
     ttk.Label(settings, text="sphere layout").grid(row=row, column=0, sticky="w", pady=3)
     ttk.Combobox(
         settings, textvariable=sphere_layout_var,
-        values=["spherical-kamada", "stereographic"],
+        values=["spherical-kamada", "shaped-kamada", "stereographic"],
         width=18, state="readonly"
     ).grid(row=row, column=1, sticky="w", pady=3)
     add_help_button(row, "sphere_layout")
     row += 1
-    ttk.Checkbutton(
+
+    _surface_shape_lbl = ttk.Label(settings, text="surface shape")
+    _surface_shape_lbl.grid(row=row, column=0, sticky="w", pady=3)
+    _surface_shape_combo = ttk.Combobox(
+        settings, textvariable=surface_shape_var,
+        values=list(SURFACE_SHAPES), width=18, state="readonly"
+    )
+    _surface_shape_combo.grid(row=row, column=1, sticky="w", pady=3)
+    add_help_button(row, "surface_shape")
+    dynamic_widgets.setdefault("surface_shape", []).extend(
+        [(_surface_shape_lbl, "label"), (_surface_shape_combo, "combo")]
+    )
+    row += 1
+    _surface_auto_aspect_chk = ttk.Checkbutton(
+        settings, text="surface auto aspect (from PCA)", variable=surface_auto_aspect_var
+    )
+    _surface_auto_aspect_chk.grid(row=row, column=1, columnspan=2, sticky="w", pady=2)
+    add_help_button(row, "surface_auto_aspect")
+    dynamic_widgets.setdefault("surface_auto_aspect", []).append((_surface_auto_aspect_chk, "check"))
+    row += 1
+    add_entry("surface aspect", surface_aspect_var,
+              help_key="surface_aspect", key="surface_aspect")
+    add_entry("surface tube ratio", surface_tube_var,
+              help_key="surface_tube", key="surface_tube")
+    _surface_auto_orient_chk = ttk.Checkbutton(
+        settings, text="surface auto orient (PCA axis)", variable=surface_auto_orient_var
+    )
+    _surface_auto_orient_chk.grid(row=row, column=1, columnspan=2, sticky="w", pady=2)
+    add_help_button(row, "surface_auto_orient")
+    dynamic_widgets.setdefault("surface_auto_orient", []).append((_surface_auto_orient_chk, "check"))
+    row += 1
+    add_entry("surface orient deg", surface_orient_var,
+              help_key="surface_orient", key="surface_orient")
+    add_entry("surface tilt deg", surface_tilt_var,
+              help_key="surface_tilt", key="surface_tilt")
+
+    _direct_conn_chk = ttk.Checkbutton(
         settings,
         text="direct connecting",
         variable=direct_connecting_var,
-    ).grid(row=row, column=1, columnspan=2, sticky="w", pady=2)
+    )
+    _direct_conn_chk.grid(row=row, column=1, columnspan=2, sticky="w", pady=2)
     add_help_button(row, "direct_connecting")
+    dynamic_widgets.setdefault("direct_connecting", []).append((_direct_conn_chk, "check"))
     row += 1
     add_entry("sphere radius", sphere_radius_var, help_key="sphere_radius")
-    add_entry("sphere extent", sphere_extent_var, help_key="sphere_extent")
+    add_entry("sphere extent", sphere_extent_var, help_key="sphere_extent", key="sphere_extent")
     add_entry("crossing offset", sphere_offset_var, help_key="crossing_offset")
-    add_entry("crossing angle deg", sphere_angle_var, help_key="sphere_crossing_angle")
-    add_entry("bump fraction", sphere_bump_var, help_key="sphere_bump_frac")
+    add_entry("crossing angle deg", sphere_angle_var,
+              help_key="sphere_crossing_angle", key="sphere_crossing_angle")
+    add_entry("bump fraction", sphere_bump_var, help_key="sphere_bump_frac", key="sphere_bump")
     add_entry("XYZ point spacing", xyz_spacing_var, help_key="xyz_spacing")
     ttk.Checkbutton(
         settings,
@@ -3924,6 +5998,78 @@ def run_gui(initial_args):
         except Exception:
             raise ValueError("%s must be an integer." % name)
 
+    def _set_widget_enabled(widget, kind, enabled):
+        try:
+            if kind == "label":
+                widget.configure(foreground=("" if enabled else "#9a9a9a"))
+            elif kind == "combo":
+                widget.configure(state=("readonly" if enabled else "disabled"))
+            elif kind == "note":
+                widget.configure(foreground=("gray40" if enabled else "#c8c8c8"))
+            else:  # entry / check
+                widget.configure(state=("normal" if enabled else "disabled"))
+        except Exception:
+            pass
+
+    def _set_dynamic(key, enabled):
+        for widget, kind in dynamic_widgets.get(key, ()):
+            _set_widget_enabled(widget, kind, bool(enabled))
+
+    def _apply_dynamic_states(*_a):
+        """Grey out parameter fields that do not apply to the current choices."""
+        layout = layout_var.get()
+        is_shaped_tutte = (layout == "shaped-tutte")
+        is_holed_tutte = (layout == "holed-tutte")
+        # Shape / aspect / orient controls apply to both shaped and holed tutte.
+        shaped_family = is_shaped_tutte or is_holed_tutte
+        tutte_family = layout in ("tutte", "shaped-tutte")
+        t_shape = tutte_shape_var.get()
+        t_auto_aspect = bool(tutte_auto_aspect_var.get())
+        t_auto_orient = bool(tutte_auto_orient_var.get())
+        _set_dynamic("tutte_shape", shaped_family)
+        _set_dynamic("tutte_auto_aspect", shaped_family)
+        _set_dynamic("tutte_auto_orient", shaped_family)
+        _set_dynamic(
+            "tutte_aspect",
+            shaped_family and (not t_auto_aspect)
+            and t_shape in ("ellipse", "rectangle", "rounded-rectangle"),
+        )
+        _set_dynamic("tutte_corner", shaped_family and t_shape == "rounded-rectangle")
+        # 'tutte orient deg' tilts the shape's aspect axis from the PCA axis, so it
+        # applies to any non-circular shape regardless of the auto-orient framing.
+        _set_dynamic("tutte_orient", shaped_family and t_shape != "circle")
+        _set_dynamic("show_tutte_outline", shaped_family)
+        _set_dynamic("show_tutte_pca", shaped_family)
+        # holed-tutte only.
+        _set_dynamic("hole_ratio", is_holed_tutte)
+        _set_dynamic("hole_swap", is_holed_tutte)
+        _set_dynamic("invert_ring", is_holed_tutte)
+        _set_dynamic("ring_tilt", is_holed_tutte)
+        _set_dynamic("tutte_decompress", tutte_family)
+        _set_dynamic("tutte_com_expand", tutte_family)
+
+        sl = sphere_layout_var.get()
+        is_shaped_k = (sl == "shaped-kamada")
+        kamada_family = sl in ("spherical-kamada", "shaped-kamada")
+        s_shape = surface_shape_var.get()
+        s_auto_aspect = bool(surface_auto_aspect_var.get())
+        s_auto_orient = bool(surface_auto_orient_var.get())
+        _set_dynamic("surface_shape", is_shaped_k)
+        _set_dynamic("surface_auto_aspect", is_shaped_k)
+        _set_dynamic("surface_auto_orient", is_shaped_k)
+        _set_dynamic(
+            "surface_aspect",
+            is_shaped_k and (not s_auto_aspect) and s_shape in ("ellipsoid", "cylinder"),
+        )
+        _set_dynamic("surface_tube", is_shaped_k and (not s_auto_aspect) and s_shape == "torus")
+        _set_dynamic("surface_orient", is_shaped_k and (not s_auto_orient))
+        _set_dynamic("surface_tilt", is_shaped_k and (not s_auto_orient))
+        # Sphere knobs that only apply to the kamada family / stereographic.
+        _set_dynamic("direct_connecting", kamada_family)
+        _set_dynamic("sphere_crossing_angle", kamada_family)
+        _set_dynamic("sphere_bump", kamada_family)
+        _set_dynamic("sphere_extent", sl == "stereographic")
+
     def collect_args():
         dt = dt_text.get("1.0", "end").strip()
         if not dt:
@@ -3939,8 +6085,23 @@ def run_gui(initial_args):
             color_crossing_ids_by_overstrand=bool(color_ids_var.get()),
             y_direction=ydir_var.get(),
             rotate=_float_value(rotate_var, "rotate degrees"),
-            dpi=_int_value(dpi_var, "DPI"),
+            dpi=int(getattr(initial_args, "dpi", 200) or 200),
             layout=layout_var.get(),
+            tutte_shape=tutte_shape_var.get(),
+            tutte_aspect=_float_value(tutte_aspect_var, "tutte aspect"),
+            tutte_corner_radius=_float_value(tutte_corner_var, "tutte corner radius"),
+            tutte_decompress=_float_value(tutte_decompress_var, "tutte decompress"),
+            tutte_com_expand=_float_value(tutte_com_expand_var, "tutte COM expand"),
+            tutte_auto_aspect=bool(tutte_auto_aspect_var.get()),
+            tutte_auto_orient=bool(tutte_auto_orient_var.get()),
+            tutte_orient=_float_value(tutte_orient_var, "tutte orient deg"),
+            show_tutte_outline=bool(show_tutte_outline_var.get()),
+            show_tutte_pca=bool(show_tutte_pca_var.get()),
+            hole_ratio=_float_value(hole_ratio_var, "hole ratio"),
+            hole_swap=bool(hole_swap_var.get()),
+            invert_ring=bool(invert_ring_var.get()),
+            ring_tilt=_float_value(ring_tilt_var, "ring tilt deg"),
+            min_sep=_float_value(min_sep_var, "min separation"),
             title=title_var.get().strip() or None,
             font_size=_float_value(font_var, "DT label font"),
             crossing_id_font_size=_float_value(cid_font_var, "crossing ID font"),
@@ -3965,6 +6126,13 @@ def run_gui(initial_args):
             xyz_smooth_passes=_int_value(xyz_smooth_passes_var, "smooth passes"),
             xyz_decimals=_int_value(xyz_decimals_var, "XYZ decimals"),
             xyz_close_components=bool(xyz_close_var.get()),
+            surface_shape=surface_shape_var.get(),
+            surface_auto_orient=bool(surface_auto_orient_var.get()),
+            surface_auto_aspect=bool(surface_auto_aspect_var.get()),
+            surface_aspect=_float_value(surface_aspect_var, "surface aspect"),
+            surface_tube=_float_value(surface_tube_var, "surface tube ratio"),
+            surface_orient=_float_value(surface_orient_var, "surface orient deg"),
+            surface_tilt=_float_value(surface_tilt_var, "surface tilt deg"),
         )
 
     def show_preview_error(message):
@@ -3997,6 +6165,13 @@ def run_gui(initial_args):
             latest["content_bounds"] = _axis_content_bounds(ax)
             _apply_preview_zoom()
             canvas.draw_idle()
+            # Report the computed auto-aspect value next to the checkbox.
+            av = state.get("aspect_value") if isinstance(state, dict) else None
+            if bool(tutte_auto_aspect_var.get()) and av is not None \
+                    and layout_var.get() in ("shaped-tutte", "holed-tutte"):
+                auto_aspect_value_lbl.configure(text="= %.2f" % float(av))
+            else:
+                auto_aspect_value_lbl.configure(text="")
             set_log("[preview]\n" + buf.getvalue())
         except Exception as exc:
             latest["args"] = None
@@ -4019,26 +6194,44 @@ def run_gui(initial_args):
         preview_after["id"] = root.after(450, update_preview)
 
     def _ask_output_path():
-        path = output_var.get().strip()
-        if not path:
-            browse_output()
-            path = output_var.get().strip()
+        # Always prompt for the directory/filename (like "Save as session").
+        path = filedialog.asksaveasfilename(
+            title="Save image",
+            defaultextension=".svg",
+            initialfile=os.path.basename(output_var.get().strip() or "link_diagram.svg"),
+            filetypes=[
+                ("SVG", "*.svg"), ("PDF", "*.pdf"), ("PNG", "*.png"),
+                ("All files", "*.*"),
+            ],
+        )
         if not path:
             raise ValueError("No output image path was selected.")
+        output_var.set(path)
         return path
 
     def _ask_table_path():
-        # The CSV table now always shares the output image's name/directory,
-        # differing only by the .csv extension.
-        return _derived_table_path()
+        base = output_var.get().strip() or "link_diagram.svg"
+        path = filedialog.asksaveasfilename(
+            title="Save table (CSV)",
+            defaultextension=".csv",
+            initialfile=os.path.splitext(os.path.basename(base))[0] + ".csv",
+            filetypes=[("CSV", "*.csv"), ("All files", "*.*")],
+        )
+        if not path:
+            raise ValueError("No table path was selected.")
+        return path
 
     def _ask_xyz_path():
-        path = xyz_var.get().strip()
-        if not path:
-            browse_xyz()
-            path = xyz_var.get().strip()
+        path = filedialog.asksaveasfilename(
+            title="Save XYZ",
+            defaultextension=".xyz",
+            initialfile=os.path.basename(xyz_var.get().strip() or "link_sphere.xyz"),
+            filetypes=[("XYZ coordinate file", "*.xyz"), ("Text", "*.txt"),
+                       ("All files", "*.*")],
+        )
         if not path:
             raise ValueError("No XYZ coordinate path was selected.")
+        xyz_var.set(path)
         return path
 
     def _render_table_coords(state, ns):
@@ -4083,6 +6276,9 @@ def run_gui(initial_args):
                 match_view=_current_match_view(),
                 dt_code=ns.dt,
                 layout=ns.layout,
+                tutte_guides=state.get("tutte_guides"),
+                show_tutte_outline=bool(getattr(ns, "show_tutte_outline", False)),
+                show_tutte_pca=bool(getattr(ns, "show_tutte_pca", False)),
             )
             set_log(buf.getvalue() + "[ok] wrote %s\n" % ns.output)
             messagebox.showinfo("Saved", "Wrote image:\n%s" % ns.output)
@@ -4137,6 +6333,13 @@ def run_gui(initial_args):
                 xyz_final_smooth=ns.xyz_final_smooth,
                 xyz_smooth_window=ns.xyz_smooth_window,
                 xyz_smooth_passes=ns.xyz_smooth_passes,
+                surface_shape=ns.surface_shape,
+                surface_auto_orient=ns.surface_auto_orient,
+                surface_auto_aspect=ns.surface_auto_aspect,
+                surface_aspect=ns.surface_aspect,
+                surface_tube=ns.surface_tube,
+                surface_orient=ns.surface_orient,
+                surface_tilt=ns.surface_tilt,
             )
             set_log(buf.getvalue() + "[ok] wrote %s (%d xyz rows)\n" % (ns.xyz_output, n_points))
             messagebox.showinfo("Saved", "Wrote XYZ coordinates:\n%s" % ns.xyz_output)
@@ -4173,6 +6376,9 @@ def run_gui(initial_args):
                 match_view=_current_match_view(),
                 dt_code=ns.dt,
                 layout=ns.layout,
+                tutte_guides=state.get("tutte_guides"),
+                show_tutte_outline=bool(getattr(ns, "show_tutte_outline", False)),
+                show_tutte_pca=bool(getattr(ns, "show_tutte_pca", False)),
             )
             write_table(
                 state["model"],
@@ -4200,6 +6406,13 @@ def run_gui(initial_args):
                 xyz_final_smooth=ns.xyz_final_smooth,
                 xyz_smooth_window=ns.xyz_smooth_window,
                 xyz_smooth_passes=ns.xyz_smooth_passes,
+                surface_shape=ns.surface_shape,
+                surface_auto_orient=ns.surface_auto_orient,
+                surface_auto_aspect=ns.surface_auto_aspect,
+                surface_aspect=ns.surface_aspect,
+                surface_tube=ns.surface_tube,
+                surface_orient=ns.surface_orient,
+                surface_tilt=ns.surface_tilt,
             )
             set_log(
                 buf.getvalue()
@@ -4237,6 +6450,13 @@ def run_gui(initial_args):
                 xyz_final_smooth=ns.xyz_final_smooth,
                 xyz_smooth_window=ns.xyz_smooth_window,
                 xyz_smooth_passes=ns.xyz_smooth_passes,
+                surface_shape=ns.surface_shape,
+                surface_auto_orient=ns.surface_auto_orient,
+                surface_auto_aspect=ns.surface_auto_aspect,
+                surface_aspect=ns.surface_aspect,
+                surface_tube=ns.surface_tube,
+                surface_orient=ns.surface_orient,
+                surface_tilt=ns.surface_tilt,
             )
             n_points = sum(len(arr) for arr in xyz_components)
             _open_xyz_viewer_window(
@@ -4257,6 +6477,114 @@ def run_gui(initial_args):
             set_log("[error] %s\n" % msg)
             messagebox.showerror("Error", msg)
 
+    # ------------------------------------------------------------------
+    # Save / load a full session (every setting on the panel) as JSON.
+    # ------------------------------------------------------------------
+    session_string_vars = {
+        "output": output_var, "xyz_output": xyz_var, "negative_even": neg_var,
+        "layout": layout_var, "y_direction": ydir_var, "rotate": rotate_var,
+        "font_size": font_var, "crossing_id_font_size": cid_font_var,
+        "line_width": lw_var, "gap_frac": gap_var, "figsize": figsize_var,
+        "title": title_var,
+        "sphere_layout": sphere_layout_var, "sphere_radius": sphere_radius_var,
+        "sphere_extent": sphere_extent_var, "sphere_offset": sphere_offset_var,
+        "sphere_bump_frac": sphere_bump_var, "sphere_crossing_angle": sphere_angle_var,
+        "xyz_spacing": xyz_spacing_var, "xyz_smooth_window": xyz_smooth_window_var,
+        "xyz_smooth_passes": xyz_smooth_passes_var, "xyz_decimals": xyz_decimals_var,
+        "tutte_shape": tutte_shape_var, "tutte_aspect": tutte_aspect_var,
+        "tutte_corner_radius": tutte_corner_var, "tutte_decompress": tutte_decompress_var,
+        "tutte_com_expand": tutte_com_expand_var, "tutte_orient": tutte_orient_var,
+        "hole_ratio": hole_ratio_var, "ring_tilt": ring_tilt_var,
+        "min_sep": min_sep_var,
+        "surface_shape": surface_shape_var, "surface_aspect": surface_aspect_var,
+        "surface_tube": surface_tube_var, "surface_orient": surface_orient_var,
+        "surface_tilt": surface_tilt_var,
+    }
+    session_bool_vars = {
+        "direct_connecting": direct_connecting_var,
+        "xyz_final_smooth": xyz_final_smooth_var,
+        "xyz_close_components": xyz_close_var,
+        "show_crossing_ids": show_ids_var,
+        "color_crossing_ids_by_overstrand": color_ids_var,
+        "hide_labels": hide_labels_var, "no_arrows": no_arrows_var,
+        "tutte_auto_aspect": tutte_auto_aspect_var,
+        "tutte_auto_orient": tutte_auto_orient_var,
+        "show_tutte_outline": show_tutte_outline_var,
+        "show_tutte_pca": show_tutte_pca_var,
+        "hole_swap": hole_swap_var,
+        "invert_ring": invert_ring_var,
+        "surface_auto_orient": surface_auto_orient_var,
+        "surface_auto_aspect": surface_auto_aspect_var,
+    }
+    session_text_widgets = {
+        "dt": dt_text, "crossing_order": order_text, "crossing_map": map_text,
+    }
+
+    def save_session():
+        try:
+            path = filedialog.asksaveasfilename(
+                title="Save session",
+                defaultextension=".json",
+                filetypes=[("JSON session", "*.json"), ("All files", "*.*")],
+                initialfile="dt_session.json",
+            )
+            if not path:
+                return
+            data = {
+                "script": "draw_dt_original_labels",
+                "version": SCRIPT_VERSION,
+                "strings": {k: v.get() for k, v in session_string_vars.items()},
+                "bools": {k: bool(v.get()) for k, v in session_bool_vars.items()},
+                "texts": {
+                    k: w.get("1.0", "end").rstrip("\n")
+                    for k, w in session_text_widgets.items()
+                },
+                "preview_zoom": float(preview_zoom.get("value", 1.0)),
+            }
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(data, fh, indent=2)
+            set_log("[ok] saved session to %s\n" % path)
+            messagebox.showinfo("Saved", "Wrote session:\n%s" % path)
+        except Exception as exc:
+            msg = str(exc)
+            set_log("[error] %s\n" % msg)
+            messagebox.showerror("Error", msg)
+
+    def load_session():
+        try:
+            path = filedialog.askopenfilename(
+                title="Load session",
+                filetypes=[("JSON session", "*.json"), ("All files", "*.*")],
+            )
+            if not path:
+                return
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            for k, val in (data.get("strings") or {}).items():
+                if k in session_string_vars:
+                    session_string_vars[k].set("" if val is None else str(val))
+            for k, val in (data.get("bools") or {}).items():
+                if k in session_bool_vars:
+                    session_bool_vars[k].set(bool(val))
+            for k, val in (data.get("texts") or {}).items():
+                if k in session_text_widgets:
+                    w = session_text_widgets[k]
+                    w.delete("1.0", "end")
+                    if val:
+                        w.insert("1.0", str(val))
+            try:
+                preview_zoom["value"] = float(data.get("preview_zoom", 1.0))
+            except Exception:
+                preview_zoom["value"] = 1.0
+            _apply_dynamic_states()
+            update_preview()
+            set_log("[ok] loaded session from %s\n" % path)
+            messagebox.showinfo("Loaded", "Loaded session:\n%s" % path)
+        except Exception as exc:
+            msg = str(exc)
+            set_log("[error] %s\n" % msg)
+            messagebox.showerror("Error", msg)
+
     ttk.Button(save_bar, text="Save image", command=save_image).grid(
         row=0, column=0, sticky="ew", padx=2
     )
@@ -4269,13 +6597,19 @@ def run_gui(initial_args):
     ttk.Button(save_bar, text="View XYZ", command=view_xyz).grid(
         row=0, column=3, sticky="ew", padx=2
     )
-    ttk.Button(save_bar, text="Save all", command=save_all).grid(
+    ttk.Button(save_bar, text="Save as session", command=save_session).grid(
         row=0, column=4, sticky="ew", padx=2
     )
-    ttk.Button(save_bar, text="Refresh 2D", command=update_preview).grid(
+    ttk.Button(save_bar, text="Load session", command=load_session).grid(
         row=0, column=5, sticky="ew", padx=2
     )
-    ttk.Button(save_bar, text="Quit", command=root.destroy).grid(
+    def redraw_2d():
+        # Clear the cached 3D-torus layout (and reroll its seed) so the holed-tutte
+        # diagram is recomputed from scratch even without a parameter change.
+        clear_holed_cache(reroll=True)
+        update_preview()
+
+    ttk.Button(save_bar, text="Redraw 2D", command=redraw_2d).grid(
         row=0, column=6, sticky="ew", padx=2
     )
 
@@ -4302,46 +6636,83 @@ def run_gui(initial_args):
         activebackground="#aee3ff",
         command=lambda: show_arg_help("preview_zoom"),
     ).grid(row=0, column=5, sticky="ew", padx=2)
+    # Quit lives on this second button row (no extra row just for Quit).
+    ttk.Button(preview_control_bar, text="Quit", command=root.destroy).grid(
+        row=0, column=6, sticky="ew", padx=2
+    )
 
+    # Only variables that actually change the 2D preview trigger an automatic
+    # redraw.  Sphere XYZ / surface (3D-only) settings are deliberately excluded
+    # so editing them stays smooth and never re-renders the 2D diagram; the 3D
+    # output picks them up on Save/View XYZ, and "Refresh 2D" forces a redraw.
     watched_vars = [
-        output_var,
-        xyz_var,
         neg_var,
         layout_var,
         ydir_var,
         rotate_var,
-        dpi_var,
         font_var,
         cid_font_var,
         lw_var,
         gap_var,
         figsize_var,
         title_var,
-        sphere_layout_var,
-        direct_connecting_var,
-        sphere_radius_var,
-        sphere_extent_var,
-        sphere_offset_var,
-        sphere_bump_var,
-        sphere_angle_var,
-        xyz_spacing_var,
-        xyz_final_smooth_var,
-        xyz_smooth_window_var,
-        xyz_smooth_passes_var,
-        xyz_decimals_var,
-        xyz_close_var,
         show_ids_var,
         color_ids_var,
         hide_labels_var,
         no_arrows_var,
+        tutte_shape_var,
+        tutte_aspect_var,
+        tutte_corner_var,
+        tutte_decompress_var,
+        tutte_com_expand_var,
+        tutte_auto_aspect_var,
+        tutte_auto_orient_var,
+        tutte_orient_var,
+        show_tutte_outline_var,
+        show_tutte_pca_var,
+        hole_ratio_var,
+        hole_swap_var,
+        invert_ring_var,
+        ring_tilt_var,
+        min_sep_var,
     ]
     for var in watched_vars:
         var.trace_add("write", lambda *_args: schedule_preview())
+
+    # Selector variables also drive the dynamic greying of non-relevant fields.
+    for var in (
+        layout_var,
+        tutte_shape_var,
+        tutte_auto_aspect_var,
+        tutte_auto_orient_var,
+        sphere_layout_var,
+        surface_shape_var,
+        surface_auto_orient_var,
+        surface_auto_aspect_var,
+    ):
+        var.trace_add("write", lambda *_a: _apply_dynamic_states())
 
     for text_widget in (dt_text, order_text, map_text):
         text_widget.bind("<KeyRelease>", schedule_preview)
         text_widget.bind("<FocusOut>", schedule_preview)
 
+    def _collapse_dt_lines(_event=None):
+        # Keep the DT code on a single line: strip any line breaks (e.g. from a
+        # multi-line paste) and collapse whitespace runs.
+        def _do():
+            s = dt_text.get("1.0", "end-1c")
+            if "\n" in s or "\r" in s:
+                collapsed = " ".join(s.split())
+                dt_text.delete("1.0", "end")
+                dt_text.insert("1.0", collapsed)
+        dt_text.after_idle(_do)
+
+    dt_text.bind("<KeyRelease>", _collapse_dt_lines, add="+")
+    dt_text.bind("<<Paste>>", _collapse_dt_lines, add="+")
+    dt_text.bind("<FocusOut>", _collapse_dt_lines, add="+")
+    _collapse_dt_lines()  # tidy any multi-line initial/loaded value
+
+    _apply_dynamic_states()
     root.after(200, update_preview)
     root.mainloop()
     return 0

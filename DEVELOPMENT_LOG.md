@@ -13,7 +13,7 @@ Files
 -----
     strand_passage_guiV3_8.py         (V3.8) interactive GUI + --nongui + --demo
     link_engine_v3_8.py               (V3.8) passage / DT-choice / SnapPy engine
-    draw_dt_original_labelsV3_14.py   (V3.14) drawing + model layer
+    draw_dt_original_labelsV4_5.py    (V4.5) drawing + model layer
     check_two_dt.py                   standalone SnapPy/Sage utility: compare two
                                       DT codes (topology + Jones + backtrack test)
     find_link_in_snappy.py            standalone SnapPy database search utility
@@ -59,9 +59,32 @@ Utility update (SnapPy database search)
     for hyperbolic links.  Output is a TSV table.
 
 
+Utility update (DT comparison CLI)
+----------------------------------
+  * check_two_dt.py now has a real argparse CLI.  `--help` prints usage without
+    starting the SnapPy comparison/backtrack workflow.
+  * Added `--dt1` / `--dt2` for comparing arbitrary signed DT codes, plus
+    `--rounds`, `--steps`, `--plain-rounds`, `--diagnostic-steps`, `--target`,
+    `--skip-mirror`, and `--skip-backtrack` controls.
+  * Running with no arguments preserves the historical built-in DT1/DT2
+    comparison and its old link-2 target of 10 crossings.
+
+
+Drawing helper V4.5 (tabbed parameter panel)
+--------------------------------------------
+  * draw_dt_original_labelsV4_5.py is now the live drawing/model helper imported
+    by link_engine_v3_8.py and strand_passage_guiV3_8.py.
+  * The standalone helper GUI splits its right-hand parameter panel into two
+    independently scrollable tabs: "2D diagram" and "3D XYZ", so only relevant
+    controls are shown at a time.
+  * Earlier V4 features are retained, including shaped/holed Tutte layouts,
+    holed-tutte torus/wreath placement, session save/load, false-crossing
+    visualization, self-crossing gaps, editable SVG text, and metadata captions.
+
+
 Drawing helper V3.14 (false-crossing visualization)
 ---------------------------------------------------
-  * draw_dt_original_labelsV3_14.py keeps the requested 2-D layout even when it
+  * draw_dt_original_labelsV4_5.py keeps the requested 2-D layout even when it
     introduces false crossings; it no longer silently falls back to `planar`.
   * False crossings are drawn with the same local over/under gap style as true
     crossings, with deterministic but arbitrary over/under choice because they
@@ -69,8 +92,8 @@ Drawing helper V3.14 (false-crossing visualization)
   * Live previews and saved images/SVGs show a red false-crossing warning.
   * Saved diagrams now also draw the generator metadata as a visible bottom
     caption, in addition to embedding it in file metadata.
-  * link_engine_v3_8.py now preserves the helper's requested layout so
-    strand_passage_guiV3_8.py matches V3.14 rendering behavior.
+  * link_engine_v3_8.py preserves the helper's requested layout so
+    strand_passage_guiV3_8.py matches the helper rendering behavior.
 
 
 Drawing helper V3.13 (self-crossing gaps + metadata)
@@ -94,7 +117,7 @@ What is new in V3.8 (overview SVG text-box sizing)
     drawn, instead of only immediately before saving the SVG.
   * The overview card/header geometry is slightly roomier, and the arrow-label,
     footer, DT-label, and crossing-ID text boxes/circles use larger padding.
-  * draw_dt_original_labelsV3_14.py includes the same font/padding adjustment
+  * draw_dt_original_labelsV4_5.py includes the same font/padding adjustment
     for standalone helper SVG/PDF exports, so the live helper preview and final
     SVG are less likely to diverge in Illustrator.
   * Font sizes still come from the GUI/CLI values: `DT label font` /

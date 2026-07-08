@@ -16,6 +16,7 @@ strand_passage_step*.png
 strand_passage_chain*.png
 chain*.png
 *.xyz
+link_diagram.*
 
 # Editor / misc
 .idea/

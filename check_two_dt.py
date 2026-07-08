@@ -1,12 +1,24 @@
-# run:  sage -python check_two_dt.py
-#
-# Compares two signed DT codes: are they the same link topology, and do they
-# have the same Jones polynomial (exactly, and up to mirror q->1/q + framing q^n,
-# matching the strand-passage overview's merge rule)?
+#!/usr/bin/env python3
+"""Compare two signed DT codes with SnapPy/Sage invariants.
+
+Run without arguments to reproduce the historical built-in comparison:
+
+    sage -python check_two_dt.py
+
+Or pass two DT codes explicitly:
+
+    sage -python check_two_dt.py --dt1 "DT: [(4,6,2)]" --dt2 "DT: [(-4,-6,-2)]"
+
+The Jones comparison reports both exact equality and the strand-passage overview
+merge rule: equality up to mirror q -> 1/q and an overall framing factor q^n.
+"""
+import argparse
+import ast
 import re
+import sys
 from fractions import Fraction
 
-import snappy
+snappy = None
 
 DT1 = [(14, 16), (4, 2, 12), (20, 18, 6), (10, 8)]
 DT2 = [(18, -8), (2, 24, 14, 16), (20, 22), (6, 12, 10, -4)]
@@ -15,6 +27,162 @@ DT2 = [(18, -8), (2, 24, 14, 16), (20, 22), (6, 12, 10, -4)]
 def dt_str(dt):
     return "DT: [" + ", ".join(
         "(" + ",".join(str(x) for x in c) + ")" for c in dt) + "]"
+
+
+def parse_dt_code(text):
+    """Parse a signed DT code string into a list of component tuples."""
+    m = re.search(r"\[.*\]", str(text).strip(), re.DOTALL)
+    if not m:
+        raise argparse.ArgumentTypeError(
+            "DT code must contain a [...] list, e.g. 'DT: [(4,6,2)]'"
+        )
+    try:
+        raw = ast.literal_eval(m.group(0))
+    except Exception as exc:
+        raise argparse.ArgumentTypeError("could not parse DT list: %s" % exc)
+
+    if not isinstance(raw, (list, tuple)) or len(raw) == 0:
+        raise argparse.ArgumentTypeError("DT code must be a non-empty list")
+
+    # Accept a single-component shorthand such as [4, 6, -2].
+    if all(isinstance(x, int) for x in raw):
+        raw = [tuple(raw)]
+
+    comps = []
+    for ci, comp in enumerate(raw, start=1):
+        if not isinstance(comp, (list, tuple)):
+            raise argparse.ArgumentTypeError(
+                "component %d is not a list/tuple; use [(4,6,2)] syntax" % ci
+            )
+        clean = []
+        for x in comp:
+            if not isinstance(x, int):
+                raise argparse.ArgumentTypeError("DT entries must be integers")
+            if x == 0 or abs(x) % 2 != 0:
+                raise argparse.ArgumentTypeError(
+                    "DT entries must be nonzero even integers; got %r" % x
+                )
+            clean.append(int(x))
+        comps.append(tuple(clean))
+    return comps
+
+
+def nonnegative_int(text):
+    try:
+        value = int(text)
+    except Exception:
+        raise argparse.ArgumentTypeError("expected an integer")
+    if value < 0:
+        raise argparse.ArgumentTypeError("expected a non-negative integer")
+    return value
+
+
+def positive_int(text):
+    value = nonnegative_int(text)
+    if value <= 0:
+        raise argparse.ArgumentTypeError("expected a positive integer")
+    return value
+
+
+def build_parser():
+    epilog = """examples:
+  sage -python check_two_dt.py
+  sage -python check_two_dt.py --dt1 "DT: [(4,6,2)]" --dt2 "DT: [(-4,-6,-2)]"
+  sage -python check_two_dt.py --dt1 "DT: [...]" --dt2 "DT: [...]" --rounds 300 --steps 25 --target 10
+  sage -python check_two_dt.py --dt1 "DT: [...]" --dt2 "DT: [...]" --skip-backtrack
+
+notes:
+  * Run with sage -python for Jones/linking/Alexander polynomial support.
+  * --rounds/--steps control the randomized backtrack+simplify search.
+  * --target is an optional early-stop crossing count for link 2.
+  * With no --dt1/--dt2, the historical built-in DT1/DT2 example is used and
+    link 2 keeps the old target of 10 crossings.
+"""
+    parser = argparse.ArgumentParser(
+        description=(
+            "Compare two signed DT codes using SnapPy/Sage topology and "
+            "polynomial invariants."
+        ),
+        epilog=epilog,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--dt1",
+        metavar="STR",
+        type=parse_dt_code,
+        help="first signed DT code, e.g. 'DT: [(4,6,2)]' (default: built-in link 1)",
+    )
+    parser.add_argument(
+        "--dt2",
+        metavar="STR",
+        type=parse_dt_code,
+        help="second signed DT code, e.g. 'DT: [(-4,-6,-2)]' (default: built-in link 2)",
+    )
+    parser.add_argument(
+        "--rounds",
+        type=nonnegative_int,
+        default=300,
+        metavar="N",
+        help="backtrack+simplify rounds for hard reduction. Default: 300.",
+    )
+    parser.add_argument(
+        "--steps",
+        type=positive_int,
+        default=25,
+        metavar="K",
+        help="backtrack complication steps per hard-reduction round. Default: 25.",
+    )
+    parser.add_argument(
+        "--plain-rounds",
+        type=nonnegative_int,
+        default=200,
+        metavar="N",
+        help="plain simplify('global') repeats before hard reduction. Default: 200.",
+    )
+    parser.add_argument(
+        "--diagnostic-steps",
+        type=positive_int,
+        default=20,
+        metavar="K",
+        help="backtrack steps for the quick diagnostic. Default: 20.",
+    )
+    parser.add_argument(
+        "--target",
+        type=nonnegative_int,
+        default=None,
+        metavar="N",
+        help=(
+            "optional early-stop crossing target for link 2. Default: 10 for "
+            "the built-in example, otherwise no target."
+        ),
+    )
+    parser.add_argument(
+        "--skip-mirror",
+        action="store_true",
+        help="skip the explicit mirror(link 1) comparison.",
+    )
+    parser.add_argument(
+        "--skip-backtrack",
+        action="store_true",
+        help="skip backtrack diagnostics and hard simplification.",
+    )
+    return parser
+
+
+def load_snappy():
+    """Import SnapPy only after argparse has handled --help."""
+    global snappy
+    if snappy is not None:
+        return snappy
+    try:
+        import snappy as _snappy
+    except Exception as exc:
+        raise RuntimeError(
+            "Could not import SnapPy. Run this as 'sage -python check_two_dt.py ...' "
+            "or install SnapPy for this Python."
+        ) from exc
+    snappy = _snappy
+    return snappy
 
 
 # ---- Jones canonicalisation (mirror q->1/q and overall q^n framing factor) ---
@@ -196,10 +364,17 @@ def hard_simplify(name, dt, rounds=200, backtrack_steps=30):
     return best
 
 
-def main():
-    L1, j1 = describe("link 1", DT1)
+def run_comparison(args):
+    dt1 = args.dt1 if args.dt1 is not None else DT1
+    dt2 = args.dt2 if args.dt2 is not None else DT2
+    using_builtin_pair = args.dt1 is None and args.dt2 is None
+    target = args.target
+    if target is None and using_builtin_pair:
+        target = 10
+
+    L1, j1 = describe("link 1", dt1)
     print()
-    L2, j2 = describe("link 2", DT2)
+    L2, j2 = describe("link 2", dt2)
     print()
 
     if j1 is not None and j2 is not None:
@@ -228,46 +403,60 @@ def main():
         print("       non-hyperbolic link, also compare HOMFLY or identify each")
         print("       piece after 'L.split_link_diagram()' / connected-sum split.")
 
-    print()
-    print("Explicit mirror of link 1 (negate every DT sign) -- a 10-crossing")
-    print("diagram; if link 2 equals this, link 2's minimum is 10, not 12:")
-    M1dt = mirror_dt(DT1)
-    M1 = snappy.Link(dt_str(M1dt))
-    print("    mirror(link1) DT: %s" % dt_str(M1dt))
-    print("    mirror(link1) diagram crossings: %d" % len(M1.crossings))
-    M1.simplify("global")
-    print("    mirror(link1) simplified: %d crossings, %d components"
-          % (len(M1.crossings), len(M1.link_components)))
-    try:
-        jm = M1.jones_polynomial()
-        print("    mirror(link1) Jones: %s" % jm)
-        if j2 is not None:
-            print("    mirror(link1) Jones == link 2 Jones exactly? %s"
-                  % (str(jm) == str(j2)))
-    except Exception as exc:
-        print("    mirror(link1) Jones: n/a (%s)" % exc)
-    try:
-        print("    mirror(link1) exterior isometric to link 2 exterior? %s"
-              % M1.exterior().is_isometric_to(L2.exterior()))
-    except Exception as exc:
-        print("    isometry(mirror(link1), link2) unavailable: %s" % exc)
+    if not args.skip_mirror:
+        print()
+        print("Explicit mirror of link 1 (negate every DT sign):")
+        print("    If link 2 equals this mirror, the two share minimum crossing")
+        print("    number; a larger simplified count may just be a heuristic plateau.")
+        M1dt = mirror_dt(dt1)
+        M1 = snappy.Link(dt_str(M1dt))
+        print("    mirror(link1) DT: %s" % dt_str(M1dt))
+        print("    mirror(link1) diagram crossings: %d" % len(M1.crossings))
+        M1.simplify("global")
+        print("    mirror(link1) simplified: %d crossings, %d components"
+              % (len(M1.crossings), len(M1.link_components)))
+        try:
+            jm = M1.jones_polynomial()
+            print("    mirror(link1) Jones: %s" % jm)
+            if j2 is not None:
+                print("    mirror(link1) Jones == link 2 Jones exactly? %s"
+                      % (str(jm) == str(j2)))
+        except Exception as exc:
+            print("    mirror(link1) Jones: n/a (%s)" % exc)
+        try:
+            print("    mirror(link1) exterior isometric to link 2 exterior? %s"
+                  % M1.exterior().is_isometric_to(L2.exterior()))
+        except Exception as exc:
+            print("    isometry(mirror(link1), link2) unavailable: %s" % exc)
 
-    print()
-    print("Does backtrack actually fire in this SnapPy/Spherogram build?")
-    backtrack_diagnostic("link 1", DT1)
-    backtrack_diagnostic("link 2", DT2)
+    if not args.skip_backtrack:
+        print()
+        print("Does backtrack actually fire in this SnapPy/Spherogram build?")
+        backtrack_diagnostic("link 1", dt1, steps=args.diagnostic_steps)
+        backtrack_diagnostic("link 2", dt2, steps=args.diagnostic_steps)
 
-    print()
-    print("Harder simplification (is 12 just a stuck local minimum?):")
-    plain_loop("link 1", DT1)
-    plain_loop("link 2", DT2)
-    # link 1 already sits at 10; watch link 2 and report the exact round it hits 10.
-    strong_reduce("link 1", DT1)
-    strong_reduce("link 2", DT2, target=10)
-    print("    (Mirror images share the same minimal crossing number.  If link 2")
-    print("     equals mirror(link1) above, its true minimum is 10 and the 12 was")
-    print("     only a heuristic plateau of simplify('global').)")
+        print()
+        print("Harder simplification (is a high crossing count a stuck local minimum?):")
+        plain_loop("link 1", dt1, rounds=args.plain_rounds)
+        plain_loop("link 2", dt2, rounds=args.plain_rounds)
+        strong_reduce("link 1", dt1, rounds=args.rounds, steps=args.steps)
+        strong_reduce("link 2", dt2, rounds=args.rounds, steps=args.steps,
+                      target=target)
+        print("    (Mirror images share the same minimal crossing number.  If link 2")
+        print("     equals mirror(link1) above, a higher simplified crossing count")
+        print("     may be only a heuristic plateau of simplify('global').)")
+
+
+def main(argv=None):
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    try:
+        load_snappy()
+    except RuntimeError as exc:
+        parser.exit(2, "error: %s\n" % exc)
+    run_comparison(args)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
