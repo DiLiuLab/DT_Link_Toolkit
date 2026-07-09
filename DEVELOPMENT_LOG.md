@@ -11,13 +11,15 @@ so passages chain (and may branch) across as many windows as you like.
 
 Files
 -----
-    strand_passage_guiV3_8.py         (V3.8) interactive GUI + --nongui + --demo
-    link_engine_v3_8.py               (V3.8) passage / DT-choice / SnapPy engine
+    strand_passage_guiV4_0.py         (V4.0) interactive GUI + --nongui + --demo
+    link_engine_v4_0.py               (V4.0) passage / DT-choice / SnapPy engine
     draw_dt_original_labelsV4_5.py    (V4.5) drawing + model layer
     check_two_dt.py                   standalone SnapPy/Sage utility: compare two
                                       DT codes (topology + Jones + backtrack test)
     find_link_in_snappy.py            standalone SnapPy database search utility
+    score_diagramV2_0.py              standalone SnapPy/Sage diagram scoring utility
     assets/strand_passage_icon.png    optional Tk window/task-menu icon
+    assets/score_diagram_icon.png     optional scoring-tool Tk window icon
     bin/strand-passage                convenience launcher
     DEVELOPMENT_LOG.md
 
@@ -29,25 +31,67 @@ Files
 
 Run
 ---
-    sage -python strand_passage_guiV3_8.py                     # SnapPy enabled
-    sage -python strand_passage_guiV3_8.py --dt "DT: [(4,6,2)]"
-    python3 strand_passage_guiV3_8.py --gui-backend agg        # if TkAgg won't load
+    sage -python strand_passage_guiV4_0.py                     # SnapPy enabled
+    sage -python strand_passage_guiV4_0.py --dt "DT: [(4,6,2)]"
+    python3 strand_passage_guiV4_0.py --gui-backend agg        # if TkAgg won't load
     ./bin/strand-passage --help                                # launcher
 
 Backtrack-assisted simplification (ON by default: 200 rounds, 30 steps):
-    sage -python strand_passage_guiV3_8.py                     # backtrack ON
-    sage -python strand_passage_guiV3_8.py --backtrack-rounds 400
-    sage -python strand_passage_guiV3_8.py --no-backtrack      # turn it OFF
+    sage -python strand_passage_guiV4_0.py                     # backtrack ON
+    sage -python strand_passage_guiV4_0.py --backtrack-rounds 400
+    sage -python strand_passage_guiV4_0.py --no-backtrack      # turn it OFF
     (in the GUI, the "Backtrack simplify" checkbox + rounds/steps fields start
      ON at 200/30 and can be toggled live between clicks.)
 
 Non-interactive two-pass spreadsheet:
-    sage -python strand_passage_guiV3_8.py --nongui \
+    sage -python strand_passage_guiV4_0.py --nongui \
         --dt "DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]" \
         --out strand_passage_results.xlsx        # backtrack ON by default
 
 Headless cascade figure (no display needed):
-    python3 strand_passage_guiV3_8.py --dt "DT: [(4,6,2)]" --demo 2 1 --out chain.png
+    python3 strand_passage_guiV4_0.py --dt "DT: [(4,6,2)]" --demo 2 1 --out chain.png
+
+
+What is new in V4.0 (GUI simplify + drawing sessions)
+-----------------------------------------------------
+  * Bumped the live strand-passage entry point to strand_passage_guiV4_0.py and
+    the engine bridge to link_engine_v4_0.py.
+  * Added a per-diagram "Simplify" button in GUI windows.  It simplifies the
+    currently displayed root or after-passage diagram with the active SnapPy
+    global/backtrack settings and refreshes the properties panel, including
+    Jones data when Sage/SnapPy can compute it.
+  * Replaced the two GUI crossing-label fields with one `Crossing labels` field.
+    Assignment-style text such as `c1=1,c7=3` is detected as a crossing map;
+    otherwise the text is treated as a crossing order.  The old
+    `--crossing-order` and `--crossing-map` CLI options remain supported, and
+    `--crossing-labels` exposes the combined parser on the CLI.
+  * Strand-passage drawing defaults are now `shaped-tutte` with `tutte shape =
+    ellipse`, manual `tutte aspect = 1.0`, and helper-compatible false-crossing
+    visualization.  These defaults apply in the GUI, `--demo`, `--nongui`
+    overview SVG, and following strand-passage diagrams.
+  * Added `--drawing-session PATH` plus the GUI `Load drawing session` button.
+    Sessions saved by draw_dt_original_labelsV4_5.py supply DT/crossing labels
+    and 2-D drawing settings; explicit `--dt` still takes priority in CLI modes.
+  * Moved `Close passage windows` and `Load drawing session` to the second
+    control row beside the crossing-label field, and added light-blue `?` help
+    buttons for SnapPy global and backtrack simplify settings.
+
+
+Scoring utility V2.0
+--------------------
+  * Added score_diagramV2_0.py, a standalone Sage/SnapPy utility for generating
+    alternative simplified diagrams of one link, deduplicating signed diagram
+    isomorphs, scoring each representative, and writing Excel/SVG/JSON reports.
+  * The tool imports the live V4.0 engine and V4.5 drawing helper, uses the same
+    backtrack-simplify mechanism for generation, and scores canonical DT forms so
+    representative rankings are reproducible across relabellings.
+  * With no arguments it opens a Tk configuration GUI; CLI mode supports
+    resumable checkpoints, time-limited generation chunks, membership checks for
+    pasted DT codes, optional exact VF2 verification, and generated reports.
+  * The scoring GUI uses `assets/score_diagram_icon.png` as its Tk window icon
+    when the asset can be loaded.
+  * Generated scoring outputs (`chain*.jsonl`, `diagram_scores*`,
+    `canonical_cache.json`, and `results/`) are ignored by Git.
 
 
 Utility update (SnapPy database search)
@@ -73,7 +117,7 @@ Utility update (DT comparison CLI)
 Drawing helper V4.5 (tabbed parameter panel)
 --------------------------------------------
   * draw_dt_original_labelsV4_5.py is now the live drawing/model helper imported
-    by link_engine_v3_8.py and strand_passage_guiV3_8.py.
+    by link_engine_v4_0.py and strand_passage_guiV4_0.py.
   * The standalone helper GUI splits its right-hand parameter panel into two
     independently scrollable tabs: "2D diagram" and "3D XYZ", so only relevant
     controls are shown at a time.
@@ -92,8 +136,8 @@ Drawing helper V3.14 (false-crossing visualization)
   * Live previews and saved images/SVGs show a red false-crossing warning.
   * Saved diagrams now also draw the generator metadata as a visible bottom
     caption, in addition to embedding it in file metadata.
-  * link_engine_v3_8.py preserves the helper's requested layout so
-    strand_passage_guiV3_8.py matches the helper rendering behavior.
+  * link_engine_v4_0.py preserves the helper's requested layout so
+    strand_passage_guiV4_0.py matches the helper rendering behavior.
 
 
 Drawing helper V3.13 (self-crossing gaps + metadata)

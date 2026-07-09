@@ -7,7 +7,7 @@
 # SnapPy running inside Sage, and on the maintainer's macOS setup SnapPy is
 # provided by the Sage install, not by pip. Run the tool as:
 #
-#   sage -python strand_passage_guiV3_8.py ...
+#   sage -python strand_passage_guiV4_0.py ...
 #
 # Without Sage/SnapPy the app still runs on the continuity engine only and warns
 # that Jones polynomials are unavailable. `tkinter` (GUI) ships with CPython.
@@ -19,6 +19,10 @@ matplotlib>=3.4
 # Needed only for the --nongui spreadsheet output:
 pandas>=1.3
 openpyxl>=3.0
+
+# Optional for score_diagramV2_0.py: used for optimal point-cloud assignment
+# in symmetry scoring. The tool has a greedy fallback when SciPy is absent.
+# scipy>=1.7
 
 # If you want SnapPy without Sage (limited; Jones needs Sage), you can try:
 #   pip install snappy

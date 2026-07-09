@@ -1,10 +1,26 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-strand_passage_guiV3_8.py  (V3.8)
+strand_passage_guiV4_0.py  (V4.0)
 =================================
 
 Interactive strand-passage explorer with component-colour preservation.
+
+What is new in V4.0
+-------------------
+* Added a per-window "Simplify" button.  It simplifies the currently displayed
+  diagram (original or after-passage) with the active SnapPy/backtrack settings
+  and refreshes the drawing/properties panel, including Jones data.
+* The GUI now has one combined crossing-label field.  Assignment-style text is
+  detected as a crossing map; other text is detected as crossing order.
+* The strand-passage default drawing layout is now ``shaped-tutte`` with an
+  ellipse boundary and manual Tutte aspect 1.0.
+* ``--drawing-session`` and the GUI "Load drawing session" button load drawing
+  settings from JSON sessions saved by ``draw_dt_original_labelsV4_5.py``.  GUI,
+  demo, and ``--nongui`` overview drawings reuse those settings for following
+  strand-passage diagrams.
+* The top control strip has light-blue "?" help buttons for SnapPy/global and
+  backtrack simplify settings.
 
 What is new in V3.8
 -------------------
@@ -49,8 +65,7 @@ What is new in V3.4
 * Optional Tk window/task-menu icon loaded from ``assets/strand_passage_icon.png``
   when present.  Missing or unsupported icon assets are ignored, so the scripts
   still run from a plain source checkout.
-* Drawing/model layer is now ``draw_dt_original_labelsV4_5.py`` (via
-  ``link_engine_v3_8.py``).
+* Drawing/model layer is now ``draw_dt_original_labelsV4_5.py``.
 
 What is new in V3.3
 -------------------
@@ -66,8 +81,8 @@ What is new in V3.3
 
 What is new in V3.2
 -------------------
-* Drawing/model layer is now ``draw_dt_original_labelsV4_5.py`` (via
-  ``link_engine_v3_8.py``), and 2-D links are drawn with that helper's own
+* Drawing/model layer is now ``draw_dt_original_labelsV4_5.py``, and 2-D links
+  are drawn with that helper's own
   DEFAULT settings (default layout, top-to-bottom orientation, and
   false-crossing visualization).
 * DT-code choice rule, applied everywhere (GUI and ``--nongui`` spreadsheet):
@@ -96,17 +111,17 @@ What is new in V3.2
   operation order; topologically identical structures are merged into one card.
 
 Non-interactive spreadsheet (behaves like the old strand_pass_sage.py):
-    sage -python strand_passage_guiV3_8.py --nongui \
+    sage -python strand_passage_guiV4_0.py --nongui \
         --dt "DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]" \
         --out strand_passage_results.xlsx
 
 Interactive run:
-    sage -python strand_passage_guiV3_8.py                 # SnapPy enabled
-    sage -python strand_passage_guiV3_8.py --dt "DT: [(4,6,2)]"
-    python3 strand_passage_guiV3_8.py --gui-backend agg    # if TkAgg won't load
+    sage -python strand_passage_guiV4_0.py                 # SnapPy enabled
+    sage -python strand_passage_guiV4_0.py --dt "DT: [(4,6,2)]"
+    python3 strand_passage_guiV4_0.py --gui-backend agg    # if TkAgg won't load
 
 Headless cascade figure (no display needed):
-    python3 strand_passage_guiV3_8.py --dt "DT: [(4,6,2)]" --demo 2 1 --out chain.png
+    python3 strand_passage_guiV4_0.py --dt "DT: [(4,6,2)]" --demo 2 1 --out chain.png
 """
 
 from __future__ import annotations
@@ -115,7 +130,9 @@ import argparse
 import ast
 import copy
 from datetime import datetime
+import json
 import os
+import re
 import shlex
 import sys
 from typing import Any, Dict, List, Optional, Tuple
@@ -127,12 +144,12 @@ import numpy as np
 os.environ.setdefault("MPLBACKEND", "Agg")
 
 import draw_dt_original_labelsV4_5 as D          # noqa: E402
-import link_engine_v3_8 as E                       # noqa: E402
+import link_engine_v4_0 as E                       # noqa: E402
 
 TAB10_NAMES = ["blue", "orange", "green", "red", "purple",
                "brown", "pink", "gray", "olive", "cyan"]
 DEFAULT_DT = "DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]"
-VERSION = "3.8"
+VERSION = "4.0"
 OVERVIEW_FONT_FAMILY = "Arial"
 OVERVIEW_TEXT_BOX_PAD = 0.42
 OVERVIEW_DIAGRAM_DT_LABEL_BOX_PAD = 0.22
@@ -141,6 +158,7 @@ NONGUI_SECOND_PASS_CRITERION = (
     "first-step new_components > 2 and DT_code_chosen is available")
 DEFAULT_BACKTRACK_ROUNDS = getattr(E, "DEFAULT_BACKTRACK_ROUNDS", 200)
 DEFAULT_BACKTRACK_STEPS = getattr(E, "DEFAULT_BACKTRACK_STEPS", 30)
+DEFAULT_DRAWING_OPTIONS = E.default_drawing_options()
 
 # Tile size used by link_engine's render() when packing blocks.
 TILE = 2.4
@@ -149,15 +167,58 @@ TILE = 2.4
 SINGLE_CROSSING_RADIUS = 0.28
 
 
+def _looks_like_crossing_map(text):
+    """Heuristic for the combined crossing-label field."""
+    return bool(re.search(r"[cC]?\d+\s*[:=]\s*\d+", text or ""))
+
+
+def _split_crossing_display_input(crossing_input=None, crossing_order=None,
+                                  crossing_map=None):
+    """Return ``(crossing_order, crossing_map, detected_kind)``.
+
+    ``crossing_input`` is the V4.0 combined field.  Assignment-style text such as
+    ``c1=1,c7=3`` is treated as a map; otherwise the text is treated as an order
+    list.  The old explicit CLI/session fields are still accepted for backward
+    compatibility.
+    """
+    combined = (crossing_input or "").strip()
+    order = (crossing_order or "").strip()
+    cmap = (crossing_map or "").strip()
+    if combined:
+        if order or cmap:
+            raise ValueError(
+                "Use either the combined crossing field or the legacy "
+                "crossing-order/crossing-map fields, not both.")
+        if _looks_like_crossing_map(combined):
+            return "", combined, "crossing-map"
+        return combined, "", "crossing-order"
+    if order and cmap:
+        raise ValueError("Use either crossing-order or crossing-map, not both.")
+    if cmap:
+        return "", cmap, "crossing-map"
+    if order:
+        return order, "", "crossing-order"
+    return "", "", ""
+
+
 def _apply_crossing_display_options(diagram, crossing_order=None,
-                                    crossing_map=None, strict=True):
+                                    crossing_map=None, strict=True,
+                                    crossing_input=None):
     """Attach custom displayed crossing IDs to a diagram.
 
     The labels are display-only; strand-passage operations still use the
     diagram's internal crossing ids.
     """
-    crossing_order = (crossing_order or "").strip()
-    crossing_map = (crossing_map or "").strip()
+    try:
+        crossing_order, crossing_map, _kind = _split_crossing_display_input(
+            crossing_input=crossing_input,
+            crossing_order=crossing_order,
+            crossing_map=crossing_map,
+        )
+    except Exception:
+        if strict:
+            raise
+        crossing_order, crossing_map = "", ""
     if not crossing_order and not crossing_map:
         if hasattr(diagram, "crossing_display_ids"):
             delattr(diagram, "crossing_display_ids")
@@ -239,7 +300,102 @@ def warn_if_no_sage():
         "[warning] Not running under Sage: Jones polynomials (and the SnapPy "
         "invariant colour-matching that relies on them) cannot be computed. "
         "For full functionality run this with 'sage -python "
-        "strand_passage_guiV3_8.py ...'.\n")
+        "strand_passage_guiV4_0.py ...'.\n")
+
+
+_DRAWING_STRING_KEYS = {
+    "layout", "y_direction", "tutte_shape",
+}
+_DRAWING_FLOAT_KEYS = {
+    "rotate", "font_size", "crossing_id_font_size", "line_width", "gap_frac",
+    "tutte_aspect", "tutte_corner_radius", "tutte_decompress",
+    "tutte_com_expand", "tutte_orient", "hole_ratio", "ring_tilt", "min_sep",
+}
+_DRAWING_BOOL_KEYS = {
+    "show_crossing_ids", "color_crossing_ids_by_overstrand", "hide_labels",
+    "no_arrows", "tutte_auto_aspect", "tutte_auto_orient",
+    "show_tutte_outline", "show_tutte_pca", "hole_swap", "invert_ring",
+}
+
+
+def default_drawing_options():
+    """Drawing defaults shared by GUI, demo, and nongui overview rendering."""
+    return E.default_drawing_options()
+
+
+def _coerce_session_float(key, value):
+    try:
+        return float(value)
+    except Exception:  # noqa: BLE001
+        return DEFAULT_DRAWING_OPTIONS[key]
+
+
+def _coerce_session_bool(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    text = str(value).strip().lower()
+    if text in ("1", "true", "yes", "on"):
+        return True
+    if text in ("0", "false", "no", "off"):
+        return False
+    return bool(value)
+
+
+def normalize_drawing_options(options=None):
+    """Merge a partial drawing-options dict onto the V4.0 defaults."""
+    out = default_drawing_options()
+    for key, value in dict(options or {}).items():
+        if key not in out or value is None:
+            continue
+        if key in _DRAWING_FLOAT_KEYS:
+            out[key] = _coerce_session_float(key, value)
+        elif key in _DRAWING_BOOL_KEYS:
+            out[key] = _coerce_session_bool(value)
+        else:
+            out[key] = str(value)
+    return out
+
+
+def load_drawing_session(path):
+    """Read a session JSON written by ``draw_dt_original_labelsV4_5.py``.
+
+    Returns a small dict with drawing options plus optional DT/crossing-label
+    settings.  Unknown helper-only 3-D fields are ignored.
+    """
+    with open(path, "r", encoding="utf-8") as fh:
+        data = json.load(fh)
+    strings = data.get("strings") or {}
+    bools = data.get("bools") or {}
+    texts = data.get("texts") or {}
+
+    drawing = {}
+    for key, value in strings.items():
+        if key in _DRAWING_STRING_KEYS or key in _DRAWING_FLOAT_KEYS:
+            drawing[key] = value
+    for key, value in bools.items():
+        if key in _DRAWING_BOOL_KEYS:
+            drawing[key] = value
+
+    crossing_order = str(texts.get("crossing_order") or "").strip()
+    crossing_map = str(texts.get("crossing_map") or "").strip()
+    crossing_input = crossing_map or crossing_order
+    negative_even = str(strings.get("negative_even") or "").strip() or None
+    if negative_even not in ("over", "under"):
+        negative_even = None
+
+    return {
+        "path": os.path.abspath(path),
+        "script": data.get("script", ""),
+        "version": data.get("version", ""),
+        "drawing_options": normalize_drawing_options(drawing),
+        "dt": str(texts.get("dt") or "").strip(),
+        "crossing_input": crossing_input,
+        "crossing_order": crossing_order,
+        "crossing_map": crossing_map,
+        "negative_even": negative_even,
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -353,6 +509,59 @@ def advance(diagram, crossing_id, negative_even="over", use_snappy_global=True,
     return chosen, note, snap
 
 
+def simplify_current_diagram(diagram, negative_even="over", use_snappy_global=True,
+                             backtrack_rounds=0, backtrack_steps=20):
+    """Simplify the current diagram directly with the active SnapPy settings."""
+    before = len(diagram.crossings())
+    source_kind = getattr(diagram, "display_source", "continuity")
+    dt_now, dt_ok = diagram.to_signed_dt()
+    if not use_snappy_global:
+        snap = {"available": False, "source_dt": dt_now if dt_ok else None,
+                "operation": "manual_simplify",
+                "error": "SnapPy global is disabled in the controls"}
+        note = ("Simplify current diagram (on %s): skipped; SnapPy global is "
+                "disabled." % source_kind)
+        diagram.last_snap_result = snap
+        return diagram, note, snap
+    if not dt_ok:
+        snap = {"available": False, "source_dt": None,
+                "operation": "manual_simplify",
+                "error": "current diagram has no legal DT export for SnapPy"}
+        note = ("Simplify current diagram (on %s): skipped; the current drawing "
+                "has no legal DT export." % source_kind)
+        diagram.last_snap_result = snap
+        return diagram, note, snap
+
+    snap = E.snappy_global_simplification(
+        diagram, dt_now, negative_even=negative_even, mode="global",
+        backtrack_rounds=backtrack_rounds, backtrack_steps=backtrack_steps)
+    snap["operation"] = "manual_simplify"
+    simplified = snap.get("diagram")
+    if simplified is not None:
+        _inherit_crossing_display_ids(diagram, simplified)
+        chosen = simplified
+        if snap.get("colours_tracked"):
+            chosen.display_source = "SnapPy-simplified (manual simplify; colours tracked)"
+            phrase = "SnapPy-simplified; colours tracked"
+        else:
+            match = snap.get("match")
+            reason = match.message if match is not None else "ambiguous match"
+            chosen.display_source = "SnapPy-simplified (manual simplify; colours NOT tracked)"
+            phrase = "SnapPy-simplified; COLOURS NOT TRACKED (%s)" % reason
+    else:
+        chosen = diagram
+        reason = (snap.get("error")
+                  or snap.get("simplified_dt_error")
+                  or "SnapPy produced no usable DT")
+        phrase = "kept current diagram (%s)" % reason
+
+    chosen.last_snap_result = snap
+    after = len(chosen.crossings())
+    note = ("Simplify current diagram (on %s): %d -> %d crossings drawn; %s."
+            % (source_kind, before, after, phrase))
+    return chosen, note, snap
+
+
 def properties_text(diagram, note, snap, passage_log, use_snappy_global=True):
     d = diagram
     dt_now, dt_ok = d.to_signed_dt()
@@ -396,7 +605,11 @@ def properties_text(diagram, note, snap, passage_log, use_snappy_global=True):
         return "\n".join(lines)
 
     lines.append("")
-    lines.append("SnapPy global simplification / DT-code choice:")
+    manual_simplify = snap.get("operation") == "manual_simplify"
+    if manual_simplify:
+        lines.append("SnapPy global simplification / current-DT invariants:")
+    else:
+        lines.append("SnapPy global simplification / DT-code choice:")
     if not snap.get("available"):
         lines.append("   unavailable/skipped: %s"
                      % snap.get("error", "unknown reason"))
@@ -406,8 +619,12 @@ def properties_text(diagram, note, snap, passage_log, use_snappy_global=True):
         return "\n".join(lines)
 
     lines.append("   source crossings      : %s" % snap.get("source_crossings", "n/a"))
-    lines.append("   direct after-passage  : %s crossings"
-                 % snap.get("source_crossings", "n/a"))
+    if manual_simplify:
+        lines.append("   input diagram         : %s crossings"
+                     % snap.get("source_crossings", "n/a"))
+    else:
+        lines.append("   direct after-passage  : %s crossings"
+                     % snap.get("source_crossings", "n/a"))
     lines.append("   SnapPy simplified     : %s crossings"
                  % snap.get("simplified_crossings", "n/a"))
     if snap.get("backtrack_rounds"):
@@ -422,7 +639,7 @@ def properties_text(diagram, note, snap, passage_log, use_snappy_global=True):
             mp = ", ".join("simp %d -> source %d" % (k + 1, v + 1)
                            for k, v in sorted(match.mapping.items()))
             lines.append("   matching map          : %s" % mp)
-    lines.append("   DT code chosen        : %s"
+    lines.append("   drawing shown         : %s"
                  % getattr(d, "display_source", "n/a"))
     if "jones" in snap:
         lines.append("   Jones polynomial      : %s" % snap.get("jones"))
@@ -444,13 +661,15 @@ def properties_text(diagram, note, snap, passage_log, use_snappy_global=True):
 # --------------------------------------------------------------------------- #
 def render_chain(dt_string, clicks, out_path, negative_even="over",
                  use_snappy_global=True, backtrack_rounds=0, backtrack_steps=20,
-                 crossing_order=None, crossing_map=None):
+                 crossing_order=None, crossing_map=None, crossing_input=None,
+                 drawing_options=None):
     """Simulate a click sequence and render original + each step as a panel row."""
     import matplotlib.pyplot as plt
 
     start = E.Diagram.from_dt_code(D.parse_dt(dt_string),
                                    negative_even=negative_even)
-    _apply_crossing_display_options(start, crossing_order, crossing_map)
+    _apply_crossing_display_options(
+        start, crossing_order, crossing_map, crossing_input=crossing_input)
     start.display_source = "original"
     panels = [("original", start, None)]
     current = start
@@ -471,7 +690,8 @@ def render_chain(dt_string, clicks, out_path, negative_even="over",
     if n == 1:
         axes = [axes]
     for ax, (note, d, _snap) in zip(axes, panels):
-        E.render(d, ax, show_crossing_ids=True, show_dt_labels=True)
+        E.render(d, ax, show_crossing_ids=True, show_dt_labels=True,
+                 drawing_options=drawing_options)
         ax.set_title(note, fontsize=8)
     fig.tight_layout()
     fig.savefig(out_path, dpi=140, bbox_inches="tight")
@@ -738,6 +958,7 @@ def _runtime_command():
 def _run_info_rows(snappy, pandas_module, dt_string, dt_code, out_path,
                    overview_path, negative_even, backtrack_rounds,
                    backtrack_steps, crossing_order, crossing_map,
+                   crossing_input, drawing_options, drawing_session_path,
                    first_pass_rows, continuable_first_passages,
                    merged_first_step_continuations, second_pass_sheets,
                    second_pass_rows):
@@ -766,6 +987,9 @@ def _run_info_rows(snappy, pandas_module, dt_string, dt_code, out_path,
         ("overview_svg", overview_path),
         ("backtrack_rounds", int(backtrack_rounds or 0)),
         ("backtrack_steps", int(backtrack_steps or 0)),
+        ("drawing_session", drawing_session_path or ""),
+        ("drawing_options", repr(normalize_drawing_options(drawing_options))),
+        ("crossing_input", crossing_input or ""),
         ("crossing_order", crossing_order or ""),
         ("crossing_map", crossing_map or ""),
         ("second_pass_continuation_criterion", NONGUI_SECOND_PASS_CRITERION),
@@ -1011,7 +1235,8 @@ ARROW_COLORS = [
 def render_overview_svg(nodes, edges, out_path, negative_even="over",
                         title_dt=None, backtrack_rounds=None,
                         backtrack_steps=None, crossing_order=None,
-                        crossing_map=None):
+                        crossing_map=None, crossing_input=None,
+                        drawing_options=None):
     """Draw the two-step passage tree as one large, tidy, informative SVG.
 
     Columns are passage depth (0 = original, 1 = after one passage, 2 = after
@@ -1166,8 +1391,10 @@ def render_overview_svg(nodes, edges, out_path, negative_even="over",
         try:
             diag = E.Diagram.from_dt_code(n["dt_code"], negative_even=negative_even)
             _apply_crossing_display_options(
-                diag, crossing_order, crossing_map, strict=False)
-            E.render(diag, ax, show_crossing_ids=True, show_dt_labels=True)
+                diag, crossing_order, crossing_map, strict=False,
+                crossing_input=crossing_input)
+            E.render(diag, ax, show_crossing_ids=True, show_dt_labels=True,
+                     drawing_options=drawing_options)
             _expand_overview_diagram_label_boxes(ax)
         except Exception as exc:  # noqa: BLE001
             ax.axis("off")
@@ -1271,7 +1498,8 @@ def render_overview_svg(nodes, edges, out_path, negative_even="over",
 
 def run_nongui(dt_string, out_path, negative_even="over",
                backtrack_rounds=0, backtrack_steps=20,
-               crossing_order=None, crossing_map=None):
+               crossing_order=None, crossing_map=None, crossing_input=None,
+               drawing_options=None, drawing_session_path=None):
     """Two-pass strand-passage spreadsheet plus a merged overview SVG.
 
     ``backtrack_rounds`` > 0 (V3.4) applies backtrack-assisted simplification to
@@ -1296,6 +1524,17 @@ def run_nongui(dt_string, out_path, negative_even="over",
               file=sys.stderr)
         return 2
 
+    drawing_options = normalize_drawing_options(drawing_options)
+    try:
+        crossing_order, crossing_map, detected_crossing_kind = _split_crossing_display_input(
+            crossing_input=crossing_input,
+            crossing_order=crossing_order,
+            crossing_map=crossing_map,
+        )
+    except Exception as exc:  # noqa: BLE001
+        print("[error] invalid crossing-label input: %s" % exc, file=sys.stderr)
+        return 2
+
     dt_code = [tuple(int(x) for x in comp) for comp in D.parse_dt(dt_string)]
     if (crossing_order and crossing_order.strip()) or (crossing_map and crossing_map.strip()):
         try:
@@ -1303,9 +1542,11 @@ def run_nongui(dt_string, out_path, negative_even="over",
             _apply_crossing_display_options(
                 root_for_ids, crossing_order, crossing_map, strict=True)
         except Exception as exc:  # noqa: BLE001
-            print("[error] invalid crossing-order/crossing-map: %s" % exc,
+            print("[error] invalid crossing-label input: %s" % exc,
                   file=sys.stderr)
             return 2
+        print("[info] custom displayed crossing IDs detected as %s"
+              % detected_crossing_kind)
 
     # Merged-structure node/edge accumulator for the overview SVG.
     nodes: Dict[Any, Dict[str, Any]] = {}
@@ -1475,7 +1716,8 @@ def run_nongui(dt_string, out_path, negative_even="over",
     run_info = _run_info_rows(
         snappy, pd, dt_string, dt_code, out_path, overview_path,
         negative_even, backtrack_rounds, backtrack_steps,
-        crossing_order, crossing_map, len(results), continuable_first_passages,
+        crossing_order, crossing_map, crossing_input, drawing_options,
+        drawing_session_path, len(results), continuable_first_passages,
         len(first_step_labels), len(second_pass_results_dict), second_pass_rows)
 
     with pd.ExcelWriter(out_path, engine='openpyxl') as writer:
@@ -1509,7 +1751,8 @@ def run_nongui(dt_string, out_path, negative_even="over",
                             backtrack_rounds=backtrack_rounds,
                             backtrack_steps=backtrack_steps,
                             crossing_order=crossing_order,
-                            crossing_map=crossing_map)
+                            crossing_map=crossing_map,
+                            drawing_options=drawing_options)
         print("[ok] wrote %s  (%d unique structures, %d passage arrows)"
               % (overview_path, len(node_list), len(edge_list)))
     except Exception as exc:  # noqa: BLE001
@@ -1634,7 +1877,8 @@ class StrandPassageApp(object):
                  backtrack_enabled=True,
                  backtrack_rounds=DEFAULT_BACKTRACK_ROUNDS,
                  backtrack_steps=DEFAULT_BACKTRACK_STEPS,
-                 crossing_order=None, crossing_map=None):
+                 crossing_order=None, crossing_map=None, crossing_input=None,
+                 drawing_options=None, drawing_session_path=None):
         self.root = root
         self.tk = tk
         self.ttk = ttk
@@ -1644,8 +1888,14 @@ class StrandPassageApp(object):
         self.init_backtrack_enabled = bool(backtrack_enabled)
         self.init_backtrack_rounds = int(backtrack_rounds)
         self.init_backtrack_steps = int(backtrack_steps)
-        self.init_crossing_order = crossing_order or ""
-        self.init_crossing_map = crossing_map or ""
+        order, cmap, _kind = _split_crossing_display_input(
+            crossing_input=crossing_input,
+            crossing_order=crossing_order,
+            crossing_map=crossing_map,
+        )
+        self.init_crossing_input = cmap or order
+        self.drawing_options = normalize_drawing_options(drawing_options)
+        self.drawing_session_path = drawing_session_path or ""
         self.windows: List[Any] = []
         self.step_count = 0
         self.tile = TILE
@@ -1670,6 +1920,33 @@ class StrandPassageApp(object):
         except Exception:  # noqa: BLE001
             return fallback
 
+    def _current_crossing_options(self):
+        return _split_crossing_display_input(
+            crossing_input=self.crossing_input_var.get())
+
+    def _current_drawing_options(self):
+        return normalize_drawing_options(self.drawing_options)
+
+    def _show_help(self, title, message):
+        self._toast(self.root, message)
+
+    def _show_snappy_help(self):
+        self._show_help(
+            "SnapPy global",
+            "SnapPy global controls whether the GUI asks SnapPy/Sage to "
+            "simplify a diagram and compute invariants such as the Jones "
+            "polynomial. If it is off, strand passages use only the continuity "
+            "engine and the Simplify button is skipped.")
+
+    def _show_backtrack_help(self):
+        self._show_help(
+            "Backtrack simplify",
+            "Backtrack simplify repeatedly complicates a SnapPy link and then "
+            "runs simplify('global'), keeping the fewest-crossing result found. "
+            "Rounds is the number of attempts; steps is the complication length "
+            "inside each attempt. Larger values can find lower plateaus but take "
+            "longer.")
+
     # ---- root control strip ----
     def _build_root_controls(self, dt_string):
         tk, ttk = self.tk, self.ttk
@@ -1688,6 +1965,9 @@ class StrandPassageApp(object):
         self.snappy_var = tk.BooleanVar(value=self.use_snappy_global)
         ttk.Checkbutton(bar, text="SnapPy global", variable=self.snappy_var
                         ).pack(side=tk.LEFT, padx=6)
+        tk.Button(bar, text="?", width=2, bg="#dbeafe", activebackground="#bfdbfe",
+                  relief=tk.RAISED, command=self._show_snappy_help
+                  ).pack(side=tk.LEFT, padx=(0, 4))
 
         # Backtrack-assisted simplification controls (V3.4).
         self.backtrack_var = tk.BooleanVar(value=self.init_backtrack_enabled)
@@ -1701,30 +1981,31 @@ class StrandPassageApp(object):
         self.backtrack_steps_var = tk.StringVar(value=str(self.init_backtrack_steps))
         ttk.Entry(bar, textvariable=self.backtrack_steps_var, width=5).pack(
             side=tk.LEFT, padx=(1, 4))
-
-        ttk.Button(bar, text="Close passage windows",
-                   command=self.close_children).pack(side=tk.RIGHT, padx=2)
+        tk.Button(bar, text="?", width=2, bg="#dbeafe", activebackground="#bfdbfe",
+                  relief=tk.RAISED, command=self._show_backtrack_help
+                  ).pack(side=tk.LEFT, padx=(0, 4))
 
         order_bar = ttk.Frame(controls)
         order_bar.pack(side=tk.TOP, fill=tk.X, pady=(4, 0))
-        ttk.Label(order_bar, text="Crossing order:").pack(side=tk.LEFT)
-        self.crossing_order_var = tk.StringVar(value=self.init_crossing_order)
-        ttk.Entry(order_bar, textvariable=self.crossing_order_var, width=48).pack(
-            side=tk.LEFT, padx=(4, 10), fill=tk.X, expand=True)
-        ttk.Label(order_bar, text="Crossing map:").pack(side=tk.LEFT)
-        self.crossing_map_var = tk.StringVar(value=self.init_crossing_map)
-        ttk.Entry(order_bar, textvariable=self.crossing_map_var, width=34).pack(
-            side=tk.LEFT, padx=(4, 0), fill=tk.X, expand=True)
+        ttk.Label(order_bar, text="Crossing labels:").pack(side=tk.LEFT)
+        self.crossing_input_var = tk.StringVar(value=self.init_crossing_input)
+        ttk.Entry(order_bar, textvariable=self.crossing_input_var, width=66).pack(
+            side=tk.LEFT, padx=(4, 8), fill=tk.X, expand=True)
+        ttk.Button(order_bar, text="Load drawing session",
+                   command=self.load_drawing_session).pack(side=tk.LEFT, padx=2)
+        ttk.Button(order_bar, text="Close passage windows",
+                   command=self.close_children).pack(side=tk.LEFT, padx=2)
 
     def load(self):
         self.close_children()
         try:
+            crossing_order, crossing_map, _kind = self._current_crossing_options()
             start = E.Diagram.from_dt_code(D.parse_dt(self.dt_var.get()),
                                            negative_even=self.negative_even)
             _apply_crossing_display_options(
                 start,
-                self.crossing_order_var.get(),
-                self.crossing_map_var.get(),
+                crossing_order,
+                crossing_map,
                 strict=True,
             )
         except Exception as exc:  # noqa: BLE001
@@ -1734,6 +2015,34 @@ class StrandPassageApp(object):
         self.step_count = 0
         self.open_step_window(start, note="Original diagram.", snap=None,
                               passage_log=[], parent=None, is_root=True)
+
+    def load_drawing_session(self):
+        try:
+            from tkinter import filedialog
+            path = filedialog.askopenfilename(
+                title="Load drawing session",
+                filetypes=[("JSON session", "*.json"), ("All files", "*.*")],
+            )
+            if not path:
+                return
+            session = load_drawing_session(path)
+            self.drawing_options = normalize_drawing_options(
+                session.get("drawing_options"))
+            self.drawing_session_path = session.get("path") or path
+            if session.get("negative_even"):
+                self.negative_even = session["negative_even"]
+            if session.get("dt"):
+                self.dt_var.set(session["dt"])
+            if session.get("crossing_input"):
+                self.crossing_input_var.set(session["crossing_input"])
+            self.load()
+            self._toast(
+                self.root,
+                "Loaded drawing session:\n%s\n\nLayout: %s"
+                % (self.drawing_session_path,
+                   self.drawing_options.get("layout", "unknown")))
+        except Exception as exc:  # noqa: BLE001
+            self._error_window("Could not load drawing session:\n\n%s" % exc)
 
     def close_children(self):
         for w in list(self.windows):
@@ -1807,7 +2116,9 @@ class StrandPassageApp(object):
 
         win: Dict[str, Any] = {"container": container, "alive": True,
                                "click_targets": {}, "diagram": diagram,
-                               "passage_log": passage_log}
+                               "passage_log": passage_log,
+                               "note": note, "snap": snap,
+                               "panel": None, "report": None}
 
         def nearest_crossing(xdata, ydata):
             targets = win["click_targets"]
@@ -1845,7 +2156,7 @@ class StrandPassageApp(object):
                 self._toast(container, "Passage failed: %s" % exc)
                 return
             self.open_step_window(nxt, note=nnote, snap=nsnap,
-                                  passage_log=passage_log + ["c%d" % (cid + 1)],
+                                  passage_log=win["passage_log"] + ["c%d" % (cid + 1)],
                                   parent=win)
 
         win["click_at_data"] = click_at_data  # hook for automation/testing
@@ -1853,6 +2164,7 @@ class StrandPassageApp(object):
         panel = _make_figure_panel(fig, ax, left, tk, ttk, click_at_data,
                                    hover_test=hover_test,
                                    backend=self.gui_backend)
+        win["panel"] = panel
 
         # properties read-out (with a vertical scrollbar)
         ttk.Label(right, text=title, font=("TkDefaultFont", 10, "bold")
@@ -1866,6 +2178,7 @@ class StrandPassageApp(object):
         scroll.config(command=report.yview)
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
         report.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        win["report"] = report
 
         row = ttk.Frame(right)
         row.pack(anchor="w", pady=4)
@@ -1875,10 +2188,55 @@ class StrandPassageApp(object):
         ttk.Button(row, text="Save SVG",
                    command=lambda: self._save_view(fig, step_index, "svg")
                    ).grid(row=0, column=1, padx=2)
+        ttk.Button(row, text="Simplify",
+                   command=lambda: simplify_this()
+                   ).grid(row=0, column=2, padx=2)
         if not is_root:
             ttk.Button(row, text="Close window",
                        command=lambda: self._close_window(win)
-                       ).grid(row=0, column=2, padx=2)
+                       ).grid(row=0, column=3, padx=2)
+
+        def redraw_window():
+            # DT labels are shown for any pristine DT drawing (original, direct
+            # after-passage, or SnapPy-simplified), unless the drawing session
+            # explicitly hides them.
+            win["click_targets"] = E.render(
+                win["diagram"], ax, show_crossing_ids=True, show_dt_labels=True,
+                drawing_options=self._current_drawing_options())
+            win["hit_radius"] = _hit_radius(win["click_targets"])
+            ax.set_title("click a crossing to pass a strand through it",
+                         fontsize=10, color="0.35")
+            panel["draw_idle"]()
+            report.configure(state="normal")
+            report.delete("1.0", tk.END)
+            report.insert(
+                tk.END,
+                "Drawing module: %s\nDisplay: %s\nLayout: %s\nSession: %s\n\n%s"
+                % (getattr(D, "__name__", "?"), panel["name"],
+                   self.drawing_options.get("layout", "unknown"),
+                   self.drawing_session_path or "(V4.0 defaults)",
+                   properties_text(
+                       win["diagram"], win["note"], win["snap"],
+                       win["passage_log"],
+                       use_snappy_global=self.snappy_var.get())))
+            report.configure(state="disabled")
+
+        def simplify_this():
+            if not win["alive"]:
+                return
+            bt_rounds, bt_steps = self._current_backtrack()
+            try:
+                simplified, snote, ssnap = simplify_current_diagram(
+                    win["diagram"], negative_even=self.negative_even,
+                    use_snappy_global=self.snappy_var.get(),
+                    backtrack_rounds=bt_rounds, backtrack_steps=bt_steps)
+            except Exception as exc:  # noqa: BLE001
+                self._toast(container, "Simplify failed: %s" % exc)
+                return
+            win["diagram"] = simplified
+            win["note"] = snote
+            win["snap"] = ssnap
+            redraw_window()
 
         # hint bar
         ttk.Label(host, relief="groove", anchor="w", padding=(6, 2),
@@ -1887,21 +2245,7 @@ class StrandPassageApp(object):
                         "branch a new window.")
                   ).pack(side=tk.BOTTOM, fill=tk.X)
 
-        # draw + fill report; DT labels are shown for any pristine DT drawing
-        # (original, direct after-passage, or SnapPy-simplified).
-        win["click_targets"] = E.render(
-            diagram, ax, show_crossing_ids=True, show_dt_labels=True)
-        win["hit_radius"] = _hit_radius(win["click_targets"])
-        ax.set_title("click a crossing to pass a strand through it",
-                     fontsize=10, color="0.35")
-        panel["draw_idle"]()
-        report.insert(
-            tk.END,
-            "Drawing module: %s\nDisplay: %s\n\n%s"
-            % (getattr(D, "__name__", "?"), panel["name"],
-               properties_text(diagram, note, snap, passage_log,
-                               use_snappy_global=self.snappy_var.get())))
-        report.configure(state="disabled")
+        redraw_window()
 
         if not is_root:
             container.protocol("WM_DELETE_WINDOW",
@@ -1938,7 +2282,8 @@ def run_gui(dt_string=None, negative_even="over", use_snappy_global=True,
             gui_backend="auto", backtrack_enabled=True,
             backtrack_rounds=DEFAULT_BACKTRACK_ROUNDS,
             backtrack_steps=DEFAULT_BACKTRACK_STEPS,
-            crossing_order=None, crossing_map=None):
+            crossing_order=None, crossing_map=None, crossing_input=None,
+            drawing_options=None, drawing_session_path=None):
     import tkinter as tk
     from tkinter import ttk
 
@@ -1953,14 +2298,17 @@ def run_gui(dt_string=None, negative_even="over", use_snappy_global=True,
                      backtrack_rounds=backtrack_rounds,
                      backtrack_steps=backtrack_steps,
                      crossing_order=crossing_order,
-                     crossing_map=crossing_map)
+                     crossing_map=crossing_map,
+                     crossing_input=crossing_input,
+                     drawing_options=drawing_options,
+                     drawing_session_path=drawing_session_path)
     root.mainloop()
 
 
 # --------------------------------------------------------------------------- #
 def main():
     ap = argparse.ArgumentParser(
-        prog="strand_passage_guiV3_8.py",
+        prog="strand_passage_guiV4_0.py",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description=(
             "Strand passage explorer V%s\n"
@@ -1977,24 +2325,28 @@ def main():
             % VERSION),
         epilog=(
             "examples:\n"
-            "  sage -python strand_passage_guiV3_8.py\n"
-            "  sage -python strand_passage_guiV3_8.py --dt \"DT: [(4,6,2)]\"\n"
-            "  sage -python strand_passage_guiV3_8.py --backtrack "
+            "  sage -python strand_passage_guiV4_0.py\n"
+            "  sage -python strand_passage_guiV4_0.py --dt \"DT: [(4,6,2)]\"\n"
+            "  sage -python strand_passage_guiV4_0.py --drawing-session dt_session.json\n"
+            "  sage -python strand_passage_guiV4_0.py --backtrack "
             "--backtrack-rounds 50 --backtrack-steps 25\n"
-            "  sage -python strand_passage_guiV3_8.py --nongui \\\n"
+            "  sage -python strand_passage_guiV4_0.py --nongui \\\n"
             "       --dt \"DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),"
             "(-20,-6,-18,-4)]\" \\\n"
             "       --out results.xlsx --backtrack --backtrack-rounds 50\n"
-            "  python3 strand_passage_guiV3_8.py --dt \"DT: [(4,6,2)]\" "
+            "  python3 strand_passage_guiV4_0.py --dt \"DT: [(4,6,2)]\" "
             "--demo 2 1 --out chain.png\n"
-            "  python3 strand_passage_guiV3_8.py --gui-backend agg   "
+            "  python3 strand_passage_guiV4_0.py --gui-backend agg   "
             "# if TkAgg won't load\n"))
     ap.add_argument("--dt", default=None, metavar="STR",
                     help="signed DT code string, e.g. \"DT: [(4,6,2)]\" "
                          "(default: a built-in 4-component example)")
-    ap.add_argument("--negative-even", choices=["over", "under"], default="over",
+    ap.add_argument("--negative-even", choices=["over", "under"], default=None,
                     help="convention for a negative even DT label: the even "
                          "visit is the 'over' (default) or 'under' strand")
+    ap.add_argument("--drawing-session", default=None, metavar="PATH",
+                    help="load drawing settings from a JSON session saved by "
+                         "draw_dt_original_labelsV4_5.py")
     ap.add_argument("--nongui", action="store_true",
                     help="write the two-pass strand-passage spreadsheet (.xlsx) "
                          "and overview SVG, then exit (needs SnapPy + pandas)")
@@ -2016,12 +2368,16 @@ def main():
     ap.add_argument("--crossing-map", default=None,
                     help="alternative explicit map such as 'c1=1,c7=3'; "
                          "do not combine with --crossing-order")
+    ap.add_argument("--crossing-labels", default=None,
+                    help="combined crossing-label input: assignment text such "
+                         "as 'c1=1,c7=3' is detected as a crossing map; "
+                         "otherwise it is detected as a crossing order")
     ap.add_argument("--backtrack", action="store_true",
                     help="(kept for compatibility; backtrack is ON by default "
-                         "in V3.8 -- use --no-backtrack to disable)")
+                         "in V4.0 -- use --no-backtrack to disable)")
     ap.add_argument("--no-backtrack", action="store_true",
                     help="disable backtrack-assisted SnapPy simplification "
-                         "(V3.8 enables it by default)")
+                         "(V4.0 enables it by default)")
     ap.add_argument("--backtrack-rounds", type=int, metavar="N",
                     default=DEFAULT_BACKTRACK_ROUNDS,
                     help="backtrack rounds (default %d)"
@@ -2032,8 +2388,37 @@ def main():
                          % DEFAULT_BACKTRACK_STEPS)
     args = ap.parse_args()
 
+    session = None
+    if args.drawing_session:
+        try:
+            session = load_drawing_session(args.drawing_session)
+        except Exception as exc:  # noqa: BLE001
+            print("[error] could not load drawing session %s: %s"
+                  % (args.drawing_session, exc), file=sys.stderr)
+            sys.exit(2)
+
+    drawing_options = normalize_drawing_options(
+        session.get("drawing_options") if session else None)
+    session_path = session.get("path") if session else None
+    session_dt = session.get("dt") if session else None
+    session_negative_even = session.get("negative_even") if session else None
+    session_crossing_input = session.get("crossing_input") if session else None
+    crossing_input = args.crossing_labels
+    if crossing_input is None and not (args.crossing_order or args.crossing_map):
+        crossing_input = session_crossing_input
+    try:
+        _split_crossing_display_input(
+            crossing_input=crossing_input,
+            crossing_order=args.crossing_order,
+            crossing_map=args.crossing_map,
+        )
+    except Exception as exc:  # noqa: BLE001
+        print("[error] invalid crossing-label input: %s" % exc, file=sys.stderr)
+        sys.exit(2)
+
     use_snappy_global = not args.no_snappy_global
-    backtrack_enabled = not args.no_backtrack           # ON by default (V3.8)
+    negative_even = args.negative_even or session_negative_even or "over"
+    backtrack_enabled = not args.no_backtrack           # ON by default (V4.0)
     backtrack_rounds = args.backtrack_rounds if backtrack_enabled else 0
     backtrack_steps = args.backtrack_steps
 
@@ -2042,34 +2427,42 @@ def main():
     warn_if_no_sage()
 
     if args.nongui:
-        dt = args.dt or DEFAULT_DT
+        dt = args.dt or session_dt or DEFAULT_DT
         rc = run_nongui(dt, args.out or "strand_passage_results.xlsx",
-                        negative_even=args.negative_even,
+                        negative_even=negative_even,
                         backtrack_rounds=backtrack_rounds,
                         backtrack_steps=backtrack_steps,
                         crossing_order=args.crossing_order,
-                        crossing_map=args.crossing_map)
+                        crossing_map=args.crossing_map,
+                        crossing_input=crossing_input,
+                        drawing_options=drawing_options,
+                        drawing_session_path=session_path)
         sys.exit(rc)
 
     if args.demo is not None:
-        dt = args.dt or "DT: [(4,6,2)]"
-        out = args.out or "strand_passage_chain_v3_8.png"
-        render_chain(dt, args.demo, out, negative_even=args.negative_even,
+        dt = args.dt or session_dt or "DT: [(4,6,2)]"
+        out = args.out or "strand_passage_chain_v4_0.png"
+        render_chain(dt, args.demo, out, negative_even=negative_even,
                      use_snappy_global=use_snappy_global,
                      backtrack_rounds=backtrack_rounds,
                      backtrack_steps=backtrack_steps,
                      crossing_order=args.crossing_order,
-                     crossing_map=args.crossing_map)
+                     crossing_map=args.crossing_map,
+                     crossing_input=crossing_input,
+                     drawing_options=drawing_options)
         print("[ok] wrote", out)
         return
 
-    run_gui(dt_string=args.dt, negative_even=args.negative_even,
+    run_gui(dt_string=args.dt or session_dt, negative_even=negative_even,
             use_snappy_global=use_snappy_global, gui_backend=args.gui_backend,
             backtrack_enabled=backtrack_enabled,
             backtrack_rounds=args.backtrack_rounds,
             backtrack_steps=args.backtrack_steps,
             crossing_order=args.crossing_order,
-            crossing_map=args.crossing_map)
+            crossing_map=args.crossing_map,
+            crossing_input=crossing_input,
+            drawing_options=drawing_options,
+            drawing_session_path=session_path)
 
 
 if __name__ == "__main__":

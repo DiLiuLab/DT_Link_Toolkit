@@ -26,12 +26,14 @@ Development notes and version history are in [DEVELOPMENT_LOG.md](DEVELOPMENT_LO
 ## Repository Layout
 
 ```text
-strand_passage_guiV3_8.py        Main entry point: GUI, --nongui, and --demo
-link_engine_v3_8.py              Diagram engine and SnapPy bridge
+strand_passage_guiV4_0.py        Main entry point: GUI, --nongui, and --demo
+link_engine_v4_0.py              Diagram engine and SnapPy bridge
 draw_dt_original_labelsV4_5.py   DT parser, layout, renderer, and standalone GUI
 check_two_dt.py                  Standalone SnapPy/Sage DT-comparison utility
 find_link_in_snappy.py           Search SnapPy link databases for DT matches
+score_diagramV2_0.py             Generate, deduplicate, score, and rank diagrams
 assets/strand_passage_icon.png   Optional window/task-menu icon
+assets/score_diagram_icon.png    Optional icon for the diagram scoring GUI
 bin/strand-passage               Convenience launcher
 requirements.txt                 Python package notes
 DEVELOPMENT_LOG.md               Development notes and version history
@@ -41,7 +43,7 @@ LICENSE                          MIT license
 Import chain:
 
 ```text
-strand_passage_guiV3_8 -> link_engine_v3_8 -> draw_dt_original_labelsV4_5
+strand_passage_guiV4_0 -> link_engine_v4_0 -> draw_dt_original_labelsV4_5
 ```
 
 ## Install
@@ -65,7 +67,7 @@ python3 -m pip install -r requirements.txt
 For full functionality, run with **Sage + SnapPy**:
 
 ```bash
-sage -python strand_passage_guiV3_8.py --help
+sage -python strand_passage_guiV4_0.py --help
 ```
 
 SnapPy is intentionally not pinned in `requirements.txt`, because this project
@@ -76,20 +78,20 @@ is intended to use the SnapPy/Sage installation on the research machine.
 Interactive GUI:
 
 ```bash
-sage -python strand_passage_guiV3_8.py
-sage -python strand_passage_guiV3_8.py --dt "DT: [(4,6,2)]"
+sage -python strand_passage_guiV4_0.py
+sage -python strand_passage_guiV4_0.py --dt "DT: [(4,6,2)]"
 ```
 
 If the TkAgg backend is not available:
 
 ```bash
-python3 strand_passage_guiV3_8.py --gui-backend agg
+python3 strand_passage_guiV4_0.py --gui-backend agg
 ```
 
 Batch spreadsheet and overview SVG:
 
 ```bash
-sage -python strand_passage_guiV3_8.py --nongui \
+sage -python strand_passage_guiV4_0.py --nongui \
   --dt "DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]" \
   --out strand_passage_results.xlsx
 ```
@@ -117,27 +119,44 @@ If the path does not end in `.xlsx`, the script adds it first. For example,
 directory and basename of the spreadsheet path.
 
 Custom displayed crossing IDs use the same syntax as
-`draw_dt_original_labelsV4_5.py`:
+`draw_dt_original_labelsV4_5.py`.  V4.0 adds a combined
+`--crossing-labels` option: assignment-style text is detected as a crossing map,
+while a plain list is detected as crossing order.
 
 ```bash
-sage -python strand_passage_guiV3_8.py \
+sage -python strand_passage_guiV4_0.py \
   --dt "DT: [(4,6,2)]" \
-  --crossing-order "c1 c3 c2"
+  --crossing-labels "c1 c3 c2"
 ```
 
 For the built-in 14-crossing example, the crossing-order CLI option can be set
 as:
 
 ```bash
-sage -python strand_passage_guiV3_8.py \
-  --crossing-order "c1 c7 c14 c12 c3 c6 c9 c5 c11 c13 c4 c2 c10 c8"
+sage -python strand_passage_guiV4_0.py \
+  --crossing-labels "c1 c7 c14 c12 c3 c6 c9 c5 c11 c13 c4 c2 c10 c8"
 ```
 
-`--crossing-order` lists displayed crossing IDs in odd-label order
-`1,3,5,...`.  Alternatively, use `--crossing-map "c1=1,c3=3,c2=5"`.
-In the GUI, the same controls are available as `Crossing order` and
-`Crossing map`.  These labels affect the drawing and passage notes only; the
-internal strand-passage calculation still uses the underlying DT crossing ids.
+`--crossing-labels` lists displayed crossing IDs in odd-label order
+`1,3,5,...`.  Alternatively, use assignment text such as
+`--crossing-labels "c1=1,c3=3,c2=5"`.  The old `--crossing-order` and
+`--crossing-map` options still work. In the GUI, use the single
+`Crossing labels` field. These labels affect the drawing and passage notes only;
+the internal strand-passage calculation still uses the underlying DT crossing ids.
+
+Drawing settings:
+
+- V4.0 defaults strand-passage drawings to `shaped-tutte` with `tutte shape =
+  ellipse` and `tutte aspect = 1.0`.
+- In the GUI, click `Load drawing session` to load a JSON session saved by
+  `draw_dt_original_labelsV4_5.py`. The saved 2-D drawing settings then apply to
+  the root diagram and following strand-passage diagrams.
+- In batch/demo modes, use `--drawing-session path/to/session.json`. If the
+  session contains a DT code it is used when `--dt` is not supplied; explicit
+  `--dt` stays higher priority.
+- Each diagram window has a `Simplify` button. It simplifies that current diagram
+  with the active SnapPy/backtrack settings and refreshes the properties panel,
+  including Jones data when Sage/SnapPy can compute it.
 
 Spreadsheet columns to know:
 
@@ -170,7 +189,7 @@ Spreadsheet columns to know:
 Headless cascade figure:
 
 ```bash
-python3 strand_passage_guiV3_8.py --dt "DT: [(4,6,2)]" --demo 2 1 --out chain.png
+python3 strand_passage_guiV4_0.py --dt "DT: [(4,6,2)]" --demo 2 1 --out chain.png
 ```
 
 Standalone DT comparison utility:
@@ -203,6 +222,25 @@ numeric DT code, optional loose numeric DT code, and then meridian-preserving
 exterior identification for hyperbolic links. Use `--strict` to disable the
 loose numeric fallback. Input files may contain one DT code per line, or
 `label<TAB>DT_code`; output is a TSV table.
+
+Diagram scoring utility:
+
+```bash
+sage -python score_diagramV2_0.py --help
+sage -python score_diagramV2_0.py \
+  --dt "DT: [(4,6,2)]" \
+  --rounds 0 \
+  --checkpoint results/score_chain.jsonl \
+  --xlsx results/diagram_scores.xlsx \
+  --svg results/diagram_scores.svg \
+  --json results/diagram_scores.json
+```
+
+With no arguments, `score_diagramV2_0.py` opens a small Tk GUI for configuring a
+run. The tool generates alternative simplified DT diagrams of the same link,
+deduplicates signed diagram isomorphs, scores each representative, and writes an
+Excel workbook plus optional SVG/JSON reports. Long runs can use
+`--generate-only --max-seconds N` and resume from the checkpoint.
 
 ## Pull Updates
 
@@ -237,7 +275,7 @@ The launcher uses `sage -python` when Sage is available, and falls back to
 To make the Python scripts directly executable on macOS/Linux:
 
 ```bash
-chmod +x strand_passage_guiV3_8.py
+chmod +x strand_passage_guiV4_0.py
 chmod +x draw_dt_original_labelsV4_5.py
 chmod +x check_two_dt.py
 chmod +x find_link_in_snappy.py
@@ -246,13 +284,13 @@ chmod +x find_link_in_snappy.py
 Then they can be run as:
 
 ```bash
-./strand_passage_guiV3_8.py --gui-backend agg
+./strand_passage_guiV4_0.py --gui-backend agg
 ```
 
 For SnapPy/Jones functionality, prefer:
 
 ```bash
-sage -python ./strand_passage_guiV3_8.py
+sage -python ./strand_passage_guiV4_0.py
 ```
 
 ## Notes
@@ -263,7 +301,8 @@ sage -python ./strand_passage_guiV3_8.py
 - A negative even DT label means the even visit is the over strand by default.
   Use `--negative-even under` for the opposite convention.
 - Generated outputs such as `*.xlsx`, `*_overview*.svg`, `*.xyz`,
-  `link_diagram.*`, and cascade PNGs are ignored by Git.
+  `link_diagram.*`, `chain*.jsonl`, `diagram_scores*`, `canonical_cache.json`,
+  `results/`, and cascade PNGs are ignored by Git.
 - The `--nongui` overview SVG keeps labels and captions as editable text using
   Arial, so text can be selected and edited in Illustrator/Inkscape. V3.8 also
   enlarges the surrounding label boxes/circles so the exported SVG better

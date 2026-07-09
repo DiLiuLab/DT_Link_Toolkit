@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-link_engine_v3_8.py  (V3.8)
+link_engine_v4_0.py  (V4.0)
 ======================
 
 Link-diagram engine for strand-passage experiments.
 
-What is new in V3.8
+What is new in V4.0
 -------------------
-* Version-aligned engine module for ``strand_passage_guiV3_8.py``.  The engine
-  imports the V4.5 drawing helper and preserves its false-crossing
-  visualization behavior when rendering strand-passage diagrams.
+* Version-aligned engine module for ``strand_passage_guiV4_0.py``.
+* The default 2-D drawing style for strand-passage views is now
+  ``shaped-tutte`` with an ellipse boundary and manual aspect 1.0.
+* ``render`` accepts drawing-option dictionaries loaded from
+  ``draw_dt_original_labelsV4_5.py`` session files, so GUI, demo, and overview
+  diagrams can share the helper's saved layout/line/gap/label settings.
 
 What is new in V3.7
 -------------------
@@ -74,7 +77,7 @@ What is new in V3.3
 
 Drawing backend
 ---------------
-V3.8 imports ``draw_dt_original_labelsV4_5.py`` for the 2-D DT
+V4.0 imports ``draw_dt_original_labelsV4_5.py`` for the 2-D DT
 parser/model/layout/render helpers.
 """
 
@@ -94,7 +97,7 @@ import networkx as nx
 os.environ.setdefault("MPLBACKEND", "Agg")
 import draw_dt_original_labelsV4_5 as D
 
-VERSION = "3.8"
+VERSION = "4.0"
 DRAWING_MODULE_NAME = getattr(D, "__name__", "draw_dt_original_labelsV4_5")
 
 # Defaults for the backtrack-assisted SnapPy simplification (ON by default in
@@ -102,12 +105,44 @@ DRAWING_MODULE_NAME = getattr(D, "__name__", "draw_dt_original_labelsV4_5")
 DEFAULT_BACKTRACK_ROUNDS = 200
 DEFAULT_BACKTRACK_STEPS = 30
 
-# 2-D drawing defaults: mirror the standalone helper so V3.2 draws links exactly
-# as ``draw_dt_original_labelsV4_5.py`` does by default.  These fall back to the
-# helper's own module-level constants when present.
-DEFAULT_LAYOUT = getattr(D, "DEFAULT_LAYOUT", "tutte")
+# 2-D drawing defaults for the strand-passage app.  The helper itself still has
+# its own standalone defaults; V4.0 intentionally uses a round shaped-Tutte
+# boundary for GUI, demo, and overview drawings unless a helper session overrides
+# these values.
+DEFAULT_LAYOUT = "shaped-tutte"
 DEFAULT_Y_DIRECTION = getattr(D, "DEFAULT_Y_DIRECTION", "top-to-bottom")
 DEFAULT_ROTATE = float(getattr(D, "DEFAULT_ROTATE", 0.0))
+DEFAULT_TUTTE_SHAPE = "ellipse"
+DEFAULT_TUTTE_ASPECT = 1.0
+
+DRAWING_OPTION_DEFAULTS: Dict[str, Any] = {
+    "layout": DEFAULT_LAYOUT,
+    "y_direction": DEFAULT_Y_DIRECTION,
+    "rotate": DEFAULT_ROTATE,
+    "tutte_shape": DEFAULT_TUTTE_SHAPE,
+    "tutte_aspect": DEFAULT_TUTTE_ASPECT,
+    "tutte_corner_radius": 0.25,
+    "tutte_decompress": 0.0,
+    "tutte_com_expand": 0.0,
+    "tutte_auto_aspect": False,
+    "tutte_auto_orient": True,
+    "tutte_orient": 0.0,
+    "hole_ratio": 0.4,
+    "hole_swap": False,
+    "invert_ring": False,
+    "ring_tilt": 90.0,
+    "min_sep": 0.0,
+    "show_tutte_outline": False,
+    "show_tutte_pca": False,
+    "show_crossing_ids": True,
+    "color_crossing_ids_by_overstrand": True,
+    "hide_labels": False,
+    "no_arrows": False,
+    "font_size": 7.0,
+    "crossing_id_font_size": 6.0,
+    "line_width": 2.0,
+    "gap_frac": 0.025,
+}
 
 
 def dt_to_string(dt_code: Sequence[Sequence[int]]) -> str:
@@ -526,21 +561,121 @@ def color_for(global_comp_index, palette=None):
     return palette[global_comp_index % len(palette)]
 
 
-def _layout_like_helper(model, G):
+def default_drawing_options() -> Dict[str, Any]:
+    """Return a fresh copy of the strand-passage drawing defaults."""
+    return dict(DRAWING_OPTION_DEFAULTS)
+
+
+def _drawing_options(options: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
+    """Merge caller/session drawing options onto the project defaults."""
+    merged = default_drawing_options()
+    if options:
+        for key, value in dict(options).items():
+            if key in merged and value is not None:
+                merged[key] = value
+    return merged
+
+
+def _bool_option(opts: Mapping[str, Any], key: str) -> bool:
+    return bool(opts.get(key, DRAWING_OPTION_DEFAULTS.get(key, False)))
+
+
+def _float_option(opts: Mapping[str, Any], key: str) -> float:
+    try:
+        return float(opts.get(key, DRAWING_OPTION_DEFAULTS.get(key, 0.0)))
+    except Exception:  # noqa: BLE001
+        return float(DRAWING_OPTION_DEFAULTS.get(key, 0.0))
+
+
+def _layout_like_helper(model, G, drawing_options=None):
     """Lay out one block exactly as the drawing helper's default 2-D pipeline.
 
     This mirrors ``draw_dt_original_labelsV4_5.prepare_diagram``: compute the
-    helper's default layout, apply its default top-to-bottom orientation and
-    rotation, and keep the requested layout even if it introduces false
-    crossings.  The helper draws false crossings with local gap masks and warnings,
-    so the engine must not silently replace the layout with ``planar``.
+    requested layout, apply y-direction/rotation, and keep the requested layout
+    even if it introduces false crossings.  The helper draws false crossings with
+    local gap masks and warnings, so the engine must not silently replace the
+    layout with ``planar``.
     """
-    P = D.compute_positions(G, DEFAULT_LAYOUT)
+    opts = _drawing_options(drawing_options)
+    layout = str(opts.get("layout") or DEFAULT_LAYOUT)
+    tutte_opts = {
+        "shape": opts.get("tutte_shape", DEFAULT_TUTTE_SHAPE),
+        "aspect": _float_option(opts, "tutte_aspect"),
+        "corner_radius": _float_option(opts, "tutte_corner_radius"),
+        "decompress": _float_option(opts, "tutte_decompress"),
+        "com_expand": _float_option(opts, "tutte_com_expand"),
+        "auto_aspect": _bool_option(opts, "tutte_auto_aspect"),
+        "orient": _float_option(opts, "tutte_orient"),
+        "auto_orient": _bool_option(opts, "tutte_auto_orient"),
+        "hole_ratio": _float_option(opts, "hole_ratio"),
+        "hole_swap": _bool_option(opts, "hole_swap"),
+        "ring_tilt": _float_option(opts, "ring_tilt"),
+        "invert_ring": _bool_option(opts, "invert_ring"),
+    }
+    guides: Dict[str, Any] = {}
     try:
-        P = D.transform_positions(P, DEFAULT_Y_DIRECTION, DEFAULT_ROTATE)
+        P = D.compute_positions(G, layout, tutte_opts=tutte_opts, meta_out=guides)
+    except TypeError:
+        P = D.compute_positions(G, layout)
+        guides = {}
+    try:
+        P = D.nudge_min_separation(P, G, _float_option(opts, "min_sep"))
+    except Exception:  # noqa: BLE001
+        pass
+    guide_center = None
+    if guides and P:
+        try:
+            guide_center = np.mean(list(P.values()), axis=0)
+        except Exception:  # noqa: BLE001
+            guide_center = None
+    try:
+        P = D.transform_positions(
+            P,
+            str(opts.get("y_direction") or DEFAULT_Y_DIRECTION),
+            _float_option(opts, "rotate"),
+        )
     except Exception:  # noqa: BLE001  (older helpers may lack transform_positions)
         pass
-    return P
+    if guides and guide_center is not None:
+        try:
+            guides = D._transform_tutte_guides(  # noqa: SLF001
+                guides,
+                guide_center,
+                str(opts.get("y_direction") or DEFAULT_Y_DIRECTION),
+                _float_option(opts, "rotate"),
+            )
+        except Exception:  # noqa: BLE001
+            guides = {}
+    return P, guides
+
+
+def _scale_guides_for_render(guides, centers, origin=(0.0, 0.0), scale_to=None):
+    """Apply render_diagram's origin/scale transform to helper guide geometry."""
+    if not guides:
+        return {}
+    cvals = np.array(list(centers.values())) if centers else np.zeros((1, 2))
+    span = float(np.linalg.norm(cvals.max(axis=0) - cvals.min(axis=0))) or 1.0
+    sc = 1.0 if scale_to is None else (float(scale_to) / span)
+    off = np.asarray(origin, float)
+
+    def transform_value(value):
+        if value is None:
+            return None
+        if isinstance(value, np.ndarray):
+            return off + sc * np.asarray(value, float)
+        if isinstance(value, (list, tuple)):
+            try:
+                arr = np.asarray(value, float)
+                if arr.ndim >= 2 and arr.shape[-1] == 2:
+                    return off + sc * arr
+            except Exception:  # noqa: BLE001
+                pass
+        return value
+
+    out = {}
+    for key, value in guides.items():
+        out[key] = transform_value(value)
+    return out
 
 
 def _display_crossing_ids_for_model(diagram, model):
@@ -565,7 +700,7 @@ def _display_crossing_ids_for_model(diagram, model):
 
 
 def render(diagram, ax, show_crossing_ids=True, show_dt_labels=False,
-           palette=None, title=None):
+           palette=None, title=None, drawing_options=None):
     """
     Draw ``diagram`` onto axis ``ax``.  Colours are keyed to original component
     identities via ``diagram.component_colors``.
@@ -574,6 +709,7 @@ def render(diagram, ax, show_crossing_ids=True, show_dt_labels=False,
     """
     ax.clear()
     palette = palette if palette is not None else D.DEFAULT_PALETTE
+    opts = _drawing_options(drawing_options)
     blocks = diagram._blocks()
 
     laid = []
@@ -604,18 +740,39 @@ def render(diagram, ax, show_crossing_ids=True, show_dt_labels=False,
         else:
             do_labels = False
         G = D.build_gadget_graph(model)
-        P = _layout_like_helper(model, G)
+        P, guides = _layout_like_helper(model, G, opts)
         centers = D.crossing_centers(model, P)
         r, c = divmod(slot, ncols)
         origin = (c * tile, -r * tile)
+        scale_to = tile * 0.72
         color_of = (lambda li, model=model:
                     color_for(model["comp_color_index"][li], palette))
         _, cxy = D.render_diagram(
             ax, model, P, centers, color_of=color_of,
             crossing_ids=_display_crossing_ids_for_model(diagram, model),
-            show_labels=do_labels, show_crossing_ids=show_crossing_ids,
-            color_crossing_ids_by_overstrand=True,
-            arrows=True, origin=origin, scale_to=tile * 0.72)
+            show_labels=do_labels and not _bool_option(opts, "hide_labels"),
+            show_crossing_ids=(show_crossing_ids
+                               and _bool_option(opts, "show_crossing_ids")),
+            color_crossing_ids_by_overstrand=_bool_option(
+                opts, "color_crossing_ids_by_overstrand"),
+            arrows=not _bool_option(opts, "no_arrows"),
+            label_fontsize=_float_option(opts, "font_size"),
+            crossing_id_fontsize=_float_option(opts, "crossing_id_font_size"),
+            lw=_float_option(opts, "line_width"),
+            gap_frac=_float_option(opts, "gap_frac"),
+            origin=origin, scale_to=scale_to)
+        if (guides and hasattr(D, "_draw_tutte_guides")
+                and (_bool_option(opts, "show_tutte_outline")
+                     or _bool_option(opts, "show_tutte_pca"))):
+            try:
+                D._draw_tutte_guides(  # noqa: SLF001
+                    ax,
+                    _scale_guides_for_render(guides, centers, origin, scale_to),
+                    show_outline=_bool_option(opts, "show_tutte_outline"),
+                    show_pca=_bool_option(opts, "show_tutte_pca"),
+                )
+            except Exception:  # noqa: BLE001
+                pass
         for k, xy in cxy.items():
             click_targets[model["crossings"][k]["id"]] = xy
         slot += 1
