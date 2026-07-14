@@ -27,16 +27,17 @@ Development notes and version history are in [DEVELOPMENT_LOG.md](DEVELOPMENT_LO
 ## Repository Layout
 
 ```text
-strand_passage_guiV4_0.py        Main entry point: GUI, --nongui, and --demo
+DT_Link_Toolkit.py               Universal launcher for all tools below
+strand_passage_guiV4_0.py        Strand-passage explorer: GUI, --nongui, --demo
 link_engine_v4_0.py              Diagram engine and SnapPy bridge
 draw_dt_original_labelsV5_5.py   DT parser, layout, renderer, XYZ audit, and GUI
 audit_xyz.py                     Audit a 3D XYZ curve against its signed DT link
 check_two_dt.py                  Standalone SnapPy/Sage DT-comparison utility
 find_link_in_snappy.py           Search SnapPy link databases for DT matches
-score_diagramV2_0.py             Generate, deduplicate, score, and rank diagrams
+score_diagramV2_1.py             Generate, deduplicate, score, and rank diagrams
 assets/strand_passage_icon.png   Optional window/task-menu icon
 assets/score_diagram_icon.png    Optional icon for the diagram scoring GUI
-bin/strand-passage               Convenience launcher
+bin/strand-passage               Convenience launcher for the strand-passage GUI
 requirements.txt                 Python package notes
 DEVELOPMENT_LOG.md               Development notes and version history
 LICENSE                          MIT license
@@ -77,6 +78,37 @@ sage -python strand_passage_guiV4_0.py --help
 
 SnapPy is intentionally not pinned in `requirements.txt`, because this project
 is intended to use the SnapPy/Sage installation on the research machine.
+
+## Launcher
+
+`DT_Link_Toolkit.py` is a single entry point for all the tools. It runs each one
+under `sage -python` when Sage is available and falls back to `python3`.
+
+```bash
+sage -python DT_Link_Toolkit.py <tool> [tool arguments...]
+```
+
+The tools are:
+
+```text
+draw             DT diagram drawing and 3-D XYZ export
+strand-passage   Strand-passage explorer (GUI / --nongui / --demo)
+score            Diagram generation, deduplication, and scoring
+find             Search SnapPy databases for a DT match
+```
+
+Anything after the tool name is forwarded to that tool, so
+`DT_Link_Toolkit.py draw --help` shows the drawing tool's own options. Run the
+launcher with no tool for an interactive menu, or `--list` to see the exact
+script file each tool currently resolves to.
+
+The launcher does not hard-code version numbers: for each tool it finds every
+matching `<name>*.py` in this directory and picks the highest version, so a newer
+script (for example a future `score_diagramV2_2.py`) is used automatically once
+added, with no edit to the launcher.
+
+The sections below show each tool invoked directly; every one can equally be run
+through the launcher.
 
 ## Run
 
@@ -282,8 +314,8 @@ loose numeric fallback. Input files may contain one DT code per line, or
 Diagram scoring utility:
 
 ```bash
-sage -python score_diagramV2_0.py --help
-sage -python score_diagramV2_0.py \
+sage -python score_diagramV2_1.py --help
+sage -python score_diagramV2_1.py \
   --dt "DT: [(4,6,2)]" \
   --rounds 0 \
   --checkpoint results/score_chain.jsonl \
@@ -292,7 +324,7 @@ sage -python score_diagramV2_0.py \
   --json results/diagram_scores.json
 ```
 
-With no arguments, `score_diagramV2_0.py` opens a small Tk GUI for configuring a
+With no arguments, `score_diagramV2_1.py` opens a small Tk GUI for configuring a
 run. The tool generates alternative simplified DT diagrams of the same link,
 deduplicates signed diagram isomorphs, scores each representative, and writes an
 Excel workbook plus optional SVG/JSON reports. Long runs can use
