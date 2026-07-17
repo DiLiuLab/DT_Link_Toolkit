@@ -51,6 +51,7 @@ def load_xyz(path):
 def link_from_curve(comps, rng):
     """Build a spherogram Link from closed 3D polylines via a random
     projection.  Returns None if the projection is degenerate."""
+    _load_topology_modules()
     # random orthonormal frame
     z = rng.normal(size=3); z /= np.linalg.norm(z)
     x = np.cross(z, rng.normal(size=3)); x /= np.linalg.norm(x)

@@ -9,6 +9,30 @@ Draw a smooth planar oriented link diagram from a signed Dowker-Thistlethwaite
 
 V5.5 changes
 ------------
+* 2D 'puncture' (outer-face) selection + tie reporting for the Tutte-family
+  layouts (tutte / shaped-tutte / holed-tutte).  Every boundary-pinned Tutte
+  layout must send one planar face to the OUTER (unbounded) region -- the sphere
+  is 'punctured' at that face and the diagram is laid flat around it.  The
+  largest face was chosen by ``max(faces, key=len)``, but when several faces
+  TIE for the largest boundary, plain ``max`` returned whichever the planar
+  embedding's face traversal reached first, so the punctured face -- and hence
+  the whole 2D drawing -- was unpredictable from run to run.  Now:
+  - the tie is DETECTED and REPORTED: the preview/CLI status log prints a
+    ``[puncture]`` line listing each tied face by the crossing IDs on its
+    boundary (e.g. ``c1+c3+c5``) and which one is in use, and the GUI shows the
+    same as a live note beneath a new 'puncture face' field;
+  - the tie is broken DETERMINISTICALLY (canonical smallest crossing-ID
+    signature) so a given DT + settings always draws the same way;
+  - the user can PIN a chosen face with ``--puncture-face c1,c3,c5`` (CLI) or the
+    'puncture face' field (GUI): enter the crossing IDs on the face's boundary;
+    blank/'auto' keeps the canonical largest face.  A non-tied face's signature
+    is also accepted.  (On holed-tutte's kamada wreath path the selection is
+    applied only when the chosen face is one of the ring's encircling faces; the
+    report notes when it could not be honored there.)
+  New helpers ``select_outer_face`` / ``parse_puncture_selection`` /
+  ``_face_signature``; threaded through ``compute_positions`` via ``tutte_opts``
+  (``crossing_ids`` / ``puncture_face`` / ``puncture_report``) and surfaced in
+  the ``build_and_layout`` status stream and returned state.
 * 3D projection window ("3D view" tab / projection window) live navigation:
   - Left-drag is now a FREE TRACKBALL (Blender / UCSF ChimeraX / Maya tumble):
     the object rotates WITH the cursor about the SCREEN axes -- horizontal drag
@@ -523,6 +547,7 @@ GUI_HELP_TEXT = {
     "negative_even": "DT sign convention. Default: a negative even DT label means the even-labeled visit is over, matching the common Sage/KnotTheory convention. Choose 'under' for the opposite convention.",
     "layout": "2D preview/image layout. tutte is usually smooth and clean; shaped-tutte pins the Tutte boundary to a chosen shape (see tutte shape); holed-tutte pins two faces (outer + auto-picked central hole) to the outer/inner outlines of a holed shape (ring/annulus) so the diagram wraps around a central hole; sphere-stereo lays the diagram out on the unit sphere (3D Kamada-Kawai, as the 3D XYZ pipeline) and stereographically projects it from the pole farthest from all strands -- the method of choice for links whose rings lie in near-orthogonal planes (e.g. Edwards-Venn AM5), which collapse in boundary-pinned layouts (the pole's face becomes the outer region; combine with relax passes / min separation); planar is safest; spring and kamada are aesthetic force-directed alternatives that are audited for false crossings.",
     "tutte_shape": "Boundary shape for the shaped-tutte and holed-tutte layouts: circle, ellipse, rectangle, or rounded-rectangle. All shapes are convex, so the Tutte solve stays valid. For holed-tutte this is the shape of both the outer and inner ring outlines.",
+    "puncture_face": "Tutte-family layouts (tutte / shaped-tutte / holed-tutte) must send one planar face to the OUTER (unbounded) region -- geometrically the sphere is 'punctured' at that face and the diagram is laid flat around it. The largest face is used by default; when several faces tie for the largest boundary the pick is otherwise arbitrary (it depends on the internal face-traversal order), so the drawing could jump between runs. Enter the crossing IDs on the boundary of the face you want punctured, e.g. c1,c3,c5 -- the note below and the preview log list the tie faces to choose from. Blank or 'auto' keeps the canonical largest face; a non-tied face's signature is also accepted to pin it explicitly. (On holed-tutte's kamada wreath path a selection is applied only when the chosen face is one of the ring's encircling faces.)",
     "hole_ratio": "Holed-tutte inner (hole) outline size as a fraction of the outer outline, in (0,1). Smaller values give a bigger hole/thinner ring wall; larger values give a small hole. Only used when layout is holed-tutte. Default: 0.4.",
     "hole_swap": "Holed-tutte: swap which of the two chosen boundary FACES is pinned to the OUTER outline and which to the INNER (hole) outline, then re-solve. This is a structural change (a different face ends up on the rim), NOT a simple inside-out flip -- for that, use 'invert ring'. Only used when layout is holed-tutte.",
     "invert_ring": "Holed-tutte: turn the ring inside-out (invert inner/outer outlines).  It reflects every crossing's radius about the ring's mid-line, so whatever is currently near the inner hole ends up on the outside and vice versa -- the same diagram, flipped radially (the mid-line curve is unchanged).  Unlike 'swap inner/outer face' (which re-solves with the two boundary faces exchanged), this keeps the layout and just flips it. Only used when layout is holed-tutte.",
@@ -958,6 +983,166 @@ def planar_faces(emb):
     return faces
 
 
+# --------------------------------------------------------------------------- #
+#  Outer-face ('puncture') selection for the Tutte-family 2D layouts.
+#
+#  Every boundary-pinned Tutte layout must send one planar face to the outer
+#  (unbounded) region -- geometrically the sphere is *punctured* at that face
+#  and the diagram is laid flat around it.  The natural choice is the largest
+#  face, ``max(faces, key=len)``.  When several faces tie for the maximum
+#  boundary length, plain ``max`` returns whichever the planar-embedding
+#  traversal happened to reach first, so the punctured face -- and hence the
+#  whole 2D drawing -- was unpredictable from run to run.  The helpers below
+#  detect such ties, describe each tied face by the crossing IDs on its
+#  boundary, break the tie deterministically, and let the caller pin a chosen
+#  tie face by its crossing-ID signature.
+# --------------------------------------------------------------------------- #
+def _crossing_id_sort_key(cid):
+    """Sort a displayed crossing ID such as 'c10' numerically, not lexically."""
+    m = re.match(r"[cC]?(\d+)", str(cid))
+    return (0, int(m.group(1))) if m else (1, str(cid))
+
+
+def _face_crossing_indices(face):
+    """Sorted internal crossing indices touched by a face's corner nodes.
+
+    Crossing-corner nodes are ``(k, 'in_o'|'in_e'|'out_o'|'out_e')``; the
+    degree-2 traversal midpoints are ``('seg', p)``.  Only the corners carry a
+    crossing index ``k``, so the segment nodes are ignored.
+    """
+    ks = set()
+    for v in face:
+        if (isinstance(v, tuple) and len(v) == 2
+                and isinstance(v[0], (int, np.integer))
+                and isinstance(v[1], str)):
+            ks.add(int(v[0]))
+    return sorted(ks)
+
+
+def _face_signature(face, crossing_ids=None):
+    """Human-readable crossing-ID signature of a face, ordered by crossing index.
+
+    Returns a tuple of displayed IDs such as ``('c1', 'c3', 'c5')`` (using the
+    supplied ``crossing_ids`` map when given, else the internal 1-based
+    ``cN``).  Two faces bounded by the same crossings share a signature.
+    """
+    labels = []
+    for k in _face_crossing_indices(face):
+        if crossing_ids is not None and 0 <= k < len(crossing_ids):
+            labels.append(str(crossing_ids[k]))
+        else:
+            labels.append("c%d" % (k + 1))
+    return tuple(labels)
+
+
+def _format_face_signature(sig):
+    return "+".join(sig) if sig else "(no crossings)"
+
+
+def parse_puncture_selection(text):
+    """Parse a user puncture-face selection into a frozenset of ``cN`` tokens.
+
+    Accepts blank / ``auto`` / ``default`` (-> ``None`` = pick the canonical
+    largest face) or a list of crossing IDs in any of the usual separators,
+    e.g. ``'c1,c3,c5'``, ``'1 3 5'`` or ``'c1+c3+c5'``.
+    """
+    if text is None:
+        return None
+    s = str(text).strip()
+    if not s or s.lower() in ("auto", "default", "largest", "none"):
+        return None
+    ids = set()
+    for tok in re.split(r"[\s,;+]+", s):
+        if not tok:
+            continue
+        try:
+            ids.add(_token_to_crossing_id(tok))
+        except ValueError:
+            continue
+    return frozenset(ids) if ids else None
+
+
+def select_outer_face(faces, crossing_ids=None, prefer=None,
+                      report_out=None, layout_name=""):
+    """Pick the outer ('punctured') face for a Tutte-family layout.
+
+    ``faces`` is the list of planar faces (each a list of graph nodes).  The
+    largest face is chosen; ties for the maximum length are broken canonically
+    (smallest crossing-index signature) so the result is reproducible.  When
+    ``prefer`` (a frozenset of ``cN`` tokens, see ``parse_puncture_selection``)
+    matches a face's crossing-ID signature, that face is used instead.
+
+    When ``report_out`` is a list, one dict describing the tie and the choice is
+    appended (consumed by the CLI status log and the GUI note).  Returns the
+    chosen face (a list of nodes), or ``None`` when ``faces`` is empty.
+    """
+    if not faces:
+        return None
+
+    def _sig_key(f):
+        ks = _face_crossing_indices(f)
+        return (len(ks), tuple(ks))
+
+    max_len = max(len(f) for f in faces)
+    tied = [f for f in faces if len(f) == max_len]
+    tied_sorted = sorted(tied, key=_sig_key)
+    tied_sigs = [_face_signature(f, crossing_ids) for f in tied_sorted]
+
+    chosen = tied_sorted[0]
+    chosen_sig = tied_sigs[0]
+    requested = None
+    matched = None
+    note = ""
+
+    if prefer:
+        want = frozenset(prefer)
+        requested = "+".join(sorted(want, key=_crossing_id_sort_key))
+        exact_tied = [(f, s) for f, s in zip(tied_sorted, tied_sigs)
+                      if frozenset(s) == want]
+        if exact_tied:
+            chosen, chosen_sig = exact_tied[0]
+            matched = True
+            if len(exact_tied) > 1:
+                note = ("ambiguous signature (%d faces share it); used first"
+                        % len(exact_tied))
+        else:
+            all_sorted = sorted(faces, key=_sig_key)
+            all_sigs = [_face_signature(f, crossing_ids) for f in all_sorted]
+            exact_all = [(f, s) for f, s in zip(all_sorted, all_sigs)
+                         if frozenset(s) == want]
+            subset_all = [(f, s) for f, s in zip(all_sorted, all_sigs)
+                          if want.issubset(frozenset(s))]
+            if exact_all:
+                chosen, chosen_sig = exact_all[0]
+                matched = True
+                note = "pinned a non-largest face (size %d)" % len(chosen)
+            elif subset_all:
+                chosen, chosen_sig = subset_all[0]
+                matched = True
+                note = "matched by subset"
+                if len(chosen) != max_len:
+                    note += "; non-largest face (size %d)" % len(chosen)
+            else:
+                matched = False
+                note = "requested face not found; used canonical largest"
+
+    if report_out is not None:
+        report_out.append({
+            "layout": layout_name,
+            "faces_total": len(faces),
+            "max_size": int(max_len),
+            "tie": len(tied) > 1,
+            "candidates": [{"label": _format_face_signature(s), "ids": list(s)}
+                           for s in tied_sigs],
+            "chosen": _format_face_signature(chosen_sig),
+            "chosen_size": int(len(chosen)),
+            "requested": requested,
+            "matched": matched,
+            "note": note,
+        })
+    return chosen
+
+
 TUTTE_SHAPES = ("circle", "ellipse", "rectangle", "rounded-rectangle")
 # Shapes offered in the GUI / CLI.  'circle' and 'rectangle' are dropped as
 # redundant (an ellipse at aspect 1 is a circle; a rounded rectangle at corner
@@ -1190,7 +1375,9 @@ def _expand_about_center_of_mass(pos, G, outer_set, com_expand):
 
 
 def tutte_layout_connected(G, emb, shape="circle", aspect=1.0, corner_radius=0.0,
-                           decompress=0.0, auto_aspect=False, com_expand=0.0):
+                           decompress=0.0, auto_aspect=False, com_expand=0.0,
+                           puncture_face=None, crossing_ids=None,
+                           puncture_report=None):
     """
     Barycentric/Tutte embedding for one connected planar graph.
 
@@ -1210,7 +1397,10 @@ def tutte_layout_connected(G, emb, shape="circle", aspect=1.0, corner_radius=0.0
     if not faces:
         return {n: np.array([0.0, 0.0]) for n in G.nodes()}
 
-    outer = max(faces, key=len)
+    outer = select_outer_face(
+        faces, crossing_ids=crossing_ids, prefer=puncture_face,
+        report_out=puncture_report, layout_name="tutte",
+    )
     nodes = list(G.nodes())
     idx = {n: i for i, n in enumerate(nodes)}
     N = len(nodes)
@@ -1289,7 +1479,9 @@ def _shape_radius_interpolator(dense):
 
 def shaped_tutte_layout(G, emb, shape="ellipse", aspect=1.0, corner_radius=0.0,
                         decompress=0.0, auto_aspect=False, com_expand=0.0,
-                        orient_degrees=0.0, auto_orient=True, meta_out=None):
+                        orient_degrees=0.0, auto_orient=True, meta_out=None,
+                        puncture_face=None, crossing_ids=None,
+                        puncture_report=None):
     """
     Shaped-tutte layout in which the boundary shape's aspect (long) axis is tilted
     relative to the diagram's *intrinsic* elongation axis.
@@ -1313,7 +1505,10 @@ def shaped_tutte_layout(G, emb, shape="ellipse", aspect=1.0, corner_radius=0.0,
     if not faces:
         return {n: np.array([0.0, 0.0]) for n in G.nodes()}
 
-    outer = max(faces, key=len)
+    outer = select_outer_face(
+        faces, crossing_ids=crossing_ids, prefer=puncture_face,
+        report_out=puncture_report, layout_name="shaped-tutte",
+    )
     nodes = list(G.nodes())
     idx = {n: i for i, n in enumerate(nodes)}
     N = len(nodes)
@@ -1870,7 +2065,9 @@ def holed_tutte_layout(G, emb, shape="circle", aspect=1.0, corner_radius=0.0,
                        invert_ring=False, ring_equalize=0.0,
                        flatten_orthogonal=False, flatten_outer_radius=1.1,
                        flatten_separation=0.25, secondary_axis=False,
-                       wrap_axis=None, model=None, meta_out=None):
+                       wrap_axis=None, model=None, meta_out=None,
+                       puncture_face=None, crossing_ids=None,
+                       puncture_report=None):
     """
     'Holed' Tutte layout: two boundary cycles of the planar embedding are pinned,
     one to an outer outline and one to an inner (hole) outline of a holed shape
@@ -1905,7 +2102,14 @@ def holed_tutte_layout(G, emb, shape="circle", aspect=1.0, corner_radius=0.0,
     idx = {n: i for i, n in enumerate(nodes)}
     N = len(nodes)
 
-    outer = max(faces, key=len)
+    # Deterministic 'puncture' (outer-face) choice + tie report.  This is the
+    # face pinned to the OUTER outline in the probe-fallback path; on the
+    # kamada wreath path it is honored below only when it is an encircling face.
+    punctured_outer = select_outer_face(
+        faces, crossing_ids=crossing_ids, prefer=puncture_face,
+        report_out=puncture_report, layout_name="holed-tutte",
+    )
+    outer = punctured_outer
     outer_set = set(outer)
     m_out = len(outer)
 
@@ -1965,6 +2169,15 @@ def holed_tutte_layout(G, emb, shape="circle", aspect=1.0, corner_radius=0.0,
         ]
         if len(encircling) >= 2:
             outer_c = max(encircling, key=lambda f: _mean_radius(coords_k, ctr_k, f))
+            # Honor an explicit puncture selection on the kamada wreath path too,
+            # but only when the chosen face is one of the encircling ring faces
+            # (otherwise the ring would degenerate); a note is added below when
+            # the selection could not be applied here.
+            if puncture_face is not None and punctured_outer is not None:
+                for f in encircling:
+                    if set(f) == set(punctured_outer):
+                        outer_c = f
+                        break
             outer_cs = set(outer_c)
             hole_c = None
             best_r = None
@@ -1979,11 +2192,24 @@ def holed_tutte_layout(G, emb, shape="circle", aspect=1.0, corner_radius=0.0,
                 coords_p, outer, hole = coords_k, outer_c, hole_c
                 use_kamada = True
 
+    # If a puncture face was requested but the kamada ring geometry kept a
+    # different outer face, record that the selection did not take effect here.
+    if (use_kamada and puncture_face is not None and punctured_outer is not None
+            and set(outer) != set(punctured_outer)
+            and puncture_report):
+        _prev = puncture_report[-1].get("note", "")
+        puncture_report[-1]["note"] = (
+            (_prev + "; " if _prev else "")
+            + "holed-tutte kamada wreath kept its own outer face; puncture "
+            "selection not applied on this path (try 'swap inner/outer face')"
+        )
+        puncture_report[-1]["matched"] = False
+
     if coords_p is None:
-        # Circular-probe fallback: pin the largest face to a unit circle (this
-        # forces an annulus even when the link is not naturally wreath-like), and
-        # pick a central encircling hole face from that probe layout.
-        outer = max(faces, key=len)
+        # Circular-probe fallback: pin the selected/largest face to a unit circle
+        # (this forces an annulus even when the link is not naturally wreath-like),
+        # and pick a central encircling hole face from that probe layout.
+        outer = punctured_outer
         outer_set = set(outer)
         A_probe = _build_system(outer_set)
         probe_map = {}
@@ -1993,7 +2219,7 @@ def holed_tutte_layout(G, emb, shape="circle", aspect=1.0, corner_radius=0.0,
         Xp, Yp = _solve(A_probe, probe_map)
         coords_p = np.column_stack([Xp, Yp])
         ctr_probe = coords_p.mean(axis=0)
-        outer = max(faces, key=len)
+        outer = punctured_outer
         outer_set = set(outer)
         hole = _pick_hole_face(faces, outer_set, coords_p, idx, G, ctr_probe)
         if hole is None:
@@ -2001,6 +2227,8 @@ def holed_tutte_layout(G, emb, shape="circle", aspect=1.0, corner_radius=0.0,
                 G, emb, shape=shape, aspect=aspect, corner_radius=corner_radius,
                 auto_aspect=auto_aspect, orient_degrees=orient_degrees,
                 auto_orient=auto_orient, meta_out=meta_out,
+                puncture_face=puncture_face, crossing_ids=crossing_ids,
+                puncture_report=None,
             )
 
     shp = _normalize_tutte_shape(shape)
@@ -2657,6 +2885,13 @@ def compute_positions_connected(G, layout, tutte_opts=None, meta_out=None):
         )
 
     opts = tutte_opts or {}
+    # Shared 'puncture' (outer-face) selection controls for the Tutte-family
+    # layouts: a displayed crossing-ID map (for readable tie reports), an
+    # optional user-chosen face signature, and a list the layout appends its
+    # tie report to.
+    _cids = opts.get("crossing_ids")
+    _pface = opts.get("puncture_face")
+    _prep = opts.get("puncture_report")
     if layout == "holed-tutte":
         # 'holed-tutte' pins two faces (outer + auto-picked central hole) to the
         # outer/inner outlines of a holed shape and harmonically solves the ring.
@@ -2686,6 +2921,9 @@ def compute_positions_connected(G, layout, tutte_opts=None, meta_out=None):
                 wrap_axis=opts.get("wrap_axis"),
                 model=opts.get("model"),
                 meta_out=meta_out,
+                puncture_face=_pface,
+                crossing_ids=_cids,
+                puncture_report=_prep,
             )
         except np.linalg.LinAlgError:
             return {n: np.asarray(xy, float) for n, xy in nx.planar_layout(G).items()}
@@ -2709,6 +2947,9 @@ def compute_positions_connected(G, layout, tutte_opts=None, meta_out=None):
                 orient_degrees=float(opts.get("orient", 0.0)),
                 auto_orient=bool(opts.get("auto_orient", True)),
                 meta_out=meta_out,
+                puncture_face=_pface,
+                crossing_ids=_cids,
+                puncture_report=_prep,
             )
         except np.linalg.LinAlgError:
             # Some connected planar graphs are singular for this simple
@@ -2726,6 +2967,9 @@ def compute_positions_connected(G, layout, tutte_opts=None, meta_out=None):
                 decompress=float(opts.get("decompress", 0.0)),
                 auto_aspect=False,
                 com_expand=float(opts.get("com_expand", 0.0)),
+                puncture_face=_pface,
+                crossing_ids=_cids,
+                puncture_report=_prep,
             )
         except np.linalg.LinAlgError:
             return {n: np.asarray(xy, float) for n, xy in nx.planar_layout(G).items()}
@@ -6971,6 +7215,13 @@ def prepare_diagram(args, status_stream=None):
         # sphere-stereo needs the parsed model to trace the strand arcs; the
         # holed-tutte 'flatten orthogonal' option needs it to map components.
         "model": model,
+        # Puncture (outer-face) selection for the Tutte-family layouts: the
+        # displayed crossing-ID map makes the tie report readable, the parsed
+        # selection pins a specific face, and the report list is filled in by
+        # the layout so the CLI log and GUI note can show the tie faces.
+        "crossing_ids": crossing_ids,
+        "puncture_face": parse_puncture_selection(getattr(args, "puncture_face", None)),
+        "puncture_report": [],
     }
     # Auto-detect a rotational symmetry of the DT.  When present (and symmetry
     # enforcement is on), disable ring-equalize -- it redistributes the crossings
@@ -6982,6 +7233,41 @@ def prepare_diagram(args, status_stream=None):
         tutte_opts["ring_equalize"] = 0.0
     tutte_guides = {}
     P = compute_positions(G, args.layout, tutte_opts=tutte_opts, meta_out=tutte_guides)
+    # Report the outer-face ('puncture') choice for the Tutte-family layouts,
+    # including any tie among the largest faces so the user can pin one with
+    # --puncture-face (see select_outer_face).
+    puncture_report = tutte_opts.get("puncture_report") or []
+    if args.layout in ("tutte", "shaped-tutte", "holed-tutte"):
+        for rep in puncture_report:
+            cands = rep.get("candidates", [])
+            if rep.get("tie"):
+                out.write(
+                    "[puncture] %s: %d faces tie for the largest boundary "
+                    "(size %d); candidate puncture faces: %s. Using %s.\n"
+                    % (rep["layout"], len(cands), rep["max_size"],
+                       ", ".join(c["label"] for c in cands), rep["chosen"])
+                )
+            else:
+                out.write(
+                    "[puncture] %s: puncture face = %s (unique largest, size %d).\n"
+                    % (rep["layout"], rep["chosen"], rep["max_size"])
+                )
+            if rep.get("requested"):
+                if rep.get("matched"):
+                    out.write(
+                        "[puncture]   pinned requested face %s%s.\n"
+                        % (rep["requested"],
+                           (" (%s)" % rep["note"]) if rep.get("note") else "")
+                    )
+                else:
+                    out.write(
+                        "[puncture]   requested face %s not applied%s; kept %s.\n"
+                        % (rep["requested"],
+                           (" (%s)" % rep["note"]) if rep.get("note") else "",
+                           rep["chosen"])
+                    )
+            elif rep.get("note"):
+                out.write("[puncture]   note: %s.\n" % rep["note"])
     # V5.0: optional planarity-guarded relaxation that evens out the node/edge
     # distribution (0 passes = off), then the minimum-separation nudge.
     _relax_passes = int(getattr(args, "relax_passes", 0) or 0)
@@ -7043,6 +7329,7 @@ def prepare_diagram(args, status_stream=None):
         "used_layout": used_layout,
         "tutte_guides": tutte_guides,
         "aspect_value": tutte_guides.get("aspect_value") if tutte_guides else None,
+        "puncture_report": puncture_report,
     }
 
 
@@ -7536,6 +7823,23 @@ def build_arg_parser():
             "PCA elongation axis. 0 = shape long axis along the PCA axis. This "
             "re-stretches the layout in a new direction (it does not merely spin the "
             "finished picture). Only meaningful for non-circular shapes. Default: 0."
+        ),
+    )
+    ap.add_argument(
+        "--puncture-face",
+        dest="puncture_face",
+        default=None,
+        metavar="cA,cB,...",
+        help=(
+            "Tutte-family layouts (tutte / shaped-tutte / holed-tutte): pin a "
+            "specific planar face as the OUTER ('punctured') face -- the face "
+            "sent to infinity when the sphere is laid flat -- by the crossing "
+            "IDs on its boundary, e.g. --puncture-face c1,c3,c5. When several "
+            "faces tie for the largest boundary the pick is otherwise arbitrary "
+            "(it depends on the internal face-traversal order), so the drawing "
+            "could change unpredictably; this makes it explicit and "
+            "reproducible. The run log lists the tie faces to choose from. "
+            "Blank or 'auto' keeps the canonical largest face."
         ),
     )
     ap.add_argument(
@@ -8384,6 +8688,7 @@ def run_gui(initial_args):
     tutte_auto_aspect_var = tk.BooleanVar(value=bool(getattr(initial_args, "tutte_auto_aspect", True)))
     tutte_auto_orient_var = tk.BooleanVar(value=bool(getattr(initial_args, "tutte_auto_orient", True)))
     tutte_orient_var = tk.StringVar(value=str(getattr(initial_args, "tutte_orient", 0.0)))
+    puncture_face_var = tk.StringVar(value=str(getattr(initial_args, "puncture_face", "") or ""))
     show_tutte_outline_var = tk.BooleanVar(value=bool(getattr(initial_args, "show_tutte_outline", False)))
     show_tutte_pca_var = tk.BooleanVar(value=bool(getattr(initial_args, "show_tutte_pca", False)))
     hole_ratio_var = tk.StringVar(value=str(getattr(initial_args, "hole_ratio", 0.4)))
@@ -8622,6 +8927,18 @@ def run_gui(initial_args):
     ttk.Separator(settings, orient="horizontal").grid(
         row=row, column=0, columnspan=4, sticky="ew", pady=(8, 6)
     )
+    row += 1
+
+    # Puncture (outer-face) selection for the Tutte-family layouts, expressed in
+    # crossing IDs -- the same vocabulary as the crossing order / map below -- with
+    # a live read-only note listing detected tie faces and the active puncture face.
+    add_entry("puncture face", puncture_face_var,
+              help_key="puncture_face", key="puncture_face")
+    puncture_note_lbl = ttk.Label(
+        settings, text="", foreground="gray40", wraplength=270, justify="left"
+    )
+    puncture_note_lbl.grid(row=row, column=0, columnspan=3, sticky="w", pady=(0, 3))
+    dynamic_widgets.setdefault("puncture_face", []).append((puncture_note_lbl, "label"))
     row += 1
 
     ttk.Label(settings, text="Crossing order").grid(row=row, column=0, sticky="nw", pady=3)
@@ -9014,6 +9331,8 @@ def run_gui(initial_args):
         # 'tutte orient deg' tilts the shape's aspect axis from the PCA axis, so it
         # applies to any non-circular shape regardless of the auto-orient framing.
         _set_dynamic("tutte_orient", shaped_family and t_shape != "circle")
+        # Puncture-face selection applies to every Tutte-family layout.
+        _set_dynamic("puncture_face", shaped_family or layout == "tutte")
         _set_dynamic("show_tutte_outline", shaped_family)
         _set_dynamic("show_tutte_pca", shaped_family)
         # holed-tutte only.
@@ -9084,6 +9403,7 @@ def run_gui(initial_args):
             tutte_auto_aspect=bool(tutte_auto_aspect_var.get()),
             tutte_auto_orient=bool(tutte_auto_orient_var.get()),
             tutte_orient=_float_value(tutte_orient_var, "tutte orient deg"),
+            puncture_face=puncture_face_var.get().strip() or None,
             show_tutte_outline=bool(show_tutte_outline_var.get()),
             show_tutte_pca=bool(show_tutte_pca_var.get()),
             hole_ratio=_float_value(hole_ratio_var, "hole ratio"),
@@ -9199,6 +9519,23 @@ def run_gui(initial_args):
                 auto_aspect_value_lbl.configure(text="= %.2f" % float(av))
             else:
                 auto_aspect_value_lbl.configure(text="")
+            # Report the punctured face / tie faces next to the puncture field.
+            prep = state.get("puncture_report") if isinstance(state, dict) else None
+            if prep and layout_var.get() in ("tutte", "shaped-tutte", "holed-tutte"):
+                r0 = prep[0]
+                if r0.get("tie"):
+                    txt = "tie (%d): %s  →  %s" % (
+                        len(r0["candidates"]),
+                        " | ".join(c["label"] for c in r0["candidates"]),
+                        r0["chosen"],
+                    )
+                else:
+                    txt = "puncture: %s (unique largest)" % r0["chosen"]
+                if r0.get("requested") and not r0.get("matched"):
+                    txt += "  [requested not applied]"
+                puncture_note_lbl.configure(text=txt)
+            else:
+                puncture_note_lbl.configure(text="")
             set_log("[preview]\n" + status_text)
         except Exception as exc:
             _show_preview_failure(str(exc))
@@ -9957,6 +10294,7 @@ def run_gui(initial_args):
         "tutte_shape": tutte_shape_var, "tutte_aspect": tutte_aspect_var,
         "tutte_corner_radius": tutte_corner_var, "tutte_decompress": tutte_decompress_var,
         "tutte_com_expand": tutte_com_expand_var, "tutte_orient": tutte_orient_var,
+        "puncture_face": puncture_face_var,
         "hole_ratio": hole_ratio_var, "ring_tilt": ring_tilt_var,
         "wrap_axis": wrap_axis_var,
         "flatten_outer_radius": flatten_outer_radius_var,
@@ -10159,6 +10497,7 @@ def run_gui(initial_args):
         tutte_auto_aspect_var,
         tutte_auto_orient_var,
         tutte_orient_var,
+        puncture_face_var,
         show_tutte_outline_var,
         show_tutte_pca_var,
         hole_ratio_var,
