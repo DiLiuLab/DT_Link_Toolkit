@@ -9,6 +9,20 @@ Draw a smooth planar oriented link diagram from a signed Dowker-Thistlethwaite
 
 V5.5 changes
 ------------
+* GUI: 'Auto preview update' checkbox at the top of the right control panel
+  (default on).  When off, editing parameters no longer recomputes the 2D
+  preview on every change -- useful when the recompute is slow on large diagrams
+  -- and the preview refreshes only when 'Redraw 2D' is pressed (or another
+  explicit action: zoom/rotate, loading a session).  Turning it back on catches
+  up with any edits made while it was off.  UI-only toggle; it does not change
+  the DT mapping or saved images.
+* 2D orientation arrows now layer WITH the strand they annotate instead of on
+  top of everything.  Each arrow's z-order follows its own strand's over/under
+  role at the nearest crossing: on an over/free strand it sits just above the
+  over-piece (immediately on top of the strand, including its over gap); on an
+  under strand it sits below the over-piece, so the strand crossing over it
+  passes over the arrow too.  Previously every arrow drew above all strands, so
+  an under strand's arrow could be painted on top of the over strand crossing it.
 * 2D 'puncture' (outer-face) selection + tie reporting for the Tutte-family
   layouts (tutte / shaped-tutte / holed-tutte).  Every boundary-pinned Tutte
   layout must send one planar face to the OUTER (unbounded) region -- the sphere
@@ -632,6 +646,7 @@ GUI_HELP_TEXT = {
     "crossing_order": "Optional list of displayed crossing IDs ordered by odd labels 1,3,5,... Example:\n\nc1 c7 c14 c12 c3 c6 c9 c5 c11 c13 c4 c2 c10 c8",
     "crossing_map": "Alternative explicit mapping from displayed crossing ID to odd traversal label. Example:\n\nc1=1,c7=3,c14=5,c12=7\n\nUse either crossing order or explicit map, not both.",
     "preview_zoom": "2D preview controls only. Zoom + and Zoom - change the live preview scale without cropping the full diagram while unused margin remains. Rotate buttons update the rotate-degrees field, so saved 2D images use the same rotation. These controls do not change the DT mapping.",
+    "auto_preview": "When on (the default), the 2D preview recomputes automatically after every parameter change. Turn it off for a smoother experience on large diagrams where the recomputation is slow: parameter edits then do NOT trigger a redraw, and the preview only updates when you press 'Redraw 2D'. Explicit actions (Redraw 2D, zoom/rotate, loading a session) always update the preview regardless of this setting.",
 }
 
 
@@ -3390,7 +3405,21 @@ def _default_color_of(ci):
     return DEFAULT_PALETTE[ci % len(DEFAULT_PALETTE)]
 
 
-def _add_arrows(ax, dense, centers, color, scale, n_arrows=2, lw=2.0):
+# z-order tiers of the 2D strand rendering (see render_diagram): base curve = 2,
+# under-strand white gap mask = 3, over-strand piece ("over gap") = 4.  An
+# orientation arrow decorates ONE strand, so it must layer WITH that strand
+# rather than above everything: on an over (or free) strand it sits just above
+# the over-piece, so it reads immediately on top of the strand including its over
+# gap; on an under strand it sits below the over-piece, so the strand that
+# crosses over it still passes over the arrow too.  (The old code drew every
+# arrow at a single zorder above all strands, so an under strand's arrow was
+# painted on top of the over strand crossing it.)
+_ARROW_Z_OVER = 4.5
+_ARROW_Z_UNDER = 3.5
+
+
+def _add_arrows(ax, dense, centers, color, scale, marks=None, starts=None,
+                n_arrows=2, lw=2.0):
     if len(dense) < 4 or not centers:
         return
     # Arrowhead size scales with the strand line width (mutation_scale is in
@@ -3412,6 +3441,28 @@ def _add_arrows(ax, dense, centers, color, scale, n_arrows=2, lw=2.0):
             chosen.append(int(i))
         if len(chosen) >= n_arrows:
             break
+
+    # Map each crossing this component visits to (dense index, is_over) so an
+    # arrow can be layered by the role of its strand at the nearest crossing.
+    crossing_marks = []
+    if marks and starts is not None:
+        for cidx, _ppos, is_over in marks:
+            if 0 <= cidx < len(starts):
+                crossing_marks.append((int(starts[cidx]), bool(is_over)))
+
+    def _arrow_zorder(i):
+        # An arrow only risks covering another strand where its own strand goes
+        # UNDER; that is the crossing nearest the arrow (arrows are placed far
+        # from crossings, so a crossing only reaches an arrow when it is the
+        # closest one).  Layer under the over-piece there; otherwise on top.
+        if not crossing_marks:
+            return _ARROW_Z_OVER
+        _, is_over = min(
+            crossing_marks,
+            key=lambda cm: min(abs(i - cm[0]), n - abs(i - cm[0])),
+        )
+        return _ARROW_Z_OVER if is_over else _ARROW_Z_UNDER
+
     for i in chosen:
         a = dense[i]
         b = dense[(i + 2) % n]
@@ -3420,7 +3471,7 @@ def _add_arrows(ax, dense, centers, color, scale, n_arrows=2, lw=2.0):
             xy=b,
             xytext=a,
             arrowprops=dict(arrowstyle="-|>", color=color, lw=0, mutation_scale=head),
-            zorder=5,
+            zorder=_arrow_zorder(i),
         )
         try:
             ann.set_clip_on(False)
@@ -4009,7 +4060,8 @@ def render_diagram(
 
     if arrows:
         for info in curve_infos:
-            _add_arrows(ax, info["dense"], crossing_xy, info["color"], span * sc, lw=lw)
+            _add_arrows(ax, info["dense"], crossing_xy, info["color"], span * sc,
+                        marks=info["marks"], starts=info["starts"], lw=lw)
 
     dt_label_entries = []
     if show_labels:
@@ -8550,13 +8602,36 @@ def run_gui(initial_args):
     right_outer = ttk.Frame(main)
     right_outer.grid(row=0, column=1, sticky="nsew")
     right_outer.columnconfigure(0, weight=1)
-    right_outer.rowconfigure(0, weight=1)
+    right_outer.rowconfigure(1, weight=1)
+
+    # Top bar of the right control panel: global preview controls that apply to
+    # every parameter tab.  "Auto preview update" (default on) lets the user stop
+    # the 2D preview from recomputing on every edit -- useful for large diagrams
+    # where the recompute is slow.  When off, only the "Redraw 2D" button (and
+    # other explicit actions) refresh the preview.  It is a UI-only toggle: it
+    # does not affect the DT mapping or saved images, so it is not a watched var.
+    right_topbar = ttk.Frame(right_outer)
+    right_topbar.grid(row=0, column=0, sticky="ew", pady=(0, 4))
+    auto_preview_var = tk.BooleanVar(value=True)
+    ttk.Checkbutton(
+        right_topbar,
+        text="Auto preview update",
+        variable=auto_preview_var,
+    ).grid(row=0, column=0, sticky="w")
+    tk.Button(
+        right_topbar,
+        text="?",
+        width=2,
+        bg="#cfeeff",
+        activebackground="#aee3ff",
+        command=lambda: show_arg_help("auto_preview"),
+    ).grid(row=0, column=1, sticky="w", padx=(6, 0))
 
     # The parameters are split into two tabs: 2D diagram settings and 3D XYZ
     # settings, so only the relevant fields are shown at a time.  Each tab is an
     # independently scrollable panel.
     param_nb = ttk.Notebook(right_outer)
-    param_nb.grid(row=0, column=0, sticky="nsew")
+    param_nb.grid(row=1, column=0, sticky="nsew")
 
     def _make_scroll_tab(title):
         outer = ttk.Frame(param_nb)
@@ -9574,6 +9649,12 @@ def run_gui(initial_args):
         preview_jobs.put((preview_async["generation"], ns))
 
     def schedule_preview(_event=None):
+        # Automatic, parameter-change-driven refresh.  When the user has turned
+        # auto preview off, edits are collected silently and the preview is only
+        # recomputed on an explicit action (the "Redraw 2D" button calls
+        # update_preview directly, bypassing this guard).
+        if not auto_preview_var.get():
+            return
         if preview_after["id"] is not None:
             try:
                 root.after_cancel(preview_after["id"])
@@ -10516,6 +10597,13 @@ def run_gui(initial_args):
     ]
     for var in watched_vars:
         var.trace_add("write", lambda *_args: schedule_preview())
+
+    # Turning auto preview back on catches up with any edits made while it was off
+    # (schedule_preview is a no-op while off, so this is the point it resumes).
+    def _auto_preview_toggled(*_a):
+        if auto_preview_var.get():
+            schedule_preview()
+    auto_preview_var.trace_add("write", _auto_preview_toggled)
 
     # Selector variables also drive the dynamic greying of non-relevant fields.
     for var in (
