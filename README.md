@@ -28,7 +28,7 @@ Development notes and version history are in [DEVELOPMENT_LOG.md](DEVELOPMENT_LO
 
 ```text
 DT_Link_Toolkit.py               Universal launcher for all tools below
-strand_passage_guiV4_0.py        Strand-passage explorer: GUI, --nongui, --demo
+strand_passage_guiV4_2.py        Strand-passage explorer: GUI, --nongui, --demo
 link_engine_v4_0.py              Diagram engine and SnapPy bridge
 draw_dt_original_labelsV5_5.py   DT parser, layout, renderer, XYZ audit, and GUI
 audit_xyz.py                     Audit a 3D XYZ curve against its signed DT link
@@ -48,7 +48,7 @@ LICENSE                          MIT license
 Import chain:
 
 ```text
-strand_passage_guiV4_0 -> link_engine_v4_0 -> draw_dt_original_labelsV5_5
+strand_passage_guiV4_2 -> link_engine_v4_0 -> draw_dt_original_labelsV5_5
 ```
 
 ## Install
@@ -75,7 +75,7 @@ python3 -m pip install -r requirements.txt
 For full functionality, run with **Sage + SnapPy**:
 
 ```bash
-sage -python strand_passage_guiV4_0.py --help
+sage -python strand_passage_guiV4_2.py --help
 ```
 
 SnapPy is intentionally not pinned in `requirements.txt`, because this project
@@ -157,20 +157,20 @@ through the launcher.
 Interactive GUI:
 
 ```bash
-sage -python strand_passage_guiV4_0.py
-sage -python strand_passage_guiV4_0.py --dt "DT: [(4,6,2)]"
+sage -python strand_passage_guiV4_2.py
+sage -python strand_passage_guiV4_2.py --dt "DT: [(4,6,2)]"
 ```
 
 If the TkAgg backend is not available:
 
 ```bash
-python3 strand_passage_guiV4_0.py --gui-backend agg
+python3 strand_passage_guiV4_2.py --gui-backend agg
 ```
 
 Batch spreadsheet and overview SVG:
 
 ```bash
-sage -python strand_passage_guiV4_0.py --nongui \
+sage -python strand_passage_guiV4_2.py --nongui \
   --dt "DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]" \
   --out strand_passage_results.xlsx
 ```
@@ -203,7 +203,7 @@ Custom displayed crossing IDs use the same syntax as
 and a plain list as crossing order.
 
 ```bash
-sage -python strand_passage_guiV4_0.py \
+sage -python strand_passage_guiV4_2.py \
   --dt "DT: [(4,6,2)]" \
   --crossing-labels "c1 c3 c2"
 ```
@@ -212,7 +212,7 @@ For the built-in 14-crossing example, the crossing-order CLI option can be set
 as:
 
 ```bash
-sage -python strand_passage_guiV4_0.py \
+sage -python strand_passage_guiV4_2.py \
   --crossing-labels "c1 c7 c14 c12 c3 c6 c9 c5 c11 c13 c4 c2 c10 c8"
 ```
 
@@ -288,6 +288,23 @@ the gaps off so strands overlap solid, and `hide components`
 (`--proj-hide-components`, a 1-based list like `1,3`) hides individual rings to
 isolate one ring system in a dense link.
 
+Reading the workbook together with the SVG (V4.1):
+
+- Every data row is **shaded with the colour of the overview-SVG card it is
+  drawn as**. Several passages usually collapse onto one merged structure, so
+  the rows sharing a shade are exactly the rows that share a card.
+- `svg_card_id` carries the same association as text, so it survives CSV export,
+  sorting, and colour-blind viewing. It is empty only for a passage that errored
+  and therefore has no drawn structure.
+- The `card_index` sheet is the legend: one shaded row per card, in the order
+  the cards are stacked in the figure, with its depth/column, drawn DT code,
+  crossing and component counts, Jones polynomial, outcome tag, how many
+  passages arrive at it, which flips those are, and which sheets hold its rows.
+- The final per-step reconciliation now runs *before* the workbook is written.
+  In V4.0 it ran afterwards, so it could further simplify or merge a structure
+  once the spreadsheet was already on disk and leave the two outputs disagreeing;
+  `first_step_node_id` is likewise re-pointed at the card that survived.
+
 Spreadsheet columns to know:
 
 - `DT_code_chosen` is the visible DT code used for the drawn structure and for
@@ -319,7 +336,7 @@ Spreadsheet columns to know:
 Headless cascade figure:
 
 ```bash
-python3 strand_passage_guiV4_0.py --dt "DT: [(4,6,2)]" --demo 2 1 --out chain.png
+python3 strand_passage_guiV4_2.py --dt "DT: [(4,6,2)]" --demo 2 1 --out chain.png
 ```
 
 Standalone DT comparison utility:
@@ -464,7 +481,7 @@ The launcher uses `sage -python` when Sage is available, and falls back to
 To make the Python scripts directly executable on macOS/Linux:
 
 ```bash
-chmod +x strand_passage_guiV4_0.py
+chmod +x strand_passage_guiV4_2.py
 chmod +x draw_dt_original_labelsV5_5.py
 chmod +x audit_xyz.py
 chmod +x check_two_dt.py
@@ -474,13 +491,13 @@ chmod +x find_link_in_snappy.py
 Then they can be run as:
 
 ```bash
-./strand_passage_guiV4_0.py --gui-backend agg
+./strand_passage_guiV4_2.py --gui-backend agg
 ```
 
 For SnapPy/Jones functionality, prefer:
 
 ```bash
-sage -python ./strand_passage_guiV4_0.py
+sage -python ./strand_passage_guiV4_2.py
 ```
 
 ## Notes
@@ -496,6 +513,20 @@ sage -python ./strand_passage_guiV4_0.py
 - The `--nongui` overview SVG keeps labels and captions as editable text using
   Arial, so text can be selected and edited in Illustrator/Inkscape, with label
   boxes/circles sized to match the live Matplotlib view.
+- **V4.2:** those SVGs no longer declare fonts with the CSS `font:` shorthand.
+  Matplotlib's `svg.fonttype: none` writes `font: 700 8.6px 'Arial'`; the
+  shorthand resets every property it does not name, and a consumer implementing
+  it only partially (Illustrator in practice) can drop the size or weight and
+  re-lay-out the string. Each run carries a single anchor and each background box
+  is a separate path sized from Matplotlib's own measurements, so any re-layout
+  slides text out of its box — which is what "the text changes when I open it in
+  Illustrator" looked like. After export, each declaration is now restated as
+  longhand with a fallback stack (`font-family: Arial, 'Helvetica Neue',
+  Helvetica, sans-serif; font-size: 8.6px; font-weight: 700`). Geometry, text and
+  anchors are untouched, and WebKit renders the before/after files to
+  byte-identical rasters. The fallback stack also protects machines without
+  Arial, which previously substituted silently. Text remains editable — this is
+  deliberately not a switch to `svg.fonttype: 'path'` outlines.
 - Standalone SVGs from `draw_dt_original_labelsV5_5.py` use the same Arial
   editable-text policy and roomier DT-label/crossing-ID boxes. Requested layouts
   are kept even when they create false crossings, with those artifacts

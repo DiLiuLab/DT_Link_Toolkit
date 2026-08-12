@@ -8,7 +8,7 @@ Link-diagram engine for strand-passage experiments.
 
 What is new in V4.0
 -------------------
-* Version-aligned engine module for ``strand_passage_guiV4_0.py``.
+* Version-aligned engine module for ``strand_passage_guiV4_2.py``.
 * The default 2-D drawing style for strand-passage views is now
   ``shaped-tutte`` with an ellipse boundary and manual aspect 1.0.
 * ``render`` accepts drawing-option dictionaries loaded from

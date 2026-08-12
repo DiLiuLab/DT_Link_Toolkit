@@ -1,10 +1,54 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-strand_passage_guiV4_0.py  (V4.0)
+strand_passage_guiV4_2.py  (V4.2)
 =================================
 
 Interactive strand-passage explorer with component-colour preservation.
+
+What is new in V4.2
+-------------------
+* Overview SVGs no longer declare their fonts with the CSS ``font:`` shorthand.
+  Matplotlib's ``svg.fonttype: none`` writes every text run as
+  ``font: 700 8.6px 'Arial'``; the shorthand resets every property it does not
+  name, and a consumer that implements it only partially (Adobe Illustrator
+  being the one that bites here) can drop the size or weight and re-lay-out the
+  string.  Because each run carries a single anchor and each background box is a
+  separate path sized from Matplotlib's own measurements, any such re-layout
+  slides the text out of its box.  ``_rewrite_svg_font_declarations`` now
+  rewrites each declaration as explicit longhand after export:
+
+      font: 700 8.6px 'Arial'
+      -> font-family: Arial, 'Helvetica Neue', Helvetica, sans-serif;
+         font-size: 8.6px; font-weight: 700
+
+  Geometry, text content and anchors are untouched -- WebKit renders the before
+  and after files to byte-identical rasters -- so this costs correct consumers
+  nothing.
+* The rewrite also adds a fallback family stack.  Previously the only family
+  named was ``Arial`` with no generic fallback, so a machine without Arial got a
+  silent substitution *and* the metric mismatch that follows from it.
+* Text stays fully editable in Illustrator; this is deliberately NOT a switch to
+  ``svg.fonttype: 'path'``, which would guarantee fidelity by converting text to
+  outlines but undo the editable-text work from V3.7.
+
+What is new in V4.1
+-------------------
+* ``--nongui`` workbook rows are now **shaded by the overview-SVG card** they
+  are drawn as.  Every passage row lands on exactly one merged structure, and
+  that structure is one card in ``<out>_overview.svg``; rows that merge into the
+  same card share one background shade, so the table and the figure can be read
+  together at a glance.
+* A new ``svg_card_id`` column carries the same association as text, so it
+  survives CSV export, sorting, and colour-blind viewing.
+* A new ``card_index`` sheet is the legend: one shaded row per card, with its
+  depth, DT code, crossing/component counts, Jones polynomial, outcome tag, the
+  passages arriving at it, and the sheets whose rows it holds.
+* The final per-step reconciliation now runs **before** the workbook is written
+  instead of after it.  Previously the reconciliation could merge or further
+  simplify structures once the spreadsheet was already on disk, so a workbook
+  could describe a structure that no card in the figure actually showed.  The
+  two outputs are now built from the same final graph.
 
 What is new in V4.0
 -------------------
@@ -111,17 +155,17 @@ What is new in V3.2
   operation order; topologically identical structures are merged into one card.
 
 Non-interactive spreadsheet (behaves like the old strand_pass_sage.py):
-    sage -python strand_passage_guiV4_0.py --nongui \
+    sage -python strand_passage_guiV4_2.py --nongui \
         --dt "DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]" \
         --out strand_passage_results.xlsx
 
 Interactive run:
-    sage -python strand_passage_guiV4_0.py                 # SnapPy enabled
-    sage -python strand_passage_guiV4_0.py --dt "DT: [(4,6,2)]"
-    python3 strand_passage_guiV4_0.py --gui-backend agg    # if TkAgg won't load
+    sage -python strand_passage_guiV4_2.py                 # SnapPy enabled
+    sage -python strand_passage_guiV4_2.py --dt "DT: [(4,6,2)]"
+    python3 strand_passage_guiV4_2.py --gui-backend agg    # if TkAgg won't load
 
 Headless cascade figure (no display needed):
-    python3 strand_passage_guiV4_0.py --dt "DT: [(4,6,2)]" --demo 2 1 --out chain.png
+    python3 strand_passage_guiV4_2.py --dt "DT: [(4,6,2)]" --demo 2 1 --out chain.png
 """
 
 from __future__ import annotations
@@ -149,7 +193,7 @@ import link_engine_v4_0 as E                       # noqa: E402
 TAB10_NAMES = ["blue", "orange", "green", "red", "purple",
                "brown", "pink", "gray", "olive", "cyan"]
 DEFAULT_DT = "DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]"
-VERSION = "4.0"
+VERSION = "4.2"
 OVERVIEW_FONT_FAMILY = "Arial"
 OVERVIEW_TEXT_BOX_PAD = 0.42
 OVERVIEW_DIAGRAM_DT_LABEL_BOX_PAD = 0.22
@@ -300,7 +344,7 @@ def warn_if_no_sage():
         "[warning] Not running under Sage: Jones polynomials (and the SnapPy "
         "invariant colour-matching that relies on them) cannot be computed. "
         "For full functionality run this with 'sage -python "
-        "strand_passage_guiV4_0.py ...'.\n")
+        "strand_passage_guiV4_2.py ...'.\n")
 
 
 _DRAWING_STRING_KEYS = {
@@ -1007,8 +1051,171 @@ def _edge_list_from_map(edge_map):
             for (s, d), l in edge_map.items()]
 
 
+# --------------------------------------------------------------------------- #
+#  V4.2: make the exported SVG's font declarations portable
+# --------------------------------------------------------------------------- #
+# With ``svg.fonttype: none`` Matplotlib keeps text as real SVG <text> (which is
+# what makes the overview editable in Illustrator), but it declares the font with
+# the CSS *shorthand*:
+#
+#     style="fill: #111827; font: 700 8.6px 'Arial'"
+#
+# Two problems follow.  The shorthand resets every font property it does not
+# name to its initial value, and a consumer that implements it only partially
+# can lose the size or the weight entirely -- Illustrator is the one that bites
+# in practice.  And 'Arial' is named with no generic fallback, so a machine
+# without Arial substitutes silently.  Either way the consumer re-lays-out the
+# string; since each run carries one anchor and each background box is a separate
+# path sized from Matplotlib's measurements, the text then slides out of its box.
+#
+# Rewriting the shorthand as longhand fixes both without touching geometry, text
+# or anchors.
+_SVG_FONT_SHORTHAND = re.compile(
+    r"font:\s*"
+    r"(?:(?P<style>italic|oblique)\s+)?"
+    r"(?:(?P<weight>\d{3}|bold|normal|lighter|bolder)\s+)?"
+    r"(?P<size>[\d.]+)px\s+"
+    r"'(?P<family>[^']+)'")
+
+_SVG_FONT_FALLBACKS = {
+    "Arial": "Arial, 'Helvetica Neue', Helvetica, sans-serif",
+    "Helvetica": "Helvetica, Arial, sans-serif",
+    "DejaVu Sans": "'DejaVu Sans', Verdana, sans-serif",
+    "DejaVu Sans Mono": "'DejaVu Sans Mono', Menlo, Consolas, monospace",
+}
+
+
+def _svg_font_longhand(match):
+    """Expand one CSS ``font:`` shorthand match into explicit longhand."""
+    family = match.group("family")
+    stack = _SVG_FONT_FALLBACKS.get(family)
+    if stack is None:
+        quoted = "'%s'" % family if " " in family else family
+        stack = "%s, sans-serif" % quoted
+    parts = ["font-family: %s" % stack, "font-size: %spx" % match.group("size")]
+    if match.group("weight"):
+        parts.append("font-weight: %s" % match.group("weight"))
+    if match.group("style"):
+        parts.append("font-style: %s" % match.group("style"))
+    return "; ".join(parts)
+
+
+def _rewrite_svg_font_declarations(path):
+    """Replace CSS ``font:`` shorthand with longhand in an exported SVG.
+
+    Returns the number of declarations rewritten.  Never raises: the figure is
+    already on disk and correct, so a problem here must not cost the user the
+    file.
+    """
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            svg = fh.read()
+        rewritten, count = _SVG_FONT_SHORTHAND.subn(_svg_font_longhand, svg)
+        if count:
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(rewritten)
+        return count
+    except Exception as exc:  # noqa: BLE001
+        print("[warn] could not rewrite SVG font declarations in %s: %s"
+              % (path, exc), file=sys.stderr)
+        return 0
+
+
+# --------------------------------------------------------------------------- #
+#  V4.1: shade workbook rows by the overview-SVG card they are drawn as
+# --------------------------------------------------------------------------- #
+# Light, print-safe backgrounds.  They only have to be distinguishable from each
+# other and leave black text readable; they are NOT the overview card colours
+# (those encode the outcome vs. the original, which several different cards
+# share, so they cannot identify a card).
+_CARD_SHADES = (
+    "FFF3C4", "D8ECF7", "E2F0D9", "F8DDE3", "E7E0F4", "FCE3CB",
+    "D9F2EC", "F3E1F7", "E8EAF6", "F0EAD6", "DCE9F5", "F6E0E0",
+    "E3F1D5", "EFE3D0", "DDEEF0", "F5E6F0", "E6EFDA", "F2E8DC",
+)
+_ROOT_CARD_SHADE = "EFF6FF"   # matches the blue depth-0 card in the SVG
+
+
+def _card_shade(card_id, node_by_id=None):
+    """Background colour for one overview card (stable for a given workbook)."""
+    if node_by_id is not None:
+        node = node_by_id.get(card_id)
+        if node is not None and int(node.get("depth", 1)) == 0:
+            return _ROOT_CARD_SHADE
+    return _CARD_SHADES[int(card_id) % len(_CARD_SHADES)]
+
+
+def _card_index_rows(node_list, edge_list, card_sheets, original_crossings):
+    """One legend row per overview card, in the order the SVG lays them out."""
+    arriving = {}
+    for edge in edge_list:
+        arriving.setdefault(edge["dst"], []).extend(str(x) for x in edge["labels"])
+
+    by_depth = {}
+    for node in node_list:
+        by_depth.setdefault(int(node["depth"]), []).append(node)
+    step_name = {0: "Original", 1: "After 1st strand passage",
+                 2: "After 2nd strand passage"}
+
+    rows = []
+    for depth in sorted(by_depth):
+        # Same order the cards are stacked in each SVG column.
+        for node in sorted(by_depth[depth],
+                           key=lambda x: (x["n_crossings"], x["id"])):
+            _b, _f, tag = _outcome_style(node, original_crossings)
+            labels = sorted(arriving.get(node["id"], []), key=_label_sort_key)
+            rows.append({
+                "svg_card_id": node["id"],
+                "svg_column": step_name.get(depth, "step %d" % depth),
+                "depth": depth,
+                "DT_code_drawn": node["dt_str"],
+                "crossings": node["n_crossings"],
+                "components": node["n_components"],
+                "Jones_polynomial": node["jones"],
+                "outcome_vs_original": tag or "original",
+                "passages_arriving": len(labels),
+                "arriving_flips": ", ".join(labels),
+                "workbook_sheets": ", ".join(
+                    sorted(card_sheets.get(node["id"], set()))),
+            })
+    return rows
+
+
+def _shade_rows_by_card(worksheet, card_ids, n_columns, node_by_id=None):
+    """Fill each data row of ``worksheet`` with its card's shade.
+
+    ``card_ids[i]`` is the card for data row ``i`` (``None`` leaves the row
+    unshaded, which is what an errored passage with no drawn structure gets).
+    Never raises: shading is cosmetic, so a styling problem must not cost the
+    user the workbook itself.
+    """
+    try:
+        from openpyxl.styles import PatternFill  # type: ignore
+    except Exception:  # noqa: BLE001
+        return 0
+    fills = {}
+    shaded = 0
+    for offset, card_id in enumerate(card_ids):
+        if card_id is None:
+            continue
+        colour = _card_shade(card_id, node_by_id)
+        fill = fills.get(colour)
+        if fill is None:
+            fill = PatternFill(start_color=colour, end_color=colour,
+                               fill_type="solid")
+            fills[colour] = fill
+        for col in range(1, int(n_columns) + 1):
+            worksheet.cell(row=offset + 2, column=col).fill = fill
+        shaded += 1
+    return shaded
+
+
 def _renumber_passage_graph(node_list, edge_list):
-    """Make node ids contiguous after reconciliation drops merged-away nodes."""
+    """Make node ids contiguous after reconciliation drops merged-away nodes.
+
+    Returns ``(nodes, edges, old_to_new)``.  V4.1 also returns the id mapping so
+    the caller can follow a spreadsheet row to the card it ends up drawn as.
+    """
     old_to_new = {}
     new_nodes = []
     for new_id, node in enumerate(node_list):
@@ -1032,7 +1239,7 @@ def _renumber_passage_graph(node_list, edge_list):
     new_edges = [{"src": s, "dst": d,
                   "labels": sorted(v, key=_label_sort_key)}
                  for (s, d), v in emap.items()]
-    return new_nodes, new_edges
+    return new_nodes, new_edges, old_to_new
 
 
 def reconcile_steps(snappy, node_list, edge_list, rounds=400, steps=30,
@@ -1045,7 +1252,11 @@ def reconcile_steps(snappy, node_list, edge_list, rounds=400, steps=30,
     plateaus.  This drives the higher-crossing ones DOWN to the group's minimum
     with a targeted backtrack (stopping as soon as it reaches the target), which
     is far more effective than a big global round count, then re-merges the
-    now-identical structures (remapping the arrows).  Returns (nodes, edges).
+    now-identical structures (remapping the arrows).
+
+    Returns ``(nodes, edges, remap)``.  V4.1 also returns the id mapping (every
+    input id -> the id that survived) so the caller can follow a spreadsheet row
+    to the card it ends up drawn as.
     """
     from collections import defaultdict
 
@@ -1104,7 +1315,7 @@ def reconcile_steps(snappy, node_list, edge_list, rounds=400, steps=30,
     new_edges = [{"src": s, "dst": d,
                   "labels": sorted(v, key=_label_sort_key)}
                  for (s, d), v in emap.items()]
-    return new_nodes, new_edges
+    return new_nodes, new_edges, remap
 
 
 _LAURENT_TERM = __import__("re").compile(
@@ -1494,6 +1705,9 @@ def render_overview_svg(nodes, edges, out_path, negative_even="over",
     }):
         fig.savefig(out_path, format="svg", facecolor="white")
     plt.close(fig)
+    # V4.2: Matplotlib writes the font as a CSS shorthand that Illustrator does
+    # not reliably honour; restate it as longhand plus a fallback stack.
+    _rewrite_svg_font_declarations(out_path)
 
 
 def run_nongui(dt_string, out_path, negative_even="over",
@@ -1612,9 +1826,15 @@ def run_nongui(dt_string, out_path, negative_even="over",
     second_pass_results_dict = {}
     continuable_by_label: Dict[str, Dict[str, Any]] = {}
     continuable_first_passages = 0
+    # V4.1: remember which merged structure each spreadsheet row landed on, so
+    # the row can be shaded with the colour of the card that structure is drawn
+    # as.  The ids recorded here are pre-merge; they are chased through every
+    # later remap by ``_follow`` below.
+    first_row_nid: List[Optional[int]] = []
     for res, chosen_code in zip(results, chosen_codes):
         nid = get_node(chosen_code, 1, res['snappy_crossings'],
                        res['new_components'], res['Jones_polynomial'])
+        first_row_nid.append(nid)
         label = str(res['flipped_crossing'])
         edges.setdefault((root_id, nid), set()).add(label)
         new_components = res.get('new_components')
@@ -1627,17 +1847,29 @@ def run_nongui(dt_string, out_path, negative_even="over",
     # equivalent first-pass diagrams from spawning duplicate second-pass sheets.
     first_node_list = [nodes[fp] for fp in order]
     first_edge_list = _edge_list_from_map(edges)
+    remap_first: Dict[int, int] = {}
     if backtrack_rounds:
         before_n = len(first_node_list)
-        first_node_list, first_edge_list = reconcile_steps(
+        first_node_list, first_edge_list, remap_first = reconcile_steps(
             snappy, first_node_list, first_edge_list,
             rounds=max(300, int(backtrack_rounds)), steps=backtrack_steps)
         if len(first_node_list) < before_n:
             print("[info] first-step reconciliation merged %d redundant "
                   "structure(s) before continuation"
                   % (before_n - len(first_node_list)))
-    first_node_list, first_edge_list = _renumber_passage_graph(
+    first_node_list, first_edge_list, renum_first = _renumber_passage_graph(
         first_node_list, first_edge_list)
+
+    def _follow(node_id, *id_maps):
+        """Chase a node id through the remaps applied after it was created."""
+        current = node_id
+        for id_map in id_maps:
+            if current is None:
+                return None
+            current = id_map.get(current, current)
+        return current
+
+    first_row_nid = [_follow(n, remap_first, renum_first) for n in first_row_nid]
 
     # Rebuild the node/edge accumulators from the merged first-step graph, then
     # append second-step nodes below using the same get_node() merge key.
@@ -1673,6 +1905,8 @@ def run_nongui(dt_string, out_path, negative_even="over",
               "from 0 continuable first-step passage(s)")
 
     used_sheet_names = set()
+    second_row_nid: Dict[str, List[Optional[int]]] = {}
+    sheet_parent_nid: Dict[str, int] = {}
     print("[info] second pass ...")
     for nid in sorted(first_step_labels,
                       key=lambda x: (id_to_node[x]["n_crossings"], x)):
@@ -1694,11 +1928,15 @@ def run_nongui(dt_string, out_path, negative_even="over",
                 item['first_step_passages'] = provenance
                 item['first_step_representative'] = representative
             second_pass_results_dict[sheet_name] = second_results
+            sheet_parent_nid[sheet_name] = nid
+            sheet_row_nid: List[Optional[int]] = []
             for r2, c2 in zip(second_results, second_chosen):
                 nid2 = get_node(c2, 2, r2['snappy_crossings'],
                                 r2['new_components'], r2['Jones_polynomial'])
+                sheet_row_nid.append(nid2)
                 edges.setdefault((nid, nid2), set()).add(
                     str(r2['flipped_crossing']))
+            second_row_nid[sheet_name] = sheet_row_nid
         except Exception as exc:  # noqa: BLE001
             print("[warn] second pass failed for merged first-step node %s "
                   "(passage%s %s): %s"
@@ -1713,37 +1951,101 @@ def run_nongui(dt_string, out_path, negative_even="over",
     overview_path = out_path[:-5] + "_overview.svg"
     second_pass_rows = sum(len(sheet_data)
                            for sheet_data in second_pass_results_dict.values())
-    run_info = _run_info_rows(
-        snappy, pd, dt_string, dt_code, out_path, overview_path,
-        negative_even, backtrack_rounds, backtrack_steps,
-        crossing_order, crossing_map, crossing_input, drawing_options,
-        drawing_session_path, len(results), continuable_first_passages,
-        len(first_step_labels), len(second_pass_results_dict), second_pass_rows)
 
-    with pd.ExcelWriter(out_path, engine='openpyxl') as writer:
-        pd.DataFrame(run_info, columns=["field", "value"]).to_excel(
-            writer, index=False, sheet_name='run_info')
-        pd.DataFrame(results).to_excel(writer, index=False, sheet_name='first_pass')
-        for sheet_name, sheet_data in second_pass_results_dict.items():
-            pd.DataFrame(sheet_data).to_excel(writer, index=False,
-                                              sheet_name=sheet_name)
-    print("[ok] wrote %s" % out_path)
-
-    # overview SVG of all (merged) resulting structures
+    # ---- final merged graph --------------------------------------------------
+    # V4.1: the last reconciliation runs HERE, before the workbook is written.
+    # It can both further simplify a structure and merge two of them, so doing it
+    # after the write (as V4.0 did) left the spreadsheet describing structures
+    # that no card in the figure actually showed.  Both outputs now come from
+    # this one final graph.
     node_list = [nodes[fp] for fp in order]
     edge_list = [{"src": s, "dst": d, "labels": sorted(l, key=_label_sort_key)}
                  for (s, d), l in edges.items()]
 
     # Targeted per-step reconciliation: pull any incompletely-simplified
     # same-Jones structures down to their step-mate's crossing count and merge.
+    remap_final: Dict[int, int] = {}
     if backtrack_rounds:
         before_n = len(node_list)
-        node_list, edge_list = reconcile_steps(
+        node_list, edge_list, remap_final = reconcile_steps(
             snappy, node_list, edge_list,
             rounds=max(300, int(backtrack_rounds)), steps=backtrack_steps)
         if len(node_list) < before_n:
             print("[info] reconciliation merged %d redundant structure(s)"
                   % (before_n - len(node_list)))
+
+    # ---- tie every workbook row to the card it is drawn as -------------------
+    node_by_id = {nd["id"]: nd for nd in node_list}
+    card_sheets: Dict[int, set] = {}
+
+    def _assign_cards(rows, row_nids, sheet_name):
+        """Stamp ``svg_card_id`` on each row; returns the per-row card ids."""
+        card_ids = []
+        for i, row in enumerate(rows):
+            nid = row_nids[i] if i < len(row_nids) else None
+            card_id = _follow(nid, remap_final)
+            if card_id not in node_by_id:
+                card_id = None      # errored passage: nothing was drawn for it
+            row['svg_card_id'] = card_id
+            if card_id is not None:
+                card_sheets.setdefault(card_id, set()).add(sheet_name)
+            card_ids.append(card_id)
+        return card_ids
+
+    first_card_ids = _assign_cards(results, first_row_nid, 'first_pass')
+    second_card_ids = {}
+    for sheet_name, sheet_data in second_pass_results_dict.items():
+        # The parent card id can itself have been merged away by the final
+        # reconciliation, so re-point it at the card that survived.
+        parent_card = _follow(sheet_parent_nid.get(sheet_name), remap_final)
+        for row in sheet_data:
+            row['first_step_node_id'] = parent_card
+        second_card_ids[sheet_name] = _assign_cards(
+            sheet_data, second_row_nid.get(sheet_name, []), sheet_name)
+
+    original_crossings = next((nd["n_crossings"] for nd in node_list
+                               if nd["depth"] == 0), None)
+    card_index = _card_index_rows(node_list, edge_list, card_sheets,
+                                  original_crossings)
+
+    run_info = _run_info_rows(
+        snappy, pd, dt_string, dt_code, out_path, overview_path,
+        negative_even, backtrack_rounds, backtrack_steps,
+        crossing_order, crossing_map, crossing_input, drawing_options,
+        drawing_session_path, len(results), continuable_first_passages,
+        len(first_step_labels), len(second_pass_results_dict), second_pass_rows)
+    run_info.extend([
+        ("svg_cards_total", len(node_list)),
+        ("row_shading", "each data row is shaded with the colour of the "
+                        "overview-SVG card it is drawn as; see the card_index "
+                        "sheet and the svg_card_id column"),
+    ])
+
+    with pd.ExcelWriter(out_path, engine='openpyxl') as writer:
+        pd.DataFrame(run_info, columns=["field", "value"]).to_excel(
+            writer, index=False, sheet_name='run_info')
+
+        shaded = 0
+        if card_index:
+            card_df = pd.DataFrame(card_index)
+            card_df.to_excel(writer, index=False, sheet_name='card_index')
+            _shade_rows_by_card(writer.sheets['card_index'],
+                                [r["svg_card_id"] for r in card_index],
+                                len(card_df.columns), node_by_id)
+
+        first_df = pd.DataFrame(results)
+        first_df.to_excel(writer, index=False, sheet_name='first_pass')
+        shaded += _shade_rows_by_card(writer.sheets['first_pass'],
+                                      first_card_ids, len(first_df.columns),
+                                      node_by_id)
+        for sheet_name, sheet_data in second_pass_results_dict.items():
+            sheet_df = pd.DataFrame(sheet_data)
+            sheet_df.to_excel(writer, index=False, sheet_name=sheet_name)
+            shaded += _shade_rows_by_card(writer.sheets[sheet_name],
+                                          second_card_ids.get(sheet_name, []),
+                                          len(sheet_df.columns), node_by_id)
+    print("[ok] wrote %s  (%d card(s); %d row(s) shaded by card)"
+          % (out_path, len(node_list), shaded))
 
     try:
         render_overview_svg(node_list, edge_list, overview_path,
@@ -2308,7 +2610,7 @@ def run_gui(dt_string=None, negative_even="over", use_snappy_global=True,
 # --------------------------------------------------------------------------- #
 def main():
     ap = argparse.ArgumentParser(
-        prog="strand_passage_guiV4_0.py",
+        prog="strand_passage_guiV4_2.py",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description=(
             "DT Link Toolkit strand passage V%s\n"
@@ -2325,18 +2627,18 @@ def main():
             % VERSION),
         epilog=(
             "examples:\n"
-            "  sage -python strand_passage_guiV4_0.py\n"
-            "  sage -python strand_passage_guiV4_0.py --dt \"DT: [(4,6,2)]\"\n"
-            "  sage -python strand_passage_guiV4_0.py --drawing-session dt_session.json\n"
-            "  sage -python strand_passage_guiV4_0.py --backtrack "
+            "  sage -python strand_passage_guiV4_2.py\n"
+            "  sage -python strand_passage_guiV4_2.py --dt \"DT: [(4,6,2)]\"\n"
+            "  sage -python strand_passage_guiV4_2.py --drawing-session dt_session.json\n"
+            "  sage -python strand_passage_guiV4_2.py --backtrack "
             "--backtrack-rounds 50 --backtrack-steps 25\n"
-            "  sage -python strand_passage_guiV4_0.py --nongui \\\n"
+            "  sage -python strand_passage_guiV4_2.py --nongui \\\n"
             "       --dt \"DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),"
             "(-20,-6,-18,-4)]\" \\\n"
             "       --out results.xlsx --backtrack --backtrack-rounds 50\n"
-            "  python3 strand_passage_guiV4_0.py --dt \"DT: [(4,6,2)]\" "
+            "  python3 strand_passage_guiV4_2.py --dt \"DT: [(4,6,2)]\" "
             "--demo 2 1 --out chain.png\n"
-            "  python3 strand_passage_guiV4_0.py --gui-backend agg   "
+            "  python3 strand_passage_guiV4_2.py --gui-backend agg   "
             "# if TkAgg won't load\n"))
     ap.add_argument("--dt", default=None, metavar="STR",
                     help="signed DT code string, e.g. \"DT: [(4,6,2)]\" "

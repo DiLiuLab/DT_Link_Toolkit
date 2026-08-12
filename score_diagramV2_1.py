@@ -6,7 +6,7 @@ score_diagramV2_1.py  --  Comprehensive diagram explorer for a single link.
 Pipeline
 --------
 1. GENERATE.  Starting from one signed DT code, run N rounds of simplification.
-   Each round follows the *same* mechanism as strand_passage_guiV4_0.py:
+   Each round follows the *same* mechanism as strand_passage_guiV4_2.py:
    ``snappy.Link(dt) -> backtrack_simplify(mode='global') -> export new DT``.
    The randomized backtrack escapes local minima, so each round surfaces a
    (usually different) diagram of the *same* link; that new DT becomes the root
