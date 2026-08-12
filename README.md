@@ -36,7 +36,7 @@ check_two_dt.py                  Standalone SnapPy/Sage DT-comparison utility
 find_link_in_snappy.py           Search SnapPy link databases for DT matches
 score_diagramV2_1.py             Generate, deduplicate, score, and rank diagrams
 canonical_dt_V2_0.py             Canonical DT code (up to mirror) and symmetry
-figure_to_dt.py                  Extract a DT code from a diagram image
+figure_to_dt_V3_0.py             Extract a DT code from a diagram image
 assets/strand_passage_icon.png   Optional window/task-menu icon
 assets/score_diagram_icon.png    Optional icon for the diagram scoring GUI
 bin/strand-passage               Convenience launcher for the strand-passage GUI
@@ -400,23 +400,36 @@ can be unavailable where the combinatorial count still succeeds.
 Extract a DT code from an image:
 
 ```bash
-python3 figure_to_dt.py                      # no arguments -> graphical interface
-python3 figure_to_dt.py diagram.png
-python3 figure_to_dt.py diagram.png --annotate out.png --validate
-python3 figure_to_dt.py messy.png --method fill
+python3 figure_to_dt_V3_0.py                 # no arguments -> graphical interface
+python3 figure_to_dt_V3_0.py diagram.png --expect 4 --validate
+python3 figure_to_dt_V3_0.py diagram.png --annotate out.png --validate
+python3 figure_to_dt_V3_0.py fig.png --colors "A:139,139,131 R:206,100,72"
+python3 figure_to_dt_V3_0.py messy.png --method fill
 ```
 
-`figure_to_dt.py` reads a raster image of a knot/link diagram and extracts an
-extended DT code. Each component must be one distinct, saturated color on a light
-background, and under-pass gaps must be genuine color breaks: the bridged strand
-at a crossing is read as the under strand. The default `trace` method (skeleton +
-gap bridging) also handles a component that crosses itself; `--method fill` is a
-robust fallback for messy inputs that cannot represent self-crossings. Run with no
-image (or `--gui`) to open a small interface for choosing the image, tuning
-options, and viewing the annotated result. **Always check the annotated figure and
-the printed crossing table** — ambiguous over/under calls are flagged. It needs
-`scikit-image`, `scipy`, and `Pillow` (installed in the plain Python 3, not Sage);
-`spherogram` is optional, for `--validate`.
+`figure_to_dt_V3_0.py` reads a raster image of a knot/link diagram and extracts an
+extended DT code. Colors are matched in CIE Lab, so a component may be ANY color
+including grey, black, or white, and each pixel is assigned to its nearest
+reference color — two similar colors can never merge into one component. Auto-detect
+discards anti-aliased edge colors and groups a shaded strand's tones together;
+`--expect N` fails loudly rather than proceeding with the wrong component count.
+Under-pass gaps must be genuine color breaks: the bridged strand at a crossing is
+read as the under strand. The default `trace` method (skeleton + gap bridging) also
+handles a component that crosses itself; `--method fill` is a robust fallback for
+messy inputs that cannot represent self-crossings.
+
+On a shaded or scanned figure, auto-detect can still split one tube into its lit
+and shadowed tones. Name the strands explicitly instead — repeat a name to give one
+component several swatches, e.g. `--colors "A:150,150,140 A:70,70,60"` — or use the
+GUI, which shows the source image and lets you **click each strand to sample its
+color**. Run with no image (or `--gui`) to open it. **Always check the annotated
+figure and the printed crossing table** — ambiguous over/under calls are flagged.
+
+`--validate` needs no Sage: it reports the component count, the linking matrix, a
+Brunnian test, and a cross-check of the DT's per-pair crossing counts against the
+traced figure, which is the test that actually catches a mis-read diagram. It needs
+`scikit-image`, `scipy`, and `Pillow` (installed in the plain Python 3, not Sage —
+so run it with `python3`, not `sage -python`); `spherogram` is optional.
 
 ## Pull Updates
 
