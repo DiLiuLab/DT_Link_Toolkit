@@ -30,7 +30,7 @@ Development notes and version history are in [DEVELOPMENT_LOG.md](DEVELOPMENT_LO
 DT_Link_Toolkit.py               Universal launcher for all tools below
 strand_passage_guiV4_2.py        Strand-passage explorer: GUI, --nongui, --demo
 link_engine_v4_0.py              Diagram engine and SnapPy bridge
-draw_dt_original_labelsV5_5.py   DT parser, layout, renderer, XYZ audit, and GUI
+draw_dt_original_labelsV5_6.py   DT parser, layout, renderer, XYZ audit, and GUI
 audit_xyz.py                     Audit a 3D XYZ curve against its signed DT link
 check_two_dt.py                  Standalone SnapPy/Sage DT-comparison utility
 find_link_in_snappy.py           Search SnapPy link databases for DT matches
@@ -48,7 +48,7 @@ LICENSE                          MIT license
 Import chain:
 
 ```text
-strand_passage_guiV4_2 -> link_engine_v4_0 -> draw_dt_original_labelsV5_5
+strand_passage_guiV4_2 -> link_engine_v4_0 -> draw_dt_original_labelsV5_6
 ```
 
 ## Install
@@ -198,7 +198,7 @@ If the path does not end in `.xlsx`, the script adds it first. For example,
 directory and basename of the spreadsheet path.
 
 Custom displayed crossing IDs use the same syntax as
-`draw_dt_original_labelsV5_5.py`.  The combined
+`draw_dt_original_labelsV5_6.py`.  The combined
 `--crossing-labels` option detects assignment-style text as a crossing map,
 and a plain list as crossing order.
 
@@ -228,7 +228,7 @@ Drawing settings:
 - Strand-passage drawings default to `shaped-tutte` with `tutte shape =
   ellipse` and `tutte aspect = 1.0`.
 - In the GUI, click `Load drawing session` to load a JSON session saved by
-  `draw_dt_original_labelsV5_5.py`. The saved 2-D drawing settings then apply to
+  `draw_dt_original_labelsV5_6.py`. The saved 2-D drawing settings then apply to
   the root diagram and following strand-passage diagrams.
 - In batch/demo modes, use `--drawing-session path/to/session.json`. If the
   session contains a DT code it is used when `--dt` is not supplied; explicit
@@ -240,7 +240,7 @@ Drawing settings:
 Standalone drawing and audited XYZ export:
 
 ```bash
-sage -python draw_dt_original_labelsV5_5.py --dt "DT: [(4,6,2)]"
+sage -python draw_dt_original_labelsV5_6.py --dt "DT: [(4,6,2)]"
 sage -python audit_xyz.py link_sphere.xyz "DT: [(4,6,2)]"
 ```
 
@@ -252,6 +252,57 @@ Dense Kamada layouts that fail should be rebuilt with `sphere layout =
 stereo-safe` (CLI: `--sphere-layout stereo-safe`). The `clearance (0=auto)` and
 `repair 3D strand clearance` GUI controls correspond to `--xyz-clearance` and
 `--no-xyz-repair`.
+
+V5.6 adds a `raw-kk` sphere layout and two things that make that failure
+predictable rather than post-hoc:
+
+- **`--sphere-layout raw-kk`.** The Kamada layouts place the graph in flat 3-D
+  and then project it onto a single sphere, discarding each node's distance
+  from the centre. `raw-kk` keeps it: every crossing stays on the shell the
+  layout gave it. Two `[raw-KK]` status lines report the sorted crossing radii
+  (1.000 = the mean shell) and flag a clean shell split:
+
+  ```
+  [raw-KK] no projection; sorted crossing radii (1.000 = mean shell): 0.725 0.725
+           0.725 0.725 1.275 1.275 1.275 1.275
+  [raw-KK] radius spread CV 0.275, range 0.725-1.275; largest gap 0.550 after the
+           4 smallest (7.0x the mean spacing) -- two clean shells
+  ```
+
+  Everything else — the angular construction, the over/under bumps, the
+  clearance repair, the topology audit — is unchanged. Diagrams that want a
+  single shell (trefoil, Borromean rings) come out identical to
+  `spherical-kamada`; the Bing-double clasps put one component pair on its own
+  outer shell.
+
+- **Crossing-spacing report.** Every Kamada-family 3-D build prints a `[geom]`
+  line before any repair runs, e.g.
+
+  ```
+  [geom] crossing spacing: closest pair 24.0 deg, mean 24.0 deg; two 15.0 deg
+         patches need 30.0 deg -- OVERLAP by 6.0 deg (max safe crossing angle 11.9 deg)
+  ```
+
+  Each crossing occupies a patch of half-width `--sphere-crossing-angle`, so two
+  neighbouring crossings need twice that angle between their centres. The
+  closest pair ("nn min") therefore caps the usable crossing angle at
+  `nn min / 2`; the mean describes typical crowding and can look comfortable
+  while the minimum is already too tight. Nothing is clamped automatically — the
+  numbers are advisory. The GUI `?` popup for `crossing angle deg` shows the
+  same measurement for the diagram you last built.
+
+- **Optional spherical refinement** (`--sphere-refine`, GUI `refine on sphere`;
+  default **off**). The Kamada layouts minimise their stress in flat 3-D space
+  and only then project onto the sphere, so the energy optimised is not the
+  energy of the arrangement drawn. When enabled, a second stress minimisation
+  runs with the points constrained to the sphere and distances measured as
+  great-circle arcs. It is a refinement, never a replacement: it is always
+  warm-started from the projected layout, and if it cannot improve on its input
+  the unrefined layout is kept. It applies to `spherical-kamada`,
+  `shaped-kamada` and `cubic-kamada` alike (it acts before the surface warp).
+  A `[refine]` line reports stress, closest pair and mean spacing before and
+  after — worth reading, because lowering the stress does not always leave more
+  room between crossings.
 
 Extra `holed-tutte` controls:
 
@@ -482,7 +533,7 @@ To make the Python scripts directly executable on macOS/Linux:
 
 ```bash
 chmod +x strand_passage_guiV4_2.py
-chmod +x draw_dt_original_labelsV5_5.py
+chmod +x draw_dt_original_labelsV5_6.py
 chmod +x audit_xyz.py
 chmod +x check_two_dt.py
 chmod +x find_link_in_snappy.py
@@ -527,7 +578,7 @@ sage -python ./strand_passage_guiV4_2.py
   byte-identical rasters. The fallback stack also protects machines without
   Arial, which previously substituted silently. Text remains editable — this is
   deliberately not a switch to `svg.fonttype: 'path'` outlines.
-- Standalone SVGs from `draw_dt_original_labelsV5_5.py` use the same Arial
+- Standalone SVGs from `draw_dt_original_labelsV5_6.py` use the same Arial
   editable-text policy and roomier DT-label/crossing-ID boxes. Requested layouts
   are kept even when they create false crossings, with those artifacts
   highlighted and a metadata caption added to saved diagrams. The standalone

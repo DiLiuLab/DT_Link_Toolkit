@@ -1,11 +1,67 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-draw_dt_original_labelsV5_5.py
+draw_dt_original_labelsV5_6.py
 ==============================
 
 Draw a smooth planar oriented link diagram from a signed Dowker-Thistlethwaite
 (DT) code while preserving the original traversal labels supplied by the user.
+
+V5.6 changes
+------------
+* 3D: new "raw-kk" sphere layout (--sphere-layout raw-kk).  The kamada layouts
+  place the graph in flat 3-D and then PROJECT it onto one sphere, throwing away
+  each node's distance from the centre.  raw-kk keeps that distance: every
+  crossing stays on the shell the Kamada-Kawai layout gave it, so the diagram
+  sits on as many concentric shells as the graph actually wants.  The angular
+  construction, the over/under bumps, the clearance repair and the topology
+  audit are all unchanged; only the base radius varies per crossing (folded into
+  the existing radial-offset channel, and interpolated along each connector with
+  the same quadratic basis as its angular arc).  Two [raw-KK] status lines report
+  the sorted crossing radii (1.000 = the mean shell), the spread, and the largest
+  gap, flagging a clean two-shell split.  Some diagrams layer sharply -- 8_3
+  splits 4 + 4 at radii 0.725 / 1.275, and the Bing-double clasps put one
+  component pair on its own outer shell -- while others (trefoil, Borromean
+  rings) sit on a single shell, where raw-kk agrees with spherical-kamada.
+* 3D: the crossing SEPARATION on the sphere is now measured and reported.  Each
+  crossing occupies a patch of half-width --sphere-crossing-angle, so two
+  neighbouring crossings need TWICE that angle between their centres or the
+  patches overlap and strands from different crossings collide (which is how a
+  dense kamada layout renders the WRONG link).  New helpers
+  ``crossing_separation_stats`` / ``_crossing_centres_from_dirs`` compute the
+  nearest-neighbour spacing of the crossing centres (closest pair = "nn min",
+  average = "nn mean"), and every kamada-family XYZ build now emits a
+    [geom] crossing spacing: closest pair ... / mean ...; two X deg patches
+           need Y deg -- ok / OVERLAP (max safe crossing angle Z deg)
+  status line BEFORE the curve is built.  This turns a post-hoc audit failure
+  into a prediction with an actionable number.  The GUI '?' popup for
+  'crossing angle deg' appends the live measurement for the current diagram.
+  Nothing is auto-clamped: the reported numbers are advisory, the angle you ask
+  for is the angle you get.
+* 3D: optional post-projection SPHERICAL REFINEMENT (--sphere-refine, GUI
+  'refine on sphere'; default OFF).  The kamada layouts minimise the
+  Kamada-Kawai stress in flat 3-D space and only then project onto the sphere,
+  so the energy that was optimised is not the energy of the arrangement that is
+  actually drawn.  When enabled, a second stress minimisation runs with the
+  positions CONSTRAINED to the sphere and distances measured as great-circle
+  arcs (free graph-to-sphere scale, analytic gradient, L-BFGS-B).  It is a
+  refinement, never a replacement: started cold it collapses into degenerate
+  minima, so it is always warm-started from the projected kamada layout.
+  Because it acts on the unit directions BEFORE the gadget compaction, it
+  applies to spherical-kamada, shaped-kamada (ellipsoid / cylinder / torus) and
+  cubic-kamada alike -- the shaped and cube warps run afterwards as usual.
+  When on, a
+    [refine] sphere refinement: stress A -> B (-N%); closest pair ... ; mean ...
+  status line reports the before/after comparison.  Measured on 31 REALIZABLE
+  diagrams (knots 3_1..8_12 with DT codes taken from spherogram, plus the four
+  project link diagrams) it lowered the spherical stress in every case and
+  improved the closest-crossing spacing in 27, left 3 unchanged and cost 0.1 deg
+  in one.  It stays opt-in, and the status line lets you check per diagram --
+  lower stress does not have to mean more room.  (An earlier measurement showing
+  two large spacing regressions used two mis-transcribed DT codes that are not
+  planar, hence not link diagrams at all.  prepare_diagram rejects those, but
+  calling the layout helpers directly does not -- check planarity when driving
+  the internals.)
 
 V5.5 changes
 ------------
@@ -499,7 +555,7 @@ Outputs:
   and a spherical XYZ coordinate file with blank lines between components.
 
 Example:
-  python draw_dt_original_labelsV5_5.py \
+  python draw_dt_original_labelsV5_6.py \
     --dt 'DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]' \
     --output example_v3.svg \
     --table example_v3.csv \
@@ -546,8 +602,11 @@ matplotlib.rcParams["svg.fonttype"] = "none"
 matplotlib.rcParams["pdf.fonttype"] = 42
 matplotlib.rcParams["ps.fonttype"] = 42
 DIAGRAM_FONT_FAMILY = "Arial"
-SCRIPT_VERSION = "V5.5"
+SCRIPT_VERSION = "V5.6"
 VERSION = SCRIPT_VERSION
+# V5.6: crossing-separation measurement from the most recent kamada-family XYZ
+# build, so the GUI "?" popup for the crossing angle can show live numbers.
+LAST_CROSSING_GEOMETRY = {}
 DT_LABEL_BOX_PAD = 0.22
 CROSSING_ID_BOX_PAD = 0.28
 matplotlib.rcParams["font.family"] = DIAGRAM_FONT_FAMILY
@@ -652,12 +711,13 @@ GUI_HELP_TEXT = {
     "line_width": "2D strand line width in Matplotlib points. Default: 2.0.",
     "gap_frac": "Under-strand gap size in the 2D image. This is a ratio of the overall 2D diagram span, not an absolute coordinate distance. Default: 0.025.",
     "over_gap_factor": "Length of the colored OVER-strand piece redrawn on top of each crossing gap, as a multiple of the under-strand gap. At each crossing the under strand is masked with a white piece and the over strand is then redrawn over it; if this piece is too short a white nick shows at the crossing. Must be > 1 so the over strand fully covers the white mask; increase for thicker lines or if nicks appear. Default: 2.0.",
-    "sphere_layout": "XYZ sphere layout. spherical-kamada distributes the graph directly over the sphere and is best for symmetric spherical models. shaped-kamada warps that construction onto a shaped surface. cubic-kamada maps it onto a cube, aligning a detected cyclic symmetry with a matching cube axis (see cube style for smooth vs 90-degree-angled strands). stereographic maps the current 2D drawing onto a sphere. stereo-safe uses the audited planar layout, stereographically lifts it, and adds only radial crossing bumps; it is the correct-by-construction choice when a dense Kamada layout fails the topology audit.",
+    "sphere_layout": "XYZ sphere layout. spherical-kamada distributes the graph directly over the sphere and is best for symmetric spherical models. shaped-kamada warps that construction onto a shaped surface. cubic-kamada maps it onto a cube, aligning a detected cyclic symmetry with a matching cube axis (see cube style for smooth vs 90-degree-angled strands). raw-kk skips the projection altogether: the 3-D Kamada-Kawai layout puts nodes at different distances from the centre, and the other layouts throw that away by pushing everything onto one sphere. raw-kk keeps each crossing at its own radius, so the diagram sits on as many concentric shells as the graph actually wants, and the sorted radii are printed as [raw-KK] status lines (1.000 = the mean shell). Some links layer cleanly -- the Bing-double clasps put one component pair on its own outer shell -- while others give a continuous spread. Useful for seeing the structure the projection hides; the strands still carry the usual over/under bumps and the topology audit still runs. stereographic maps the current 2D drawing onto a sphere. stereo-safe uses the audited planar layout, stereographically lifts it, and adds only radial crossing bumps; it is the correct-by-construction choice when a dense Kamada layout fails the topology audit.",
     "sphere_radius": "Base radius of the sphere in XYZ coordinate units. Default: 50.0. With crossing offset = 0, all XYZ points lie at this radius.",
     "sphere_extent": "Only used by stereographic. Dimensionless. After centering the 2D drawing, the farthest planar point is scaled to this radius before inverse stereographic projection. 1.0 reaches the equator; larger values use more of the southern hemisphere.",
     "crossing_offset": "Absolute radial offset in XYZ coordinate units, not a ratio. Over-layer radius is R + offset; under-layer radius is R - offset. Default: 5.0. Use 0 for a perfect sphere with no height separation.",
     "sphere_bump_frac": "Dimensionless ratio, not an absolute distance. It does not change the 2D preview. Without direct connecting, it controls local crossing bump width: 1.0 uses the whole crossing patch and smaller values narrow the bump. With direct connecting, local crossing arcs stay on their inner/outer layer; for dip-to-bump or bump-to-dip connectors this fraction controls how much of the connector is used for the smooth radial transition. Default: 1.0.",
-    "sphere_crossing_angle": "Angular half-size of each local crossing patch, in degrees. Larger values make crossings more open on the sphere. Default: 15 degrees.",
+    "sphere_crossing_angle": "Angular half-size of each local crossing patch, in degrees. Larger values make crossings more open on the sphere. Default: 15 degrees.\n\nHOW LARGE CAN IT BE? Each crossing occupies a patch of this half-width, so two neighbouring crossings need TWICE this angle between their centres or their patches overlap -- and overlapping patches let strands belonging to DIFFERENT crossings meet, which is how a dense kamada layout comes out as the wrong link. The governing number is the closest pair of crossings on the sphere ('nn min'): the largest safe crossing angle is nn min / 2. The average spacing ('nn mean') describes typical crowding and can look comfortable while nn min is already too tight, so read the minimum, not the mean.\n\nEvery kamada-family 3-D build prints a [geom] line with both numbers and the verdict, before any repair runs. Nothing is clamped automatically -- the angle you ask for is the angle you get; the numbers are advisory. The hard limit is still below 28.5 degrees.",
+    "sphere_refine": "V5.6. After the kamada layout is projected onto the sphere, run a SECOND stress minimisation with the points constrained to the sphere and distances measured as great-circle arcs. Default: OFF.\n\nWhy it exists: the kamada layouts minimise the stress in flat 3-D space and only then project onto the sphere, so the energy that was optimised is not the energy of the arrangement that is actually drawn. This closes that gap. It is a refinement, never a replacement -- started from scratch the spherical stress collapses into degenerate minima, so it is always warm-started from the projected layout, and if it cannot improve on its input the unrefined layout is kept.\n\nApplies to spherical-kamada, shaped-kamada (ellipsoid / cylinder / torus) and cubic-kamada alike, because it acts on the directions BEFORE the gadgets are compacted; the shaped and cube warps run afterwards as usual. Not used by stereographic or stereo-safe.\n\nAcross 17 test links it lowered the spherical stress in every case but improved the closest crossing spacing in only some of them, so it is opt-in. When on, a [refine] status line reports stress, closest pair and mean spacing before and after, so you can check whether it helped THIS diagram. Costs roughly 1.4-2x the layout time.",
     "direct_connecting": "Only for spherical-kamada XYZ export. Default: on. If off, connectors return to the middle sphere layer between localized crossing bumps/dips. If on, each segment from crossing to crossing directly connects its endpoint layers: dip-to-dip stays on the inner layer, bump-to-bump stays on the outer layer, and dip-to-bump or bump-to-dip transitions smoothly between layers.",
     "xyz_spacing": "Target separation between adjacent XYZ points, in the same coordinate units as the sphere radius. Default: 1.8. The script resamples each closed component so points are distributed evenly along the curve; the exact spacing is adjusted slightly so each component closes cleanly.",
     "xyz_final_smooth": "Final smoothing for the written 3D XYZ curve. This is applied after the spherical construction and even point redistribution. It smooths unit directions and radial offsets separately, so crossing layers remain recognizable while small stitched-arc kinks are reduced. Default: on.",
@@ -4834,13 +4894,18 @@ def _fibonacci_sphere_directions(n):
     return out
 
 
-def _kamada_3d_unit_directions(G):
+def _kamada_3d_directions_and_radii(G):
     """
-    Kamada-Kawai-style 3D graph layout followed by radial projection to S^2.
+    Kamada-Kawai-style 3D graph layout, returned as directions AND radii.
+
+    ``dirs`` are the unit directions used by every sphere layout (the radial
+    projection to S^2).  ``radii`` are the distances from the centre that the
+    projection would otherwise discard, normalized so their mean is 1.0 -- the
+    "raw-kk" layout keeps them instead of flattening everything onto one sphere.
     """
     nodes = sorted(list(G.nodes()), key=repr)
     if not nodes:
-        return {}
+        return {}, {}
     seed = _fibonacci_sphere_directions(len(nodes))
     pos0 = {node: seed[i] for i, node in enumerate(nodes)}
     try:
@@ -4853,7 +4918,210 @@ def _kamada_3d_unit_directions(G):
     if float(np.max(np.linalg.norm(coords, axis=1))) <= 1.0e-10:
         coords = seed.copy()
     dirs = _normalize_rows(coords)
-    return {node: dirs[i] for i, node in enumerate(nodes)}
+    rad = np.linalg.norm(coords, axis=1)
+    mean_r = float(np.mean(rad))
+    if not np.isfinite(mean_r) or mean_r <= 1.0e-12:
+        rad = np.ones(len(nodes), float)
+    else:
+        rad = rad / mean_r
+    return ({node: dirs[i] for i, node in enumerate(nodes)},
+            {node: float(rad[i]) for i, node in enumerate(nodes)})
+
+
+def _kamada_3d_unit_directions(G):
+    """
+    Kamada-Kawai-style 3D graph layout followed by radial projection to S^2.
+    """
+    return _kamada_3d_directions_and_radii(G)[0]
+
+
+# --------------------------------------------------------------------------- #
+#  V5.6: crossing separation on the sphere, and the optional spherical
+#  refinement of the projected kamada layout.
+# --------------------------------------------------------------------------- #
+def _crossing_centres_from_dirs(model, dirs):
+    """
+    Crossing centres (unit directions) implied by a set of gadget-node
+    directions, using the same rule as ``_compact_crossing_gadgets_on_sphere``:
+    a crossing sits at the normalized mean of its four corner directions.
+
+    Returns an (ncross, 3) array.  Lets the caller measure the crossing
+    geometry without building any curves.
+    """
+    roles = ("in_o", "in_e", "out_o", "out_e")
+    ncross = len(model["crossings"])
+    fallback = _fibonacci_sphere_directions(max(1, ncross))
+    out = np.zeros((ncross, 3), float)
+    for k in range(ncross):
+        corners = [dirs.get((k, r), fallback[k % len(fallback)]) for r in roles]
+        out[k] = _normalize_vector(np.mean(corners, axis=0),
+                                   fallback=fallback[k % len(fallback)])
+    return out
+
+
+def crossing_separation_stats(centres):
+    """
+    Nearest-neighbour angular spacing of the crossing centres, in DEGREES.
+
+    For each crossing, the angle to whichever other crossing is closest.  The
+    smallest of those ("nn min") is the closest pair anywhere on the sphere and
+    is what decides whether the crossing patches fit: each crossing occupies a
+    patch of half-width --sphere-crossing-angle, so two patches need TWICE that
+    angle between their centres and the largest safe crossing angle is
+    nn_min / 2.  "nn mean" is the average and describes typical crowding -- it
+    can look comfortable while nn_min is already too tight, so the minimum is
+    the number that governs.
+
+    Returns a dict with n, nn_min, nn_mean, nn_max and the closest ``pair``
+    (0-based indices into the DT crossing list), or infinities when there are
+    fewer than two crossings.
+    """
+    C = np.asarray(centres, float)
+    n = len(C)
+    if n < 2:
+        return {"n": n, "nn_min": float("inf"), "nn_mean": float("inf"),
+                "nn_max": float("inf"), "pair": None}
+    A = np.degrees(np.arccos(np.clip(C @ C.T, -1.0, 1.0)))
+    np.fill_diagonal(A, np.inf)
+    nn = A.min(axis=1)
+    i, j = np.unravel_index(int(np.argmin(A)), A.shape)
+    return {"n": n, "nn_min": float(nn.min()), "nn_mean": float(nn.mean()),
+            "nn_max": float(nn.max()), "pair": (int(min(i, j)), int(max(i, j)))}
+
+
+def _spherical_hop_targets(G, nodes):
+    """All-pairs hop distances for ``nodes`` (in order), plus their reciprocal."""
+    spl = dict(nx.shortest_path_length(G))
+    n = len(nodes)
+    D = np.full((n, n), float(max(1, n)), float)
+    for ai, a in enumerate(nodes):
+        row = spl.get(a, {})
+        for bi, b in enumerate(nodes):
+            if b in row:
+                D[ai][bi] = float(row[b])
+    np.fill_diagonal(D, 0.0)
+    invd = np.zeros_like(D)
+    nzm = D > 0.0
+    invd[nzm] = 1.0 / D[nzm]
+    return D, invd
+
+
+def _spherical_kk_cost(z, n, invd, iu):
+    """
+    Kamada-Kawai stress with the points CONSTRAINED to the unit sphere and
+    distances measured as great-circle arcs:
+
+        E = 0.5 * sum_{i<j} ( t * theta_ij / d_ij - 1 )**2 ,   theta = arc angle
+
+    ``z`` packs n free 3-vectors followed by the free graph-to-sphere scale
+    ``t``.  The point for row i is z_i / |z_i|, so the unit constraint is
+    automatic and there is no coordinate singularity at the poles (as there
+    would be with latitude/longitude).  Returns (energy, gradient).
+    """
+    X = z[:3 * n].reshape(n, 3)
+    t = float(z[3 * n])
+    r = np.maximum(np.linalg.norm(X, axis=1), 1.0e-12)
+    U = X / r[:, None]
+    Cm = np.clip(U @ U.T, -1.0, 1.0)
+    TH = np.arccos(Cm)
+    A = TH * invd
+    R = t * A - 1.0
+    np.fill_diagonal(R, 0.0)
+    E = 0.5 * float(np.sum(R[iu] ** 2))
+    S = np.zeros_like(R)
+    S[iu] = R[iu] * t * invd[iu]
+    S = S + S.T
+    # d(theta)/du blows up as theta -> 0 or pi; floor sin so a near-coincident
+    # pair gives a large but finite push instead of a NaN.
+    sin_th = np.sqrt(np.maximum(1.0 - Cm ** 2, 1.0e-12))
+    W = S / sin_th
+    np.fill_diagonal(W, 0.0)
+    gU = -(W @ U) + (W * Cm).sum(axis=1)[:, None] * U
+    gX = (gU - (np.sum(gU * U, axis=1))[:, None] * U) / r[:, None]
+    gt = float(np.sum(R[iu] * A[iu]))
+    return E, np.concatenate([gX.ravel(), [gt]])
+
+
+def spherical_stress_value(unit_dirs, invd, iu, scale=None):
+    """
+    Evaluate the spherical stress for ANY set of unit directions.  With
+    ``scale`` unset the optimal graph-to-sphere scale is solved for in closed
+    form, which makes the number comparable between two different layouts of
+    the same graph.  Returns (stress, scale).
+    """
+    U = np.asarray(unit_dirs, float)
+    A = np.arccos(np.clip(U @ U.T, -1.0, 1.0)) * invd
+    if scale is None:
+        den = float(np.sum(A[iu] ** 2))
+        scale = (float(np.sum(A[iu])) / den) if den > 0.0 else 1.0
+    R = float(scale) * A - 1.0
+    return 0.5 * float(np.sum(R[iu] ** 2)), float(scale)
+
+
+def refine_dirs_on_sphere(G, dirs, maxiter=800):
+    """
+    V5.6: polish a set of gadget-node directions by minimising the spherical
+    (great-circle) Kamada-Kawai stress with the points constrained to S^2.
+
+    The kamada layouts minimise the stress in flat 3-D space and only then
+    project onto the sphere, so the energy that was optimised is not the energy
+    of the arrangement that is actually drawn.  This closes that gap.
+
+    It is a REFINEMENT, never a replacement: started from scratch the spherical
+    stress has deep degenerate minima in which nodes pile up on top of one
+    another, so it must be warm-started from the projected kamada layout (which
+    is exactly what ``dirs`` is).
+
+    Returns ``(refined_dirs, report)``.  On any failure -- no scipy, optimiser
+    error, non-finite result, or an outcome no better than the input -- the
+    input is returned UNCHANGED with ``report["ok"] = False``, so enabling the
+    refinement can never make the layout worse than leaving it off.
+    """
+    nodes = sorted(list(G.nodes()), key=repr)
+    n = len(nodes)
+    report = {"ok": False, "reason": "", "n_nodes": n, "iters": 0,
+              "stress_before": float("nan"), "stress_after": float("nan")}
+    if n < 3:
+        report["reason"] = "graph too small to refine"
+        return dirs, report
+    try:
+        from scipy.optimize import minimize as _minimize
+    except Exception as exc:
+        report["reason"] = "scipy unavailable (%s)" % (str(exc)[:60],)
+        return dirs, report
+    try:
+        U0 = _normalize_rows(
+            np.array([np.asarray(dirs[nd], float) for nd in nodes], float))
+        D, invd = _spherical_hop_targets(G, nodes)
+        iu = np.triu_indices(n, 1)
+        s_before, _ = spherical_stress_value(U0, invd, iu)
+        # ``t`` in the energy is HOPS PER RADIAN (the residual vanishes at
+        # theta = d / t), so the scale that maps the graph diameter onto half
+        # the sphere is D.max() / pi -- not its reciprocal.  Better still, start
+        # from the scale that already best fits the incoming layout.
+        _, _t0 = spherical_stress_value(U0, invd, iu)
+        if not np.isfinite(_t0) or _t0 <= 0.0:
+            _t0 = max(1.0, float(D.max())) / math.pi
+        z0 = np.concatenate([U0.ravel(), [_t0]])
+        res = _minimize(_spherical_kk_cost, z0, jac=True, method="L-BFGS-B",
+                        args=(n, invd, iu), options={"maxiter": int(maxiter)})
+        X = res.x[:3 * n].reshape(n, 3)
+        if not np.all(np.isfinite(X)):
+            report["reason"] = "optimiser returned non-finite positions"
+            return dirs, report
+        U1 = _normalize_rows(X)
+        s_after, _ = spherical_stress_value(U1, invd, iu)
+    except Exception as exc:
+        report["reason"] = "refinement failed (%s)" % (str(exc)[:60],)
+        return dirs, report
+    report["iters"] = int(getattr(res, "nit", 0) or 0)
+    report["stress_before"] = float(s_before)
+    report["stress_after"] = float(s_after)
+    if (not np.isfinite(s_after)) or s_after >= s_before:
+        report["reason"] = "no improvement; keeping the unrefined layout"
+        return dirs, report
+    report["ok"] = True
+    return {nd: U1[i] for i, nd in enumerate(nodes)}, report
 
 
 def _tangent_basis_at(center):
@@ -5044,11 +5312,54 @@ def _build_spherical_kamada_xyz_components(
     direct_connecting=True,
     skeleton_out=None,
     skeleton_grid=24,
+    refine=False,
+    refine_report=None,
+    raw_radii=False,
+    radii_report=None,
 ):
     """Sphere-native method: distribute the diagram directly on S^2."""
     if G is None:
         G = build_gadget_graph(model)
-    raw_dirs = _kamada_3d_unit_directions(G)
+    raw_dirs, _node_radii = _kamada_3d_directions_and_radii(G)
+    # V5.6: optionally re-minimise the stress ON the sphere (great-circle
+    # distances, points constrained to S^2), warm-started from the projection
+    # above.  Done here, before the gadgets are compacted, so shaped-kamada and
+    # cubic-kamada inherit it -- their surface warps run later on the result.
+    if refine:
+        _before = _crossing_centres_from_dirs(model, raw_dirs)
+        raw_dirs, _rrep = refine_dirs_on_sphere(G, raw_dirs)
+        _after = _crossing_centres_from_dirs(model, raw_dirs)
+        _rrep["nn_before"] = crossing_separation_stats(_before)
+        _rrep["nn_after"] = crossing_separation_stats(_after)
+        if refine_report is not None:
+            refine_report.update(_rrep)
+
+    # V5.6 "raw-kk": keep each crossing at the radius the Kamada-Kawai layout
+    # gave it instead of projecting everything onto a single sphere.  The
+    # angular construction below is untouched; the radius is folded into the
+    # existing radial-offset channel, because the resampler builds every point
+    # as radius = sphere_radius + offset.  Radii always come from the layout
+    # itself (a refinement moves directions, not radii).
+    _cross_scale = None
+    _seg_scale = {}
+    if raw_radii:
+        _roles = ("in_o", "in_e", "out_o", "out_e")
+        _cr = {}
+        for k in range(len(model["crossings"])):
+            _pts = [np.asarray(raw_dirs[(k, r)], float) * float(_node_radii.get((k, r), 1.0))
+                    for r in _roles if (k, r) in raw_dirs]
+            _cr[k] = (float(np.linalg.norm(np.mean(_pts, axis=0)))
+                      if _pts else 1.0)
+        _mean = float(np.mean(list(_cr.values()))) if _cr else 1.0
+        if not np.isfinite(_mean) or _mean <= 1.0e-12:
+            _mean = 1.0
+        _cross_scale = {k: (v / _mean) for k, v in _cr.items()}
+        for cp in model["comp_positions"]:
+            for p in cp:
+                _seg_scale[p] = float(_node_radii.get(("seg", p), 1.0)) / _mean
+        if radii_report is not None:
+            radii_report["crossing_scales"] = [
+                _cross_scale[k] for k in range(len(_cross_scale))]
     P3, centers3 = _compact_crossing_gadgets_on_sphere(
         model, raw_dirs, crossing_angle=crossing_angle
     )
@@ -5143,6 +5454,10 @@ def _build_spherical_kamada_xyz_components(
                     _layer_offset_for_visit(model, p, sphere_offset),
                     float,
                 )
+            if _cross_scale is not None:
+                # the whole crossing patch sits on its own shell
+                cross_offsets = np.asarray(cross_offsets, float) + (
+                    (_cross_scale.get(k, 1.0) - 1.0) * float(sphere_radius))
             _append_direction_samples(directions, radial_offsets, cross_dirs, cross_offsets)
 
             q = model["nextpos"][p]
@@ -5164,6 +5479,16 @@ def _build_spherical_kamada_xyz_components(
                 )
             else:
                 conn_offsets = np.zeros(len(conn_dirs), float)
+            if _cross_scale is not None:
+                # ride from this crossing's shell to the next one, using the
+                # same quadratic basis (and the same seg control point) as the
+                # angular arc above, so radius and direction stay in step
+                _t = np.linspace(0.0, 1.0, len(conn_dirs))
+                _r = ((1.0 - _t) ** 2 * _cross_scale.get(k, 1.0)
+                      + 2.0 * (1.0 - _t) * _t * _seg_scale.get(p, 1.0)
+                      + _t ** 2 * _cross_scale.get(next_k, 1.0))
+                conn_offsets = np.asarray(conn_offsets, float) + (
+                    (_r - 1.0) * float(sphere_radius))
             _append_direction_samples(directions, radial_offsets, conn_dirs, conn_offsets)
 
         if not directions:
@@ -6796,6 +7121,7 @@ def build_spherical_xyz_components(
     skeleton_grid=24,
     xyz_repair=True,
     xyz_clearance=None,
+    sphere_refine=False,
     audit_dt=None,
     status_messages=None,
 ):
@@ -6858,9 +7184,11 @@ def build_spherical_xyz_components(
 
     layout = str(sphere_layout or "spherical-kamada").strip().lower()
     if skeleton_out is None and layout in ("spherical-kamada", "shaped-kamada",
-                                           "cubic-kamada"):
+                                           "cubic-kamada", "raw-kk"):
         skeleton_out = {}          # V5.4: anchors needed for clearance repair
                                    # (and, for cubic-kamada, cube orientation)
+    _refine_rep = {}
+    _radii_rep = {}
     _stereo_safe = (layout == "stereo-safe")
     if _stereo_safe:
         # V5.4 correct-by-construction mode: lift the AUDITED planar layout
@@ -6883,7 +7211,7 @@ def build_spherical_xyz_components(
             sphere_bump_frac=sphere_bump_frac,
             xyz_spacing=(0.6 * xyz_spacing if _stereo_safe else xyz_spacing),
         )
-    elif layout in ("spherical-kamada", "shaped-kamada", "cubic-kamada"):
+    elif layout in ("spherical-kamada", "shaped-kamada", "cubic-kamada", "raw-kk"):
         # All three use the sphere-native construction; shaped-kamada warps the
         # finished spherical curve onto a shaped surface below, and cubic-kamada
         # maps it onto a cube (smooth) or routes it as 90-degree segments.
@@ -6898,6 +7226,10 @@ def build_spherical_xyz_components(
             direct_connecting=direct_connecting,
             skeleton_out=skeleton_out,
             skeleton_grid=skeleton_grid,
+            refine=bool(sphere_refine),
+            refine_report=_refine_rep,
+            raw_radii=(layout == "raw-kk"),
+            radii_report=_radii_rep,
         )
     else:
         raise ValueError("Unknown --sphere-layout %r." % sphere_layout)
@@ -6911,6 +7243,108 @@ def build_spherical_xyz_components(
             and len(skeleton_out.get("points", [])):
         _anch = np.asarray(skeleton_out["points"], float) * (
             float(sphere_radius) if skeleton_out.get("unit") else 1.0)
+        if _radii_rep.get("crossing_scales") and skeleton_out.get("unit"):
+            _sc = np.asarray(_radii_rep["crossing_scales"], float)
+            if len(_sc) == len(_anch):
+                _anch = _anch * _sc[:, None]
+
+    # V5.6: report what the spherical refinement did, then measure the crossing
+    # separation BEFORE any repair, so a too-large crossing angle becomes a
+    # prediction with an actionable number instead of a post-hoc audit failure.
+    # V5.6 "raw-kk": report the radii the projection would otherwise discard.
+    if _radii_rep.get("crossing_scales"):
+        _sc = np.asarray(_radii_rep["crossing_scales"], float)
+        _srt = np.sort(_sc)
+        _msgs.append(
+            "[raw-KK] no projection; sorted crossing radii (1.000 = mean shell): "
+            + " ".join("%.3f" % v for v in _srt))
+        if float(_sc.std() / max(_sc.mean(), 1e-12)) < 1.0e-4:
+            _msgs.append(
+                "[raw-KK] all crossings share one radius -- this diagram wants a "
+                "single shell, so raw-kk and spherical-kamada agree here.")
+        elif len(_srt) >= 3:
+            _gaps = np.diff(_srt)
+            _gi = int(np.argmax(_gaps))
+            _mg = float(np.mean(_gaps)) if float(np.mean(_gaps)) > 0 else 1.0
+            _msgs.append(
+                "[raw-KK] radius spread CV %.3f, range %.3f-%.3f; largest gap "
+                "%.3f after the %d smallest (%.1fx the mean spacing)%s"
+                % (float(_sc.std() / max(_sc.mean(), 1e-12)), float(_srt.min()),
+                   float(_srt.max()), float(_gaps[_gi]), _gi + 1,
+                   float(_gaps[_gi]) / _mg,
+                   " -- two clean shells" if float(_gaps[_gi]) / _mg >= 5.0
+                   else " -- no clear shell split"))
+
+    if sphere_refine and not _refine_rep:
+        _msgs.append(
+            "[info] --sphere-refine ignored: it applies only to the kamada "
+            "sphere layouts (spherical-kamada / shaped-kamada / cubic-kamada).")
+    if _refine_rep:
+        if _refine_rep.get("ok"):
+            _rb = _refine_rep.get("nn_before", {})
+            _ra = _refine_rep.get("nn_after", {})
+            _s0 = float(_refine_rep.get("stress_before", float("nan")))
+            _s1 = float(_refine_rep.get("stress_after", float("nan")))
+            _pct = (100.0 * (_s1 - _s0) / _s0) if _s0 > 0.0 else 0.0
+            _msgs.append(
+                "[refine] sphere refinement: stress %.2f -> %.2f (%+.1f%%); "
+                "closest pair %.1f -> %.1f deg; mean spacing %.1f -> %.1f deg "
+                "(%d iterations)"
+                % (_s0, _s1, _pct,
+                   _rb.get("nn_min", float("nan")), _ra.get("nn_min", float("nan")),
+                   _rb.get("nn_mean", float("nan")), _ra.get("nn_mean", float("nan")),
+                   int(_refine_rep.get("iters", 0))))
+            if _ra.get("nn_min", 0.0) < _rb.get("nn_min", 0.0) - 0.05:
+                _msgs.append(
+                    "[note] the refinement lowered the spherical stress but "
+                    "TIGHTENED the closest crossing pair.  Lower stress does "
+                    "not imply more room; compare the [geom] line with and "
+                    "without --sphere-refine before keeping it.")
+        else:
+            _msgs.append("[info] sphere refinement skipped: %s"
+                         % (_refine_rep.get("reason") or "unknown reason"))
+
+    if skeleton_out is not None and skeleton_out.get("unit") \
+            and len(skeleton_out.get("points", [])):
+        _geom = crossing_separation_stats(
+            np.asarray(skeleton_out["points"], float))
+        if _geom["n"] >= 2:
+            LAST_CROSSING_GEOMETRY.clear()
+            LAST_CROSSING_GEOMETRY.update(_geom)
+            LAST_CROSSING_GEOMETRY["crossing_angle_deg"] = sphere_crossing_angle_degrees
+            LAST_CROSSING_GEOMETRY["sphere_layout"] = str(sphere_layout)
+            LAST_CROSSING_GEOMETRY["refined"] = bool(_refine_rep.get("ok"))
+            _need = 2.0 * sphere_crossing_angle_degrees
+            # Round the recommendation DOWN to the displayed precision so that
+            # following the hint actually clears the check (a bare nn_min / 2
+            # lands exactly on the boundary and trips it again).
+            _safe = math.floor(0.5 * _geom["nn_min"] * 10.0) / 10.0
+            # 0.01 deg is below anything that matters geometrically; treating a
+            # deficit that small as "touching" avoids reporting a scary
+            # "OVERLAP by 0.0 deg" for a rounding-level difference.
+            _gap = _geom["nn_min"] - _need
+            _fits = (_gap >= -0.01)
+            if _fits:
+                _verdict = ("ok, patches just touching" if _gap < 0.01
+                            else "ok, %.1f deg margin" % _gap)
+            else:
+                _verdict = ("OVERLAP by %.2f deg" % (-_gap) if -_gap < 0.1
+                            else "OVERLAP by %.1f deg" % (-_gap))
+            _msgs.append(
+                "[geom] crossing spacing: closest pair %.1f deg, mean %.1f deg; "
+                "two %.1f deg patches need %.1f deg -- %s (max safe crossing "
+                "angle %.1f deg)"
+                % (_geom["nn_min"], _geom["nn_mean"],
+                   sphere_crossing_angle_degrees, _need, _verdict, _safe))
+            if not _fits:
+                _msgs.append(
+                    "[hint] lower --sphere-crossing-angle to %.1f or below, or "
+                    "switch to --sphere-layout stereo-safe.  Overlapping "
+                    "patches let strands from DIFFERENT crossings meet, which "
+                    "can render the wrong link -- and such an intersection can "
+                    "fall inside the audit's exclusion radius around a true "
+                    "crossing and go unreported." % _safe)
+
     if xyz_repair and _clr > 0.0:
         xyz_components, _ = _run_xyz_repair_stage(
             xyz_components, _clr, "raw build", _msgs,
@@ -7085,6 +7519,7 @@ def write_spherical_xyz(
     cube_style="smooth",
     xyz_repair=True,
     xyz_clearance=None,
+    sphere_refine=False,
     audit_dt=None,
     status_stream=None,
 ):
@@ -7122,6 +7557,7 @@ def write_spherical_xyz(
         cube_style=cube_style,
         xyz_repair=xyz_repair,
         xyz_clearance=xyz_clearance,
+        sphere_refine=sphere_refine,
         audit_dt=audit_dt,
         status_messages=(_v54_msgs := []),
     )
@@ -8303,6 +8739,7 @@ def run_pipeline(args, status_stream=None):
             sphere_layout=args.sphere_layout,
             sphere_crossing_angle=args.sphere_crossing_angle,
             direct_connecting=args.direct_connecting,
+            sphere_refine=bool(getattr(args, "sphere_refine", False)),
             xyz_final_smooth=args.xyz_final_smooth,
             xyz_smooth_window=args.xyz_smooth_window,
             xyz_smooth_passes=args.xyz_smooth_passes,
@@ -8333,6 +8770,7 @@ def run_pipeline(args, status_stream=None):
                 sphere_layout=args.sphere_layout,
                 sphere_crossing_angle=args.sphere_crossing_angle,
                 direct_connecting=args.direct_connecting,
+                sphere_refine=bool(getattr(args, "sphere_refine", False)),
                 xyz_final_smooth=args.xyz_final_smooth,
                 xyz_smooth_window=args.xyz_smooth_window,
                 xyz_smooth_passes=args.xyz_smooth_passes,
@@ -8870,8 +9308,9 @@ def build_arg_parser():
     )
     ap.add_argument(
         "--sphere-layout",
+        type=str.lower,
         choices=["spherical-kamada", "shaped-kamada", "cubic-kamada",
-                 "stereographic", "stereo-safe"],
+                 "raw-kk", "stereographic", "stereo-safe"],
         default="spherical-kamada",
         help=(
             "XYZ sphere layout. 'spherical-kamada' spreads the graph directly "
@@ -8879,6 +9318,10 @@ def build_arg_parser():
             "construction onto a shaped surface (see --surface-shape); "
             "'cubic-kamada' maps it onto a cube, aligning a detected symmetry "
             "with a cube axis (see --cube-style); "
+            "'raw-kk' skips the projection entirely and leaves every crossing "
+            "at the radius the Kamada-Kawai layout gave it, so the diagram sits "
+            "on however many shells the graph actually wants (the sorted radii "
+            "are printed as a [raw-KK] status line); "
             "'stereographic' uses the 2D diagram and inverse stereographic "
             "projection; 'stereo-safe' preserves the audited 2D angular "
             "positions and is the correct-by-construction choice after a "
@@ -9084,6 +9527,27 @@ def build_arg_parser():
              "strands (0 = auto: 0.8 * crossing offset). The clearance "
              "repair separates crowded regions into extra radial layers.")
     ap.add_argument(
+        "--sphere-refine",
+        dest="sphere_refine",
+        action="store_true",
+        default=False,
+        help=(
+            "V5.6: after the kamada layout is projected onto the sphere, run a "
+            "second stress minimisation with the points CONSTRAINED to the "
+            "sphere (great-circle distances). Applies to spherical-kamada, "
+            "shaped-kamada and cubic-kamada (it acts before the surface warp). "
+            "Default: off. It always lowers the spherical stress but does not "
+            "always leave more room between crossings, so check the [refine] "
+            "and [geom] status lines."
+        ),
+    )
+    ap.add_argument(
+        "--no-sphere-refine",
+        dest="sphere_refine",
+        action="store_false",
+        help="Disable the V5.6 post-projection spherical refinement (the default).",
+    )
+    ap.add_argument(
         "--no-xyz-repair", action="store_true",
         help="V5.4: disable the 3D clearance repair (not recommended; dense "
              "diagrams can otherwise render as the WRONG link).")
@@ -9125,7 +9589,7 @@ def run_gui(initial_args):
         return 1
 
     apply_tk_window_icon(root, tk)
-    root.title("draw_dt_original_labelsV5_5")
+    root.title("draw_dt_original_labelsV5_6")
     root.geometry("1320x860")
     root.minsize(1050, 680)
 
@@ -9145,6 +9609,38 @@ def run_gui(initial_args):
     def show_arg_help(key):
         title = key.replace("_", " ").strip().title()
         message = GUI_HELP_TEXT.get(key, "No help text is available for this parameter.")
+        if key == "sphere_crossing_angle":
+            _g = dict(LAST_CROSSING_GEOMETRY)
+            if _g.get("n", 0) >= 2:
+                _need = 2.0 * float(_g.get("crossing_angle_deg", 0.0) or 0.0)
+                _safe = math.floor(0.5 * float(_g["nn_min"]) * 10.0) / 10.0
+                _gap = float(_g["nn_min"]) - _need
+                if _gap >= -0.01:
+                    _verdict = ("FITS (patches just touching)" if _gap < 0.01
+                                else "FITS, with %.1f deg to spare" % _gap)
+                else:
+                    _verdict = ("OVERLAPS by %.2f deg" % (-_gap) if -_gap < 0.1
+                                else "OVERLAPS by %.1f deg" % (-_gap))
+                message += (
+                    "\n\nMEASURED for the current diagram (%s%s, %d crossings):"
+                    "\n  closest pair of crossings (nn min) : %.1f deg"
+                    "\n  average spacing        (nn mean)   : %.1f deg"
+                    "\n  loneliest crossing                 : %.1f deg"
+                    "\n  patches at %.1f deg need           : %.1f deg  ->  %s"
+                    "\n  LARGEST SAFE CROSSING ANGLE        : %.1f deg"
+                    % (_g.get("sphere_layout", "?"),
+                       ", refined on sphere" if _g.get("refined") else "",
+                       int(_g["n"]), _g["nn_min"], _g["nn_mean"], _g["nn_max"],
+                       float(_g.get("crossing_angle_deg", 0.0) or 0.0), _need,
+                       _verdict, _safe)
+                )
+            else:
+                message += (
+                    "\n\nNo measurement yet. Build the 3-D XYZ output once "
+                    "(View XYZ / Save XYZ) with a kamada sphere layout and this "
+                    "popup will then show the measured crossing spacing for the "
+                    "current diagram."
+                )
         if key == "figsize":
             try:
                 w = int(canvas_widget.winfo_width())
@@ -9449,6 +9945,7 @@ def run_gui(initial_args):
     sphere_offset_var = tk.StringVar(value=str(initial_args.sphere_offset))
     sphere_bump_var = tk.StringVar(value=str(initial_args.sphere_bump_frac))
     sphere_angle_var = tk.StringVar(value=str(getattr(initial_args, "sphere_crossing_angle", 15.0)))
+    sphere_refine_var = tk.BooleanVar(value=bool(getattr(initial_args, "sphere_refine", False)))
     xyz_spacing_var = tk.StringVar(value=str(initial_args.xyz_spacing))
     xyz_final_smooth_var = tk.BooleanVar(value=bool(getattr(initial_args, "xyz_final_smooth", True)))
     xyz_smooth_window_var = tk.StringVar(value=str(getattr(initial_args, "xyz_smooth_window", 10)))
@@ -9755,7 +10252,7 @@ def run_gui(initial_args):
     ttk.Combobox(
         settings, textvariable=sphere_layout_var,
         values=["spherical-kamada", "shaped-kamada", "cubic-kamada",
-                "stereographic", "stereo-safe"],
+                "raw-kk", "stereographic", "stereo-safe"],
         width=18, state="readonly"
     ).grid(row=row, column=1, sticky="w", pady=3)
     add_help_button(row, "sphere_layout")
@@ -9823,6 +10320,15 @@ def run_gui(initial_args):
     add_entry("crossing offset", sphere_offset_var, help_key="crossing_offset")
     add_entry("crossing angle deg", sphere_angle_var,
               help_key="sphere_crossing_angle", key="sphere_crossing_angle")
+    _sphere_refine_chk = ttk.Checkbutton(
+        settings,
+        text="refine on sphere",
+        variable=sphere_refine_var,
+    )
+    _sphere_refine_chk.grid(row=row, column=0, columnspan=3, sticky="w", pady=2)
+    add_help_button(row, "sphere_refine")
+    dynamic_widgets.setdefault("sphere_refine", []).append((_sphere_refine_chk, "check"))
+    row += 1
     add_entry("bump fraction", sphere_bump_var, help_key="sphere_bump_frac", key="sphere_bump")
     add_entry("XYZ point spacing", xyz_spacing_var, help_key="xyz_spacing")
     ttk.Checkbutton(
@@ -10156,7 +10662,8 @@ def run_gui(initial_args):
         sl = sphere_layout_var.get()
         is_shaped_k = (sl == "shaped-kamada")
         is_cubic_k = (sl == "cubic-kamada")
-        kamada_family = sl in ("spherical-kamada", "shaped-kamada", "cubic-kamada")
+        kamada_family = sl in ("spherical-kamada", "shaped-kamada",
+                               "cubic-kamada", "raw-kk")
         s_shape = surface_shape_var.get()
         s_auto_aspect = bool(surface_auto_aspect_var.get())
         s_auto_orient = bool(surface_auto_orient_var.get())
@@ -10174,6 +10681,7 @@ def run_gui(initial_args):
         # Sphere knobs that only apply to the kamada family / stereographic.
         _set_dynamic("direct_connecting", kamada_family)
         _set_dynamic("sphere_crossing_angle", kamada_family)
+        _set_dynamic("sphere_refine", kamada_family)
         _set_dynamic("sphere_bump", True)
         _set_dynamic("sphere_extent", sl in ("stereographic", "stereo-safe"))
         _set_dynamic("xyz_repair", sl != "stereo-safe")
@@ -10238,6 +10746,7 @@ def run_gui(initial_args):
             sphere_layout=sphere_layout_var.get(),
             cube_style=cube_style_var.get(),
             direct_connecting=bool(direct_connecting_var.get()),
+            sphere_refine=bool(sphere_refine_var.get()),
             sphere_radius=_float_value(sphere_radius_var, "sphere radius"),
             sphere_extent=_float_value(sphere_extent_var, "sphere extent"),
             sphere_offset=_float_value(sphere_offset_var, "crossing offset"),
@@ -10530,6 +11039,7 @@ def run_gui(initial_args):
                 sphere_layout=ns.sphere_layout,
                 sphere_crossing_angle=ns.sphere_crossing_angle,
                 direct_connecting=ns.direct_connecting,
+                sphere_refine=bool(getattr(ns, "sphere_refine", False)),
                 xyz_final_smooth=ns.xyz_final_smooth,
                 xyz_smooth_window=ns.xyz_smooth_window,
                 xyz_smooth_passes=ns.xyz_smooth_passes,
@@ -10619,6 +11129,7 @@ def run_gui(initial_args):
                 sphere_layout=ns.sphere_layout,
                 sphere_crossing_angle=ns.sphere_crossing_angle,
                 direct_connecting=ns.direct_connecting,
+                sphere_refine=bool(getattr(ns, "sphere_refine", False)),
                 xyz_final_smooth=ns.xyz_final_smooth,
                 xyz_smooth_window=ns.xyz_smooth_window,
                 xyz_smooth_passes=ns.xyz_smooth_passes,
@@ -10682,6 +11193,7 @@ def run_gui(initial_args):
             sphere_layout=ns.sphere_layout,
             sphere_crossing_angle=ns.sphere_crossing_angle,
             direct_connecting=ns.direct_connecting,
+            sphere_refine=bool(getattr(ns, "sphere_refine", False)),
             xyz_final_smooth=ns.xyz_final_smooth,
             xyz_smooth_window=ns.xyz_smooth_window,
             xyz_smooth_passes=ns.xyz_smooth_passes,
@@ -11053,6 +11565,7 @@ def run_gui(initial_args):
                 sphere_layout=ns.sphere_layout,
                 sphere_crossing_angle=ns.sphere_crossing_angle,
                 direct_connecting=ns.direct_connecting,
+                sphere_refine=bool(getattr(ns, "sphere_refine", False)),
                 xyz_final_smooth=ns.xyz_final_smooth,
                 xyz_smooth_window=ns.xyz_smooth_window,
                 xyz_smooth_passes=ns.xyz_smooth_passes,
@@ -11132,6 +11645,7 @@ def run_gui(initial_args):
     }
     session_bool_vars = {
         "direct_connecting": direct_connecting_var,
+        "sphere_refine": sphere_refine_var,
         "xyz_final_smooth": xyz_final_smooth_var,
         "xyz_repair": xyz_repair_var,
         "xyz_close_components": xyz_close_var,

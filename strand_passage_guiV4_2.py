@@ -187,7 +187,7 @@ import numpy as np
 # backend so Sage/macOS never fails before the GUI's own backend fallback runs.
 os.environ.setdefault("MPLBACKEND", "Agg")
 
-import draw_dt_original_labelsV5_5 as D          # noqa: E402
+import draw_dt_original_labelsV5_6 as D          # noqa: E402
 import link_engine_v4_0 as E                       # noqa: E402
 
 TAB10_NAMES = ["blue", "orange", "green", "red", "purple",
