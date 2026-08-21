@@ -13,6 +13,7 @@ Tools:
     draw             DT diagram drawing and 3-D XYZ export
     strand-passage   Strand-passage explorer (GUI / --nongui / --demo)
     score            Diagram generation, deduplication, and scoring
+    puncture         Atlas of the plane drawings, one per punctured face
     canonical        Canonical DT code and diagram symmetry
     figure           Extract a DT code from a diagram image
     find             Search SnapPy databases for a DT match
@@ -62,6 +63,17 @@ from pathlib import Path
 from typing import Dict, List, NamedTuple, Optional, Sequence, Tuple
 
 PROJECT_DIR = Path(__file__).resolve().parent
+ASSET_DIR = PROJECT_DIR / "assets"
+# Borromean rings, drawn by the toolkit's own 2-D engine so the launcher icon is a
+# sibling of the other assets/ icons (same tab10 palette, same over/under style).
+# Regenerate with:
+#   draw_dt_original_labels*.py --dt "DT: [(-12,-10),(-4,-2),(-8,-6)]" \
+#       --layout shaped-tutte --tutte-aspect 1.0 --no-tutte-auto-aspect \
+#       --line-width 22 --hide-labels --hide-crossing-ids --no-arrows \
+#       --dpi 300 --figsize 6 --no-xyz --output icon.png
+# then crop to the coloured pixels (this excludes the grey metadata caption),
+# pad to a square with a ~7% margin and resize to 256x256 on white.
+APP_ICON_PNG = ASSET_DIR / "dt_link_toolkit_icon.png"
 
 CACHE_VERSION = 2   # bumped when the probe's capability set changed (added skimage)
 CACHE_DIR = Path(
@@ -112,6 +124,13 @@ TOOLS: Tuple[Tool, ...] = (
         base="score_diagram",
         aliases=("score", "scoring", "diagram-score"),
         desc="Diagram generation, deduplication, and scoring",
+        gui="optional",
+    ),
+    Tool(
+        key="puncture",
+        base="enumerate_puncturing_dt",
+        aliases=("puncture", "punctures", "puncture-atlas", "atlas", "enumerate"),
+        desc="Atlas of the plane drawings, one per punctured face",
         gui="optional",
     ),
     Tool(
@@ -443,6 +462,24 @@ def launch_detached(tool: Tool, args: Sequence[str], prefer: str = "auto"):
 # Graphical launcher
 # --------------------------------------------------------------------------
 
+def apply_window_icon(window, tk_module):
+    """Apply the launcher icon to a Tk window when the PNG asset exists.
+
+    Optional by design (same convention as the drawing helper): a checkout with
+    no ``assets/`` directory, or a Tk build that cannot decode PNG, still runs.
+    Returns the PhotoImage (so callers can reuse it) or None.
+    """
+    if not APP_ICON_PNG.exists():
+        return None
+    try:
+        image = tk_module.PhotoImage(file=str(APP_ICON_PNG))
+        window.iconphoto(True, image)
+        window._dt_link_toolkit_icon = image      # keep a reference alive
+        return image
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def gui_launcher(prefer: str = "auto") -> int:
     try:
         import tkinter as tk
@@ -455,15 +492,29 @@ def gui_launcher(prefer: str = "auto") -> int:
     root = tk.Tk()
     root.title("DT Link Toolkit")
     root.minsize(720, 480)
+    icon_image = apply_window_icon(root, tk)
 
     outer = ttk.Frame(root, padding=12)
     outer.pack(fill="both", expand=True)
 
-    ttk.Label(outer, text="DT Link Toolkit",
+    header = ttk.Frame(outer)
+    header.pack(fill="x")
+    if icon_image is not None:
+        try:                                       # ~51 px badge beside the title
+            badge = icon_image.subsample(5, 5)
+            lbl = ttk.Label(header, image=badge)
+            lbl._image = badge                     # keep a reference alive
+            lbl.pack(side="left", padx=(0, 10))
+        except Exception:  # noqa: BLE001
+            pass
+    titles = ttk.Frame(header)
+    titles.pack(side="left", fill="x", expand=True)
+    ttk.Label(titles, text="DT Link Toolkit",
               font=("TkDefaultFont", 16, "bold")).pack(anchor="w")
-    ttk.Label(outer, text="Choose a tool. Optional arguments are passed straight "
-                          "to it (for example: --dt \"DT: [(4,6,2)]\").",
-              wraplength=680, foreground="#555").pack(anchor="w", pady=(2, 10))
+    ttk.Label(titles, text="Choose a tool. Optional arguments are passed straight "
+                           "to it (for example: --dt \"DT: [(4,6,2)]\").",
+              wraplength=680, foreground="#555").pack(anchor="w", pady=(2, 0))
+    ttk.Frame(outer).pack(pady=5)
 
     args_row = ttk.Frame(outer)
     args_row.pack(fill="x", pady=(0, 10))
