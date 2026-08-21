@@ -1,7 +1,35 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-score_diagramV2_1.py  --  Comprehensive diagram explorer for a single link.
+score_diagramV2_2.py  --  Comprehensive diagram explorer for a single link.
+
+New in V2.2 (all in the puncture / raw-grouping machinery)
+----------------------------------------------------------
+* The panels of the raw-grouping figure are grouped by EXACT marked-graph
+  isomorphism instead of by comparing rendered crossing positions.  The old
+  geometric key saw only the shadow -- the Tutte layout ignores over/under -- so
+  two punctures whose drawings differ in which strand goes over produced the same
+  key and were merged; the figure showed one panel FEWER than exists for three of
+  the four project diagrams.  The new test needs no layout at all, which also
+  removes one layout solve per candidate puncture.
+* The panel grouping now also identifies a drawing with its mirror THROUGH the
+  plane of the paper (every crossing flipped at once), matching the up-to-mirror
+  convention `dedup` already applies to the classes themselves.  The two halves
+  of the script previously disagreed about chirality.
+* Punctured faces are pinned by IDENTITY rather than by their crossing-ID
+  signature.  Two different faces can touch the same crossings -- the two
+  triangles of the standard trefoil do -- and a signature cannot separate them.
+* `--raw-verify` (on by default with `--raw-svg`) checks the figure two ways:
+  that every face merged into a panel really does draw congruently to it, and,
+  from the rendered geometry alone, that no two panels in a row are the same
+  picture.
+* New descriptive column **Plane drawings**: how many genuinely different plane
+  pictures the diagram has, over ALL faces.  Intrinsic and puncture-independent,
+  so unlike the 2-D numbers it is safe to compare across diagrams; not scored.
+  Its face-orbit sizes cross-check the symmetry order by orbit-stabilizer.
+* The figure's title no longer claims to show every plane drawing: it shows the
+  ones draw_dt can produce, i.e. those from the largest-tie faces.
+  enumerate_puncturing_dt.py enumerates all of them.
 
 Pipeline
 --------
@@ -36,11 +64,11 @@ and draw_dt_original_labelsV4_5.py sitting next to it.
 
 Usage
 -----
-    python3 score_diagramV2_1.py                              # defaults: example DT, 99 rounds
-    python3 score_diagramV2_1.py --dt "DT: [...]" --rounds 99
-    python3 score_diagramV2_1.py --xlsx out.xlsx --svg out.svg --json out.json
+    python3 score_diagramV2_2.py                              # defaults: example DT, 99 rounds
+    python3 score_diagramV2_2.py --dt "DT: [...]" --rounds 99
+    python3 score_diagramV2_2.py --xlsx out.xlsx --svg out.svg --json out.json
     # long runs can be chunked under a shell time limit:
-    python3 score_diagramV2_1.py --generate-only --max-seconds 40   # repeat until done
+    python3 score_diagramV2_2.py --generate-only --max-seconds 40   # repeat until done
 """
 
 import argparse
@@ -79,7 +107,7 @@ def _load_local(name, filename):
     """Import a sibling module by path, registered in sys.modules (dataclasses need it)."""
     base = _find_base(filename)
     if base is None:
-        raise FileNotFoundError("Could not find %s next to score_diagramV2_1.py." % filename)
+        raise FileNotFoundError("Could not find %s next to score_diagramV2_2.py." % filename)
     if base not in sys.path:
         sys.path.insert(0, base)          # let intra-package `import ...` statements resolve
     spec = importlib.util.spec_from_file_location(name, os.path.join(base, filename))
@@ -117,7 +145,7 @@ def _find_draw_module():
                 sys.path.insert(0, base)
             return os.path.splitext(os.path.basename(path))[0], path
     raise FileNotFoundError(
-        "Could not find draw_dt_original_labels*.py next to score_diagramV2_1.py.")
+        "Could not find draw_dt_original_labels*.py next to score_diagramV2_2.py.")
 
 
 # Load the drawing helper under its real module name so link_engine's
@@ -282,8 +310,60 @@ def planar_graph_metrics(model, G):
         "face_degree_cv": _cv(face_degrees) if face_degrees else 0.0,
         "n_bigons": n_bigons,
         "automorphism_order": None,   # injected by score_diagram (robust canonical count)
+        "n_plane_drawings": None,     # injected by score_diagram (needs the marked graph)
+        "face_orbit_sizes": None,
+        "orbit_check": None,
         "_emb": emb,
     }
+
+
+def plane_drawing_count(model, G, emb):
+    """How many genuinely different plane drawings the diagram has, in total.
+
+    Every face is punctured, not only the largest, and the punctures are grouped
+    by exact marked-graph isomorphism up to mirror -- so this counts the distinct
+    pictures the diagram can present, and nothing about a particular layout.  It
+    is INTRINSIC: unlike the 2-D Tutte numbers it does not depend on which face
+    happens to be turned to the outside, which is what makes it safe to report
+    alongside the scored metrics.
+
+    Returns (count, orbit_sizes).  Fewer drawings means a more symmetric diagram:
+    on the four project diagrams the count runs 3 / 6 / 8 / 9 for the rosette,
+    Balanced, Offset and Lopsided clasps -- the same order as the composite.
+    """
+    recs = _diagram_face_records(model, emb)
+    if not recs:
+        return 0, []
+    orbits = _puncture_orbits(model, G, recs, chiral_merge=True)
+    return len(orbits), sorted(len(o) for o in orbits)
+
+
+def check_face_orbits(orbit_sizes, automorphism_order, chiral_merge=True):
+    """Orbit-stabilizer cross-check on the symmetry order.
+
+    A group acting on the faces gives orbits whose sizes all DIVIDE its order, so
+    this cross-checks two numbers computed by completely different routes:
+    canonical_symmetry (canonical DT relabellings) for the order, and marked-graph
+    isomorphism for the orbits.  A violation means one of them is wrong.
+
+    Which group, though.  ``automorphism_order`` counts the symmetries that
+    PRESERVE over/under.  When the orbits were built with the chirality flip
+    merged in, the acting group is that one extended by the mirror through the
+    plane of the paper -- an index-2 extension at most -- so the bound is 2|G|,
+    not |G|.  Getting this wrong reports a failure on a perfectly good diagram:
+    the orthogonal rosette has a face orbit of size 8 against |G| = 4.
+
+    Returns "ok", "n/a", or a description of the failure.
+    """
+    if not orbit_sizes or not automorphism_order:
+        return "n/a"
+    bound = automorphism_order * (2 if chiral_merge else 1)
+    bad = [k for k in orbit_sizes if bound % k]
+    if bad:
+        return ("FAIL: orbit size(s) %s do not divide %d (|G| = %d%s)"
+                % (sorted(set(bad)), bound, automorphism_order,
+                   ", doubled for the crossing flip" if chiral_merge else ""))
+    return "ok"
 
 
 def _signed_automorphism_order(model, G, cap=20000, time_limit=5.0):
@@ -566,6 +646,18 @@ def score_diagram(dt_string, negative_even="over"):
     # canonical DT relabellings; replaces the fragile VF2 automorphism enumeration.
     m["graph"]["automorphism_order"] = canonical_symmetry(dt_string)
     m["graph"]["symmetry_group"] = canonical_group(dt_string)
+    # Distinct plane drawings: intrinsic (puncture-independent), so it is reported
+    # alongside the scored metrics rather than greyed out with the 2-D numbers.
+    # The orbit sizes then cross-check the symmetry order by orbit-stabilizer --
+    # two independent computations that must agree.
+    try:
+        n_draw, orbit_sizes = plane_drawing_count(model, G, m["graph"]["_emb"])
+        m["graph"]["n_plane_drawings"] = n_draw
+        m["graph"]["face_orbit_sizes"] = orbit_sizes
+        m["graph"]["orbit_check"] = check_face_orbits(
+            orbit_sizes, m["graph"]["automorphism_order"])
+    except Exception as exc:  # noqa: BLE001  -- never let a report kill a score
+        m["graph"]["orbit_check"] = "error: %s" % exc
     # Loop-aware 3-D point-group order, computed here (before scoring) in this
     # diagram's own 3-D frame.  Feeds diagram_symmetry and also warms the shared
     # cache the descriptive "3D point group" column reads from.
@@ -1121,6 +1213,7 @@ def _cols():
         ("Faces (n+2)", g("graph", "euler_faces")),
         ("Face degree CV", g("graph", "face_degree_cv")),
         ("Bigons", g("graph", "n_bigons")),
+        ("Plane drawings", g("graph", "n_plane_drawings")),
         ("Symmetry order", g("graph", "automorphism_order")),
         ("Symmetry group", lambda m: m["graph"].get("symmetry_group", "")),
         ("Edge length CV", g("geom2d", "edge_length_cv")),
@@ -1267,6 +1360,12 @@ _METRIC_LEGEND = [
     ("Faces (n+2)", "fixed", "Number of regions; equals crossings + 2 (Euler check) = 16."),
     ("Face degree CV", "lower = better", "Regularity of the regions; lower = more uniform tiling."),
     ("Bigons", "lower = better", "Two-sided regions (clasps); 0 = no local crowding."),
+    ("Plane drawings", "lower = more symmetric",
+     "How many genuinely different plane pictures the diagram has: every face punctured in turn "
+     "(bigons included), grouped up to rotation, in-plane mirror, component swap, strand reversal "
+     "and the complete crossing flip. INTRINSIC -- unlike the 2-D metrics it does not depend on "
+     "which face is turned to the outside. Not scored; reported for comparison. "
+     "enumerate_puncturing_dt.py draws the atlas."),
     ("Symmetry order", "higher = better", "Combinatorial symmetry: how many DT re-encodings fix the diagram (RESPECTS over/under); higher = fewer unique sequences."),
     ("Symmetry group", "descriptive", "The symmetry group type respecting over/under (e.g. C1 trivial, C2, C2xC2 = Klein four-group of order 4, Ck cyclic). C2xC2 has order 4 but is NOT a 4-fold rotation."),
     ("Edge length CV", "descriptive", "DESCRIPTIVE ONLY (not scored): uniformity of segment lengths in the relaxed 2-D layout. Depends on which face draw_dt turns to the outside (the 'puncture'), which is not intrinsic when faces tie for largest -- so it is excluded from the composite."),
@@ -1698,17 +1797,178 @@ def _draw_tutte_opts(puncture=None):
 
 def _draw_one(ax, dt, col_of, show_labels=False, rasterize=False, puncture=None):
     """Render a single DT code with draw_dt_original_labels in its own shaped-tutte
-    layout.  ``puncture`` (a crossing-ID signature tuple) pins which face is turned
-    to the outside, so the SAME diagram can be drawn with different outer faces."""
+    layout.  ``puncture`` pins which face is turned to the outside, so the SAME
+    diagram can be drawn with different outer faces: pass a face KEY (a frozenset
+    of graph nodes, from _diagram_face_records) to pin a face exactly, or a
+    crossing-ID signature tuple for the old signature-based selection."""
     model = DDOL.build_model(DDOL.parse_dt(dt))
     G = DDOL.build_gadget_graph(model)
-    P = DDOL.compute_positions(G, _DRAW_LAYOUT, tutte_opts=_draw_tutte_opts(puncture))
-    if _DRAW_MIN_SEP > 0:
-        P = DDOL.nudge_min_separation(P, G, _DRAW_MIN_SEP)
+    if isinstance(puncture, frozenset):
+        _, P = _positions_for_face(model, G, puncture)
+    else:
+        P = DDOL.compute_positions(G, _DRAW_LAYOUT, tutte_opts=_draw_tutte_opts(puncture))
+        if _DRAW_MIN_SEP > 0:
+            P = DDOL.nudge_min_separation(P, G, _DRAW_MIN_SEP)
     centers_d = DDOL.crossing_centers(model, P)
     _render_draw(ax, model, P, centers_d, col_of, show_labels)
     if rasterize:
         ax.set_rasterized(True)      # embed as a small raster in SVG -> fast, valid SVG
+
+
+def _is_seg_node(node):
+    return isinstance(node, tuple) and len(node) == 2 and node[0] == "seg"
+
+
+def _diagram_face_records(model, emb, crossing_ids=None):
+    """Every face of the DIAGRAM, as records carrying the face's identity.
+
+    The gadget graph turns each crossing into a 4-cycle of corner nodes, and that
+    4-cycle is a face of the graph but not of the diagram; it carries no
+    ('seg', p) midpoint node, which is how it is recognised and dropped.  For a
+    real face the number of segment nodes IS its polygon degree, so a bigon has
+    two.
+
+    ``key`` is the frozenset of the face's nodes -- its identity.  A face must be
+    pinned by identity and not by its crossing-ID signature, because two
+    different faces can touch the same crossings (the two triangles of the
+    standard trefoil do) and a signature cannot separate those.
+    """
+    if crossing_ids is None:
+        crossing_ids = DDOL.default_crossing_ids(model)
+    recs = []
+    for face in DDOL.planar_faces(emb):
+        segs = sorted(int(v[1]) for v in face if _is_seg_node(v))
+        if not segs:
+            continue                       # crossing-gadget interior, not a face
+        recs.append({
+            "key": frozenset(face),
+            "sig": DDOL._face_signature(face, crossing_ids),
+            "n_edges": len(segs),
+            "crossings": DDOL._face_crossing_indices(face),
+            "edges": tuple(segs),
+        })
+    recs.sort(key=lambda r: (-r["n_edges"], tuple(r["crossings"]), r["edges"]))
+    return recs
+
+
+def _marked_graph(model, G, face_key, flip=False):
+    """The gadget graph, node-labelled by over/under and by the punctured face.
+
+    Two such graphs are isomorphic exactly when a symmetry of the diagram carries
+    one puncture to the other -- so isomorphism IS the question "do these two
+    punctures give the same drawing", answered exactly and without laying
+    anything out.
+
+    Component identity and the in_*/out_* roles are deliberately not labelled, so
+    the test is up to component swap and strand-orientation reversal; the graph
+    being undirected makes rotations and in-plane mirrors free.  ``flip`` swaps
+    every 'O' with every 'U': that is the mirror THROUGH the plane of the paper,
+    which leaves the shadow alone and reverses every crossing at once -- the
+    ordinary mirror image, and the same up-to-mirror convention `dedup` already
+    applies at the class level via _mirror_canonical.
+    """
+    H = G.copy()
+    over_at = model["over_at"]
+    hi, lo = ("U", "O") if flip else ("O", "U")
+    labels = {}
+    for k, cr in enumerate(model["crossings"]):
+        over_o = bool(over_at[cr["odd"]])
+        over_e = bool(over_at[cr["even"]])
+        for role in ("in_o", "out_o"):
+            labels[(k, role)] = hi if over_o else lo
+        for role in ("in_e", "out_e"):
+            labels[(k, role)] = hi if over_e else lo
+    for node in H.nodes():
+        labels[node] = labels.get(node, "S") + ("*" if node in face_key else "")
+    nx.set_node_attributes(H, labels, "lab")
+    return H
+
+
+def _puncture_orbits(model, G, recs, chiral_merge=True):
+    """Group punctured faces into orbits of the diagram's symmetry group.
+
+    Buckets on a Weisfeiler-Lehman hash, then confirms with exact VF2.  Replaces
+    the old geometric grouping, which compared only the rendered crossing
+    POSITIONS: the Tutte layout depends solely on the shadow, so two punctures
+    giving congruent skeletons that differ in which strand goes over produced the
+    same key and were wrongly merged -- the figure showed one panel fewer than
+    exists for three of the four project diagrams.  This test is exact, needs no
+    layout at all, and is independent of the drawing settings.
+    """
+    nm = lambda a, b: a["lab"] == b["lab"]  # noqa: E731
+    described = []
+    for r in recs:
+        forms = [_marked_graph(model, G, r["key"])]
+        if chiral_merge:
+            forms.append(_marked_graph(model, G, r["key"], flip=True))
+        hashes = [nx.weisfeiler_lehman_graph_hash(H, node_attr="lab", iterations=5)
+                  for H in forms]
+        described.append((r, forms, min(hashes)))
+    buckets, order = {}, []
+    for r, forms, h in described:
+        if h not in buckets:
+            buckets[h] = []
+            order.append(h)
+        buckets[h].append((r, forms))
+    orbits = []
+    for h in order:
+        items = buckets[h]
+        if len(items) == 1:
+            orbits.append([items[0][0]])
+            continue
+        groups = []
+        for r, forms in items:
+            for rep_H, members in groups:
+                if any(nx.is_isomorphic(H, rep_H, node_match=nm) for H in forms):
+                    members.append(r)
+                    break
+            else:
+                groups.append((forms[0], [r]))
+        orbits.extend(members for _, members in groups)
+    return orbits
+
+
+def _pinned_outer_face(face_key, original):
+    """A stand-in for DDOL.select_outer_face returning one specific face.
+
+    The public selector takes a crossing-ID signature, which does not always
+    identify a face uniquely; this pins by node identity instead.  Installed only
+    around a single compute_positions call, and always restored.
+    """
+    def _select(faces, crossing_ids=None, prefer=None, report_out=None, layout_name=""):
+        for f in faces:
+            if frozenset(f) == face_key:
+                return f
+        return original(faces, crossing_ids=crossing_ids, prefer=prefer,
+                        report_out=report_out, layout_name=layout_name)
+    return _select
+
+
+def _positions_for_face(model, G, face_key=None):
+    """(exact Tutte solve, drawing positions) with ``face_key`` turned outward."""
+    opts = dict(_DRAW_TUTTE_OPTS)
+    if face_key is None:
+        P = DDOL.compute_positions(G, _DRAW_LAYOUT, tutte_opts=opts)
+    else:
+        original = DDOL.select_outer_face
+        DDOL.select_outer_face = _pinned_outer_face(face_key, original)
+        try:
+            P = DDOL.compute_positions(G, _DRAW_LAYOUT, tutte_opts=opts)
+        finally:
+            DDOL.select_outer_face = original
+    drawn = DDOL.nudge_min_separation(P, G, _DRAW_MIN_SEP) if _DRAW_MIN_SEP > 0 else P
+    return P, drawn
+
+
+def _default_outer_face_key(model, emb, crossing_ids=None):
+    """Identity of the face draw_dt punctures on its own (no puncture pinned)."""
+    if crossing_ids is None:
+        crossing_ids = DDOL.default_crossing_ids(model)
+    faces = DDOL.planar_faces(emb)
+    outer = DDOL.select_outer_face(faces, crossing_ids=crossing_ids, prefer=None)
+    if outer is None or not any(_is_seg_node(v) for v in outer):
+        return None
+    return frozenset(outer)
 
 
 def _largest_tie_face_signatures(dt):
@@ -1739,43 +1999,54 @@ def _largest_tie_face_signatures(dt):
     return sigs
 
 
-def _puncture_distinct_drawings(dt, want, exclude=None):
-    """For one diagram, enumerate the largest-tie puncture faces and return up to
-    ``want`` puncture signatures whose drawings are pairwise distinct under
-    rotation / flip / strand-reversal, skipping any drawing key in ``exclude``.
-    Each returned signature turns a different face to the outside, so the panels
-    are the genuinely different plane pictures of the SAME diagram."""
-    out, seen = [], set(exclude or ())
-    for sig in _largest_tie_face_signatures(dt):
-        try:
-            key = _draw_congruence_key(dt, puncture=sig)
-        except Exception:  # noqa: BLE001
+def _puncture_distinct_drawings(dt, want, exclude=None, chiral_merge=True):
+    """The genuinely different plane drawings this diagram's largest faces give.
+
+    Returns up to ``want`` orbit dicts ``{"rep", "members"}`` of face records --
+    one per distinct drawing among the faces tied for the largest boundary,
+    which are exactly the faces draw_dt could turn to the outside.  The orbit
+    holding the default (unpinned) puncture is dropped, since the canonical
+    panel shows it already.
+
+    Grouped by exact marked-graph isomorphism, not by comparing rendered
+    positions: the old geometric key could not see over/under and merged
+    genuinely different drawings.  ``chiral_merge`` also identifies a drawing
+    with its through-the-paper mirror, matching dedup's up-to-mirror classes.
+    """
+    model = DDOL.build_model(DDOL.parse_dt(dt))
+    G = DDOL.build_gadget_graph(model)
+    ok, emb = nx.check_planarity(G)
+    if not ok:
+        return []
+    recs = _diagram_face_records(model, emb)
+    if not recs:
+        return []
+    mx = max(r["n_edges"] for r in recs)
+    tied = [r for r in recs if r["n_edges"] == mx]
+    skip = set(exclude or ())
+    default_key = _default_outer_face_key(model, emb)
+    out = []
+    for members in _puncture_orbits(model, G, tied, chiral_merge=chiral_merge):
+        if default_key is not None and any(m["key"] == default_key for m in members):
+            continue                       # the canonical panel already shows it
+        if members[0]["key"] in skip:
             continue
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append(sig)
+        out.append({"rep": members[0], "members": members})
         if len(out) >= want:
             break
     return out
 
 
-def _draw_congruence_key(dt, ndigits=3, puncture=None):
-    """Signature of a diagram's DRAWING (its draw_dt layout), invariant under planar
-    rotation, reflection (flip) and strand-direction reversal -- i.e. exactly the rigid
-    moves of the picture, and nothing else.  It is computed ONLY from the rendered
-    crossing positions (no DT-canonical form, no graph signature): the sorted, scale-
-    normalised multiset of pairwise crossing distances, which is unchanged by rotating,
-    mirroring or translating the picture (and by strand reversal, which leaves crossing
-    positions put).  Two raw codes share this key iff draw_dt draws them as the same
-    picture up to those moves; two codes of the SAME group that draw differently -- e.g.
-    with a different face turned to the outside -- get DIFFERENT keys and are both kept."""
+def _crossing_distance_key(model, P, ndigits=3):
+    """Sorted, scale-normalised multiset of pairwise crossing distances.
+
+    Unchanged by rotating, mirroring or translating the picture (and by strand
+    reversal, which leaves the crossings put), so it identifies a drawing's
+    SKELETON.  It says nothing about over/under -- the Tutte layout depends only
+    on the shadow -- which is why the panel grouping uses marked-graph
+    isomorphism instead and this is kept only for the equivariance check.
+    """
     from itertools import combinations
-    model = DDOL.build_model(DDOL.parse_dt(dt))
-    G = DDOL.build_gadget_graph(model)
-    P = DDOL.compute_positions(G, _DRAW_LAYOUT, tutte_opts=_draw_tutte_opts(puncture))
-    if _DRAW_MIN_SEP > 0:
-        P = DDOL.nudge_min_separation(P, G, _DRAW_MIN_SEP)
     C = DDOL.crossing_centers(model, P)
     pts = np.array([C[k] for k in range(len(model["crossings"]))], float)
     if len(pts) < 2:
@@ -1787,27 +2058,97 @@ def _draw_congruence_key(dt, ndigits=3, puncture=None):
     return tuple(np.round(d / mx, ndigits))
 
 
-def _distinct_drawings(strings, want, max_scan=80, exclude=None):
-    """Pick up to `want` codes whose DRAWINGS are pairwise distinct under
-    rotation/flip/strand-reversal, scanning at most `max_scan` codes.  Any drawing
-    whose congruence key is in `exclude` is skipped -- used to drop raw codes that
-    draw the same as the canonical (which is shown separately)."""
-    out, seen = [], set(exclude or ())
-    for s in strings[:max_scan]:
-        try:
-            key = _draw_congruence_key(s)
-        except Exception:  # noqa: BLE001
-            key = ("err", s)
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append(s)
-        if len(out) >= want:
-            break
-    return out
+def _panel_picture(model, P):
+    """Crossing positions plus the direction of the strand passing OVER at each --
+    the geometry that decides whether two panels are the same PICTURE.  Both parts
+    transform covariantly under rotation, mirroring and scaling."""
+    C = DDOL.crossing_centers(model, P)
+    over_at = model["over_at"]
+    pts, dirs = [], []
+    for k, cr in enumerate(model["crossings"]):
+        role = "o" if over_at[cr["odd"]] else "e"
+        v = np.asarray(P[(k, "out_" + role)], float) - np.asarray(P[(k, "in_" + role)], float)
+        pts.append(C[k])
+        dirs.append(v / (np.linalg.norm(v) or 1.0))
+    return np.array(pts, float), np.array(dirs, float)
 
 
-def make_raw_grouping_figure(classes, path, max_per_class=6, max_classes=40, rasterize=False):
+def _alignment_mismatches(A, B, tol=2e-3):
+    """Over EVERY rigid alignment of two panels' skeletons, how many crossings have
+    their over/under swapped; [] when the skeletons are not congruent.
+
+    The whole list matters, not its minimum: a pair can admit one alignment that
+    disagrees at a few crossings AND another that disagrees at every one.  The
+    latter is the mirror through the plane of the paper, which makes the two the
+    same drawing up to chirality -- reporting only the closest alignment hides
+    exactly that case.
+    """
+    (pa, va), (pb, vb) = A, B
+    if len(pa) != len(pb) or len(pa) < 2:
+        return []
+
+    def _unit(pts):
+        q = pts - pts.mean(axis=0)
+        return q / (np.sqrt((q ** 2).sum(axis=1)).max() or 1.0)
+
+    qa, qb = _unit(pa), _unit(pb)
+    n = len(qa)
+    i0 = int(np.argmax(np.linalg.norm(qa, axis=1)))
+    counts = []
+    for mirror in (False, True):
+        flipx = np.array([1.0, -1.0]) if mirror else np.array([1.0, 1.0])
+        Ma, Va = qa * flipx, va * flipx
+        ra = np.linalg.norm(Ma[i0])
+        ang = np.arctan2(Ma[i0][1], Ma[i0][0])
+        for j0 in range(n):
+            if abs(np.linalg.norm(qb[j0]) - ra) > tol:
+                continue
+            th = np.arctan2(qb[j0][1], qb[j0][0]) - ang
+            R = np.array([[np.cos(th), -np.sin(th)], [np.sin(th), np.cos(th)]])
+            RA, RV = Ma @ R.T, Va @ R.T
+            sigma, used, ok = {}, set(), True
+            for i in range(n):
+                d = np.linalg.norm(qb - RA[i], axis=1)
+                j = int(np.argmin(d))
+                if d[j] > tol or j in used:
+                    ok = False
+                    break
+                sigma[i] = j
+                used.add(j)
+            if not ok:
+                continue
+            counts.append(sum(1 for i in range(n)
+                              if abs(abs(float(RV[i] @ vb[sigma[i]])) - 1.0) > 1e-2))
+    return sorted(counts)
+
+
+def _draw_congruence_key(dt, ndigits=3, puncture=None):
+    """Signature of a diagram's DRAWING (its draw_dt layout), invariant under planar
+    rotation, reflection (flip) and strand-direction reversal -- i.e. exactly the rigid
+    moves of the picture, and nothing else.  It is computed ONLY from the rendered
+    crossing positions (no DT-canonical form, no graph signature): the sorted, scale-
+    normalised multiset of pairwise crossing distances, which is unchanged by rotating,
+    mirroring or translating the picture (and by strand reversal, which leaves crossing
+    positions put).  Two raw codes share this key iff draw_dt draws them as the same
+    picture up to those moves; two codes of the SAME group that draw differently -- e.g.
+    with a different face turned to the outside -- get DIFFERENT keys and are both kept.
+
+    Deliberately computed on the RAW Tutte solve, before ``nudge_min_separation``.
+    The nudge is an iterative, order-dependent cosmetic repair, and it perturbs
+    two identical drawings by different amounts: on the Balanced clasp it moves
+    the two bigon-punctured drawings apart by 1.3% of the diagram span, which is
+    far more than this key's rounding, so one picture was counted as two.  Without
+    it those two agree to machine precision, as the diagram's inversion symmetry
+    says they must.  The panels are still DRAWN with the nudge (see _draw_one) --
+    it is a rendering step, not part of what makes two pictures the same."""
+    model = DDOL.build_model(DDOL.parse_dt(dt))
+    G = DDOL.build_gadget_graph(model)
+    P = DDOL.compute_positions(G, _DRAW_LAYOUT, tutte_opts=_draw_tutte_opts(puncture))
+    return _crossing_distance_key(model, P, ndigits)
+
+
+def make_raw_grouping_figure(classes, path, max_per_class=6, max_classes=40,
+                             rasterize=False, verify=True):
     """Show how the many RAW sampled diagrams collapse into the few de-duplicated ones.
     Each row is one class: a text summary, its canonical diagram, then several RAW member
     codes.  The raw members are drawn in their own layout, so they look like rotations /
@@ -1821,6 +2162,7 @@ def make_raw_grouping_figure(classes, path, max_per_class=6, max_classes=40, ras
     gs = fig.add_gridspec(nrows, ncol, width_ratios=[1.5, 1.25] + [1.1] * K,
                           hspace=0.62, wspace=0.04)
     col_of = lambda ci: _PALETTE[ci % len(_PALETTE)]
+    drawn_faces = []                # (canonical DT, orbits) per row, for the verify pass
 
     for i, cl in enumerate(reps):
         canon = canonical_dt_string(cl["rep_dt"])
@@ -1833,15 +2175,11 @@ def make_raw_grouping_figure(classes, path, max_per_class=6, max_classes=40, ras
         # genuinely differently (rotation / flip / strand-reversal).  The canonical is
         # drawn with its default (canonical) puncture in the blue-outlined slot, so we
         # EXCLUDE that drawing; the remaining panels are the other distinct punctures.
-        try:
-            canon_key = _draw_congruence_key(canon)
-        except Exception:  # noqa: BLE001
-            canon_key = None
         tie_sigs = _largest_tie_face_signatures(canon)
-        sample_sigs = _puncture_distinct_drawings(
-            canon, K, exclude={canon_key} if canon_key is not None else None)
-        n_shown = 1 + len(sample_sigs)                  # canonical + distinct punctures
-        capped = (len(sample_sigs) >= K)                # may be more distinct beyond the cap
+        orbits = _puncture_distinct_drawings(canon, K)
+        n_shown = 1 + len(orbits)                       # canonical + distinct punctures
+        capped = (len(orbits) >= K)                     # may be more distinct beyond the cap
+        drawn_faces.append((canon, orbits))
 
         name = _diagram_name(canon)[0]
         head = ("Rank %d — %s" % (i + 1, name)) if name else ("Rank %d" % (i + 1))
@@ -1857,40 +2195,101 @@ def make_raw_grouping_figure(classes, path, max_per_class=6, max_classes=40, ras
 
         axc = fig.add_subplot(gs[i, 1])
         _draw_one(axc, canon, col_of, show_labels=False, rasterize=rasterize)
-        for sp in axc.spines.values():
-            sp.set_visible(True)
-            sp.set_edgecolor("#2c7fb8")
-            sp.set_linewidth(2.0)
+        # Mark the canonical panel with a Rectangle, NOT with the axes spines:
+        # _render_draw ends with ax.axis("off"), and Matplotlib skips the spines
+        # entirely on an axis-off axes, so re-showing them draws nothing at all.
+        axc.add_patch(plt.Rectangle((0, 0), 1, 1, transform=axc.transAxes,
+                                    fill=False, edgecolor="#2c7fb8", lw=2.0,
+                                    clip_on=False, zorder=5))
         axc.set_title("canonical\n(default puncture)\n%s"
                       % "\n".join(textwrap.wrap(canon.replace("DT: ", ""), 24)),
                       fontsize=5.0 if i else 6.0)
 
         for j in range(K):
             ax = fig.add_subplot(gs[i, 2 + j])
-            if j < len(sample_sigs):
+            if j < len(orbits):
+                rep = orbits[j]["rep"]
+                # pinned by face IDENTITY, not by signature: two different faces can
+                # share a crossing-ID signature, and the signature selector cannot
+                # tell them apart
                 _draw_one(ax, canon, col_of, show_labels=False, rasterize=rasterize,
-                          puncture=sample_sigs[j])
-                cap = "puncture: " + "+".join(sample_sigs[j])
+                          puncture=rep["key"])
+                cap = "puncture: " + "+".join(rep["sig"])
+                extra = len(orbits[j]["members"]) - 1
+                if extra:
+                    cap += "   (+%d symmetric face%s)" % (extra, "" if extra == 1 else "s")
                 ax.set_title("\n".join(textwrap.wrap(cap, 24)), fontsize=5.5)
             else:
                 ax.axis("off")
 
-    fig.suptitle("The distinct plane drawings of each diagram, by which face is turned to the outside\n"
+    fig.suptitle("The plane drawings draw_dt can produce for each diagram, by which face it turns "
+                 "to the outside\n"
                  "(each row = one canonical group; the panels are the genuinely different DRAWINGS "
-                 "obtained by puncturing different largest-tie faces, de-duplicated by rotation / flip / "
-                 "strand-reversal of the picture)",
+                 "obtained by puncturing the faces TIED FOR THE LARGEST boundary -- the only faces "
+                 "draw_dt ever chooses)",
                  fontsize=13, y=0.999)
     fig.text(0.5, 0.004,
              "Blue-outlined = canonical representative, drawn with its default puncture.  A diagram "
              "lives on a sphere and draw_dt must turn one face to the outside; when several faces tie "
              "for the largest boundary, each choice gives a different plane picture of the SAME diagram. "
-             "Each panel punctures a different tied face (labelled by the crossing IDs on it); drawings "
-             "that are rotations / mirrors of one another are merged.  A single tied face (or none shown) "
-             "means the diagram has one plane drawing.",
+             "Two punctures give the same panel exactly when a symmetry of the diagram carries one to "
+             "the other -- rotation, in-plane mirror, component swap, strand reversal, or the mirror "
+             "through the plane of the paper that flips every crossing at once (the same up-to-mirror "
+             "convention the de-duplication uses).  This is NOT every plane drawing the diagram has: "
+             "puncturing a smaller face gives more, which enumerate_puncturing_dt.py enumerates in full.",
              ha="center", va="bottom", fontsize=8, color="#555555")
     _strip_clip_paths(fig)                   # remove all clipping masks from the SVG
     fig.savefig(path, bbox_inches="tight", dpi=170 if rasterize else 100)
     plt.close(fig)
+    if verify:
+        verify_raw_grouping(drawn_faces)
+
+
+def verify_raw_grouping(drawn_faces, log=print):
+    """Check the panels of the raw-grouping figure against the geometry they claim.
+
+    Two independent checks, in the two directions the grouping can fail:
+
+    1. EQUIVARIANCE -- if a symmetry carries face A to face B they were merged, so
+       their drawings must be congruent.  Every non-representative face is laid
+       out and compared with its orbit's representative.  A mismatch means the
+       layout is not equivariant under the diagram's symmetries (a layout bug).
+    2. DUPLICATES -- no two panels in a row may be the same picture.  Checked from
+       the rendered geometry alone, over every rigid alignment, including the
+       over-strand direction at each crossing, so it can contradict the
+       combinatorial grouping rather than restate it.
+
+    This pair is what caught both bugs fixed in V2.2's predecessor: comparing
+    nudged positions, and a grouping key blind to over/under.
+    """
+    bad_equiv, dupes, checked = [], [], 0
+    for canon, orbits in drawn_faces:
+        model = DDOL.build_model(DDOL.parse_dt(canon))
+        G = DDOL.build_gadget_graph(model)
+        pics = []
+        for orb in orbits:
+            P_exact, P_drawn = _positions_for_face(model, G, orb["rep"]["key"])
+            want = _crossing_distance_key(model, P_exact)
+            pics.append(_panel_picture(model, P_drawn))
+            for m in orb["members"][1:]:
+                checked += 1
+                Q, _ = _positions_for_face(model, G, m["key"])
+                if _crossing_distance_key(model, Q) != want:
+                    bad_equiv.append("+".join(m["sig"]))
+        n_cross = len(model["crossings"])
+        for a in range(len(pics)):
+            for b in range(a + 1, len(pics)):
+                counts = _alignment_mismatches(pics[a], pics[b])
+                if counts and (counts[0] == 0 or counts[-1] == n_cross):
+                    dupes.append((canon, a + 1, b + 1))
+    log("  [verify] raw figure: %d symmetric face%s laid out; %s"
+        % (checked, "" if checked == 1 else "s",
+           "every one congruent to its panel." if not bad_equiv
+           else "EQUIVARIANCE MISMATCH: %s" % bad_equiv[:8]), flush=True)
+    log("  [verify] raw figure: %s"
+        % ("no two panels in a row are the same drawing."
+           if not dupes else "DUPLICATE PANELS: %s" % dupes[:8]), flush=True)
+    return {"checked": checked, "equivariance": bad_equiv, "duplicates": dupes}
 
 
 # --------------------------------------------------------------------------- #
@@ -1920,7 +2319,7 @@ def launch_gui(defaults=None):
     def dv(name, fallback):
         return str(getattr(defaults, name, fallback)) if defaults is not None else str(fallback)
 
-    root.title("DT Diagram Scorer  —  score_diagramV2_1")
+    root.title("DT Diagram Scorer  —  score_diagramV2_2")
     frm = tk.Frame(root, padx=10, pady=8)
     frm.pack(fill="x")
 
@@ -2186,6 +2585,7 @@ def launch_gui(defaults=None):
                 raw_svg=(vars_["raw_svg"].get().strip() or None) if write_raw_var.get() else None,
                 raw_max_per_class=int(vars_["raw_max_per_class"].get() or 20),
                 raw_raster=raw_raster_var.get(),
+                raw_verify=True,
                 json=vars_["json"].get().strip() or None,
                 check=[ln.strip() for ln in check_text.get("1.0", "end").splitlines() if ln.strip()],
                 check_file=None, gui=False,
@@ -2248,6 +2648,9 @@ def main(argv=None):
                          "the de-duplicated representatives (rotation/flip equivalence)")
     ap.add_argument("--raw-max-per-class", type=int, default=20,
                     help="max distinct drawings shown per group in --raw-svg")
+    ap.add_argument("--no-raw-verify", dest="raw_verify", action="store_false",
+                    help="skip the raw-grouping figure's self-check (equivariance of the "
+                         "merged punctures, and a geometric scan for duplicate panels)")
     ap.add_argument("--raw-raster", action="store_true",
                     help="rasterize the diagram panels in --raw-svg (faster/smaller SVG; "
                          "default is full vector art, which is slower to write for many diagrams)")
@@ -2344,11 +2747,12 @@ def run_pipeline(args, log=None):
     if getattr(args, "raw_svg", None):
         make_raw_grouping_figure([m["_class"] for m in scored], args.raw_svg,
                                  max_per_class=getattr(args, "raw_max_per_class", 6),
-                                 rasterize=getattr(args, "raw_raster", False))
+                                 rasterize=getattr(args, "raw_raster", False),
+                                 verify=getattr(args, "raw_verify", True))
         print("wrote %s" % args.raw_svg, flush=True)
 
     run_info = {
-        "software": "score_diagramV2_1.py",
+        "software": "score_diagramV2_2.py",
         "root_DT": args.dt,
         "rounds": args.rounds,
         "backtrack_rounds": args.backtrack_rounds,

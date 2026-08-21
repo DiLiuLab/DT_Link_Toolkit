@@ -34,9 +34,11 @@ draw_dt_original_labelsV5_6.py   DT parser, layout, renderer, XYZ audit, and GUI
 audit_xyz.py                     Audit a 3D XYZ curve against its signed DT link
 check_two_dt.py                  Standalone SnapPy/Sage DT-comparison utility
 find_link_in_snappy.py           Search SnapPy link databases for DT matches
-score_diagramV2_1.py             Generate, deduplicate, score, and rank diagrams
+score_diagramV2_2.py             Generate, deduplicate, score, and rank diagrams
+enumerate_puncturing_dt.py       Atlas of the plane drawings, one per punctured face
 canonical_dt_V2_0.py             Canonical DT code (up to mirror) and symmetry
 figure_to_dt_V3_0.py             Extract a DT code from a diagram image
+assets/dt_link_toolkit_icon.png  Optional icon for the launcher (Borromean rings)
 assets/strand_passage_icon.png   Optional window/task-menu icon
 assets/score_diagram_icon.png    Optional icon for the diagram scoring GUI
 bin/strand-passage               Convenience launcher for the strand-passage GUI
@@ -104,6 +106,7 @@ The tools are:
 draw             DT diagram drawing and 3-D XYZ export
 strand-passage   Strand-passage explorer (GUI / --nongui / --demo)
 score            Diagram generation, deduplication, and scoring
+puncture         Atlas of the plane drawings, one per punctured face
 canonical        Canonical DT code and diagram symmetry
 figure           Extract a DT code from a diagram image
 find             Search SnapPy databases for a DT match
@@ -116,7 +119,7 @@ file each tool resolves to along with the interpreters found.
 
 The launcher does not hard-code version numbers: for each tool it finds every
 matching `<name>*.py` in this directory and picks the highest version, so a newer
-script (for example a future `score_diagramV2_2.py`) is used automatically once
+script (for example a future `score_diagramV2_3.py`) is used automatically once
 added, with no edit to the launcher. Both spellings of the version suffix are
 understood — `nameV2_1.py` and `name_V2_1.py` alike — and the comparison is
 numeric, so `V10_0` correctly beats `V2_0`.
@@ -424,8 +427,8 @@ loose numeric fallback. Input files may contain one DT code per line, or
 Diagram scoring utility:
 
 ```bash
-sage -python score_diagramV2_1.py --help
-sage -python score_diagramV2_1.py \
+sage -python score_diagramV2_2.py --help
+sage -python score_diagramV2_2.py \
   --dt "DT: [(4,6,2)]" \
   --rounds 0 \
   --checkpoint results/score_chain.jsonl \
@@ -434,11 +437,69 @@ sage -python score_diagramV2_1.py \
   --json results/diagram_scores.json
 ```
 
-With no arguments, `score_diagramV2_1.py` opens a small Tk GUI for configuring a
+With no arguments, `score_diagramV2_2.py` opens a small Tk GUI for configuring a
 run. The tool generates alternative simplified DT diagrams of the same link,
 deduplicates signed diagram isomorphs, scores each representative, and writes an
 Excel workbook plus optional SVG/JSON reports. Long runs can use
 `--generate-only --max-seconds N` and resume from the checkpoint.
+
+V2.2 reworked the optional raw-grouping figure (`--raw-svg`). Its panels are now
+grouped by exact marked-graph isomorphism rather than by comparing rendered
+crossing positions: the old test saw only the shadow — the Tutte layout ignores
+over/under — so two punctures whose drawings differ in which strand goes over
+were merged, and the figure showed one panel fewer than exists for three of the
+four project diagrams. The grouping now also identifies a drawing with its
+mirror through the plane of the paper, matching the up-to-mirror convention the
+de-duplication already uses, and `--raw-svg` runs a self-check unless
+`--no-raw-verify` is given. The workbook gained a **Plane drawings** column: how
+many genuinely different plane pictures the diagram has over *all* faces — an
+intrinsic, puncture-independent quantity, reported but not scored.
+
+Atlas of a diagram's plane drawings:
+
+```bash
+python3 enumerate_puncturing_dt.py --help
+python3 enumerate_puncturing_dt.py \
+  --dt "DT: [(-12,-10),(-4,-2),(-8,-6)]" \
+  --svg results/puncture_atlas.svg \
+  --json results/puncture_atlas.json \
+  --verify
+python3 enumerate_puncturing_dt.py            # no arguments -> graphical interface
+```
+
+A link diagram lives on the **sphere**; drawing it flat sends one face to the
+outer region — the sphere is *punctured* at that face — and each choice gives a
+different plane picture of the same diagram.
+`enumerate_puncturing_dt.py` punctures **every** face in turn, bigons and
+monogons included and not only the faces tied for the largest boundary, redraws
+the diagram around each, and groups the drawings that are the same picture. The
+output is an atlas: one panel per genuinely distinct drawing, captioned with the
+face that was punctured (by the crossing IDs on it) and the other faces that
+give the same picture.
+
+Two drawings count as the same when any combination of these carries one to the
+other: rotation, mirror image **in** the plane of the paper, component swap,
+strand orientation reversal, and the complete crossing flip — the mirror
+**through** the plane of the paper, which leaves the shadow alone and reverses
+every crossing at once. That last one matches the up-to-mirror convention of
+`canonical_dt_V2_0.py`; `--distinguish-chirality` keeps the two apart instead.
+The test is exact and combinatorial (marked-graph isomorphism, so it does not
+depend on the layout), and `--verify` adds two independent checks: that the
+drawing of every face in a group really is congruent to its representative's,
+and a purely geometric scan confirming no two panels are the same drawing.
+
+Faces are pinned by identity rather than by their crossing-ID signature, because
+two different faces can touch the same crossings — the two triangles of the
+standard trefoil do — and a signature cannot tell those apart.
+
+Drawing settings follow the "Write raw-grouping figure" option of
+`score_diagramV2_2.py` (shaped-tutte, ellipse boundary, one colour per
+component), plus a uniform interior decompression (`--decompress`, default
+0.30) applied to every panel so the atlas stays one style. It is what keeps the
+bigon punctures readable: puncturing a bigon leaves a four-node boundary
+polygon, which otherwise crushes the diagram into a blob at the centre.
+`--decompress auto` searches for the value that gives the tightest panel the
+most room without creating a false crossing.
 
 Canonical DT code and symmetry:
 
@@ -459,7 +520,7 @@ chirality. Use SnapPy or the Jones polynomial when chirality matters.
 Two symmetries are reported, and they answer different questions. The
 combinatorial symmetry (`symmetry_order` / `element_orders`) counts the DT
 re-encodings that reproduce the canonical code — exact, tolerance-free, always
-available, and what `score_diagramV2_1.py` uses to name a diagram's group. The
+available, and what `score_diagramV2_2.py` uses to name a diagram's group. The
 3-D symmetry (`sym3d`) is the point group of the drawn embedding, found via the
 rotation system and an eigenvalue fit; it is richer (mirrors, inversion,
 rotoreflections) but needs the drawing engine and a numerical tolerance, so it
