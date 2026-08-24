@@ -34,7 +34,7 @@ draw_dt_original_labelsV5_6.py   DT parser, layout, renderer, XYZ audit, and GUI
 audit_xyz.py                     Audit a 3D XYZ curve against its signed DT link
 check_two_dt.py                  Standalone SnapPy/Sage DT-comparison utility
 find_link_in_snappy.py           Search SnapPy link databases for DT matches
-score_diagramV2_2.py             Generate, deduplicate, score, and rank diagrams
+score_diagramV2_5.py             Generate, deduplicate, score, and rank diagrams
 enumerate_puncturing_dt.py       Atlas of the plane drawings, one per punctured face
 canonical_dt_V2_0.py             Canonical DT code (up to mirror) and symmetry
 figure_to_dt_V3_0.py             Extract a DT code from a diagram image
@@ -119,7 +119,7 @@ file each tool resolves to along with the interpreters found.
 
 The launcher does not hard-code version numbers: for each tool it finds every
 matching `<name>*.py` in this directory and picks the highest version, so a newer
-script (for example a future `score_diagramV2_3.py`) is used automatically once
+script (for example a future `score_diagramV2_6.py`) is used automatically once
 added, with no edit to the launcher. Both spellings of the version suffix are
 understood — `nameV2_1.py` and `name_V2_1.py` alike — and the comparison is
 numeric, so `V10_0` correctly beats `V2_0`.
@@ -427,8 +427,8 @@ loose numeric fallback. Input files may contain one DT code per line, or
 Diagram scoring utility:
 
 ```bash
-sage -python score_diagramV2_2.py --help
-sage -python score_diagramV2_2.py \
+sage -python score_diagramV2_5.py --help
+sage -python score_diagramV2_5.py \
   --dt "DT: [(4,6,2)]" \
   --rounds 0 \
   --checkpoint results/score_chain.jsonl \
@@ -437,11 +437,41 @@ sage -python score_diagramV2_2.py \
   --json results/diagram_scores.json
 ```
 
-With no arguments, `score_diagramV2_2.py` opens a small Tk GUI for configuring a
+With no arguments, `score_diagramV2_5.py` opens a small Tk GUI for configuring a
 run. The tool generates alternative simplified DT diagrams of the same link,
 deduplicates signed diagram isomorphs, scores each representative, and writes an
 Excel workbook plus optional SVG/JSON reports. Long runs can use
 `--generate-only --max-seconds N` and resume from the checkpoint.
+
+V2.5 changes how diagrams are **found** and how they are **counted**.
+
+Stage 1 now *harvests*. `backtrack_simplify` runs many complicate/re-simplify
+rounds per call, and the old code kept a diagram only when it strictly beat the
+fewest crossings seen — so once the minimum was reached, every later round tied
+it and was discarded, up to ~200 per call. It now keeps every diagram that ties
+the running minimum. Measured against an exhaustive enumeration of the 196
+alternating knots of ten crossings or fewer, whose complete diagram lists are
+known exactly from the flyping theorem, harvesting recovers **509 of 509**
+minimal diagrams and is exact on **all 196**; the previous chain, pooled over
+three full runs, found 463. Pass `--legacy-chain` for the old generator.
+
+De-duplication is now two stages. `canonical_key` (a Weisfeiler–Lehman hash plus
+strand and face spectra) is a sound *bucketer* — identical diagrams always share
+it — but it is not a decision procedure, and the code used to assume it was. For
+a knot the strand spectrum is a single number, so most of the signature carries
+no information: K10a3's twelve minimal diagrams fall into **four** buckets. Each
+bucket is now split by exact labelled-graph VF2 isomorphism, directly and after
+mirroring, which is milliseconds per comparison and needs no canonicalisation.
+K10a3 goes from 4 to the correct 12; the four-component project link is
+unaffected at 4. Run `--verify` on any sweep — it already detected this.
+
+Canonicalisation gained a cost guard. The exact canonical form enumerates
+`C! × ∏(2·Lᵢ)` relabellings, which is factorial in the component count: fine for
+four components (884 736, about five seconds) and hopeless for five (10⁸). Above
+`--canonical-limit` (default 5 000 000) three call sites fall back instead of
+hanging, and the run says so. The class *count* is unaffected — that is the VF2
+split above — but the mirror merge and the symmetry order are skipped, so a
+guarded diagram's symmetry score is not exact.
 
 V2.2 reworked the optional raw-grouping figure (`--raw-svg`). Its panels are now
 grouped by exact marked-graph isomorphism rather than by comparing rendered
@@ -493,7 +523,7 @@ two different faces can touch the same crossings — the two triangles of the
 standard trefoil do — and a signature cannot tell those apart.
 
 Drawing settings follow the "Write raw-grouping figure" option of
-`score_diagramV2_2.py` (shaped-tutte, ellipse boundary, one colour per
+`score_diagramV2_5.py` (shaped-tutte, ellipse boundary, one colour per
 component), plus a uniform interior decompression (`--decompress`, default
 0.30) applied to every panel so the atlas stays one style. It is what keeps the
 bigon punctures readable: puncturing a bigon leaves a four-node boundary
@@ -528,7 +558,7 @@ chirality. Use SnapPy or the Jones polynomial when chirality matters.
 Two symmetries are reported, and they answer different questions. The
 combinatorial symmetry (`symmetry_order` / `element_orders`) counts the DT
 re-encodings that reproduce the canonical code — exact, tolerance-free, always
-available, and what `score_diagramV2_2.py` uses to name a diagram's group. The
+available, and what `score_diagramV2_5.py` uses to name a diagram's group. The
 3-D symmetry (`sym3d`) is the point group of the drawn embedding, found via the
 rotation system and an eigenvalue fit; it is richer (mirrors, inversion,
 rotoreflections) but needs the drawing engine and a numerical tolerance, so it

@@ -1,7 +1,46 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-score_diagramV2_2.py  --  Comprehensive diagram explorer for a single link.
+score_diagramV2_5.py  --  Comprehensive diagram explorer for a single link.
+
+New in V2.5 (harvesting is now the default generator)
+-----------------------------------------------------
+* Stage 1 no longer keeps ONE diagram per simplifier call.  ``backtrack_simplify``
+  performs ``--backtrack-rounds`` complicate/re-simplify cycles internally and, until
+  now, returned only the last strict improvement -- so a call with rounds=200 visited
+  up to 200 minimal diagrams and discarded all but one.  The engine can now ARCHIVE
+  every diagram that ties the minimum (link_engine_v4_0, ``collect_minimal=``), and
+  ``generate_archive`` uses it.
+* The effect is not marginal.  Calibrated against an exhaustive enumeration of every
+  alternating knot of 10 crossings or fewer -- 196 knots, 509 minimal diagrams known
+  exactly -- harvesting found 509 of 509, right on all 196.  The old chain sampler
+  found 438 in one run and 463 pooled over three runs, and no amount of extra effort
+  closed the gap: a 1600-round run found exactly what an 80-round run found.
+* For the project's own 4BL link, 60 harvesting calls produced 6558 minimal codes that
+  de-duplicate to the SAME four diagrams, so the four-diagram result now rests on a
+  far larger sample.
+* ``--legacy-chain`` restores the V2.3 one-diagram-per-round generator.  ``--rounds``
+  now counts simplifier CALLS; far fewer are needed (6 sufficed for the calibration).
+
+New in V2.3 (exploration strategy)
+----------------------------------
+* ``--reset-mode`` chooses WHERE a re-rooted chain restarts from.  Until now a reset
+  always went back to the original diagram, which measurement showed is the weakest
+  option: re-rooting at a fixed point re-explores the same neighbourhood.  Calibrated
+  against an exhaustive enumeration (196 alternating knots, 509 minimal diagrams known
+  exactly), a 1600-round chain re-rooted at the origin every 80 rounds found 438 --
+  exactly what a plain 80-round chain found, and the IDENTICAL set on 180 of the 196.
+  The three modes are now:
+      origin   restart at the starting diagram            (the old behaviour)
+      equal    restart at a uniformly random diagram among those found so far
+      inverse  restart at one chosen with probability proportional to 1/(1+times used)
+  ``equal`` gives every DISTINCT diagram the same chance of being a launch point, so
+  rare diagrams get as much airtime as common ones; ``inverse`` goes further and
+  prefers the least-used launch points, flattening the visit histogram the way
+  Wang-Landau sampling does.  Both let the search creep outward to diagrams reachable
+  only VIA another diagram, never directly from the start.
+* The pool of restart candidates is keyed by ``canonical_key`` (the cheap WL-hash
+  signature), so equivalent codes count once and the bookkeeping stays O(ms) per round.
 
 New in V2.2 (all in the puncture / raw-grouping machinery)
 ----------------------------------------------------------
@@ -54,9 +93,22 @@ Pipeline
    metrics, plus a run_info sheet) and an SVG figure (2-D Tutte layout + 3-D
    sphere layout for each representative, captioned with its DT code and score).
 
-Reproducibility: round i is driven by a deterministic per-round seed
-``f(base_seed, i)``, so the whole chain is reproducible and the generation step
-is resumable from a JSONL checkpoint.
+Reproducibility: the generation step is resumable from a JSONL checkpoint, and the
+checkpoint is the ONLY thing that reproduces a chain.  Round i is driven by a
+per-round seed ``f(base_seed, i)``, but that does NOT make the chain repeatable:
+spherogram's simplifier draws its moves from collections built with ``set()`` over
+Crossing objects, which iterate in identity (memory-address) order, so seeding the
+RNG does not pin the choices.  Measured: five calls to ``simplify_once`` with the
+same root and the same seed return five different DT codes, in fresh processes with
+PYTHONHASHSEED fixed.  Consequences:
+  * re-running a chain explores a DIFFERENT sample of diagrams;
+  * counts from one run are lower bounds, and two runs can differ in both
+    directions;
+  * a flat growth curve does not mean the search is complete -- measured on
+    alternating knots against an exhaustive enumeration, 1600 rounds found no more
+    diagrams than 80, while a second run of 80 rounds in a fresh process did.
+Where an exact count matters, take the UNION over several runs (several processes),
+not a longer run.
 
 Requires SnapPy (``import snappy``); run under ``sage -python`` on the research
 machine for the full toolchain.  Depends on score_diagram.py, link_engine_v4_0.py
@@ -64,11 +116,11 @@ and draw_dt_original_labelsV4_5.py sitting next to it.
 
 Usage
 -----
-    python3 score_diagramV2_2.py                              # defaults: example DT, 99 rounds
-    python3 score_diagramV2_2.py --dt "DT: [...]" --rounds 99
-    python3 score_diagramV2_2.py --xlsx out.xlsx --svg out.svg --json out.json
+    python3 score_diagramV2_5.py                              # defaults: example DT, 24 calls
+    python3 score_diagramV2_5.py --dt "DT: [...]" --rounds 24
+    python3 score_diagramV2_5.py --xlsx out.xlsx --svg out.svg --json out.json
     # long runs can be chunked under a shell time limit:
-    python3 score_diagramV2_2.py --generate-only --max-seconds 40   # repeat until done
+    python3 score_diagramV2_5.py --generate-only --max-seconds 40   # repeat until done
 """
 
 import argparse
@@ -107,7 +159,7 @@ def _load_local(name, filename):
     """Import a sibling module by path, registered in sys.modules (dataclasses need it)."""
     base = _find_base(filename)
     if base is None:
-        raise FileNotFoundError("Could not find %s next to score_diagramV2_2.py." % filename)
+        raise FileNotFoundError("Could not find %s next to score_diagramV2_5.py." % filename)
     if base not in sys.path:
         sys.path.insert(0, base)          # let intra-package `import ...` statements resolve
     spec = importlib.util.spec_from_file_location(name, os.path.join(base, filename))
@@ -145,7 +197,7 @@ def _find_draw_module():
                 sys.path.insert(0, base)
             return os.path.splitext(os.path.basename(path))[0], path
     raise FileNotFoundError(
-        "Could not find draw_dt_original_labels*.py next to score_diagramV2_2.py.")
+        "Could not find draw_dt_original_labels*.py next to score_diagramV2_5.py.")
 
 
 # Load the drawing helper under its real module name so link_engine's
@@ -448,17 +500,17 @@ def _best_rotational_symmetry_2d(centers, kmax=8, thresh=0.12):
     X = np.asarray(centers, float)
     X = X - X.mean(axis=0)
     scale = float(np.sqrt(np.mean(np.sum(X ** 2, axis=1)))) + 1e-15
+    # Report the score OF THE ORDER THAT WAS FOUND, and 0 when none was, exactly as
+    # _best_rotational_symmetry_3d does.  The previous version carried a line that was
+    # a no-op for every k != 2, so a diagram with no rotational symmetry at all still
+    # reported "how close to 2-fold" -- the rosette came back as order 1 with score
+    # 0.74, while its 3-D twin would have said 0.0 in the same situation.
     best_k, best_score = 1, 0.0
     for k in range(2, kmax + 1):
         Y = X @ _rotation_2d(2 * math.pi / k).T
         resid = _assignment_residual(X, Y) / scale
-        score = max(0.0, 1.0 - resid)
         if resid < thresh and k > best_k:
-            best_k = k
-        best_score = max(best_score, score) if k == 2 else best_score
-    if best_k > 1:
-        Y = X @ _rotation_2d(2 * math.pi / best_k).T
-        best_score = max(0.0, 1.0 - _assignment_residual(X, Y) / scale)
+            best_k, best_score = k, max(0.0, 1.0 - resid)
     return best_k, best_score
 
 
@@ -555,7 +607,15 @@ def sphere_3d_metrics(model, G):
     n = len(centers)
     thomson = _riesz_energy(centers, s=1.0)
     ref = _riesz_energy(DDOL._fibonacci_sphere_directions(n), s=1.0)
-    spread_quality = float(ref / thomson) if thomson > 0 else 1.0
+    # The reference is a Fibonacci spiral -- evenly spread, but NOT the true
+    # minimum-energy (Thomson) arrangement -- so a small, very even diagram can beat
+    # it and the raw ratio can exceed 1.  Measured: Hopf 1.053, Borromean 1.011,
+    # trefoil 1.002.  Every other quality is bounded in [0, 1] and the composite is
+    # documented as a mean of qualities, so the ratio is CAPPED at 1 here: "at least
+    # as evenly spread as the reference" is the best this term can say.  The raw
+    # ratio is kept as sphere_spread_raw (JSON only) so nothing is lost.
+    spread_raw = float(ref / thomson) if thomson > 0 else 1.0
+    spread_quality = min(1.0, spread_raw)
     pos_cross = model["pos_cross"]
     comp_lengths, turning = [], []
     for cp in model["comp_positions"]:
@@ -581,7 +641,8 @@ def sphere_3d_metrics(model, G):
     sym_k, sym_score = _best_rotational_symmetry_3d(centers)
     return {
         "thomson_energy": thomson, "thomson_reference": ref,
-        "sphere_spread_quality": spread_quality, "strand3d_length_cv": strand3d_cv,
+        "sphere_spread_quality": spread_quality, "sphere_spread_raw": spread_raw,
+        "strand3d_length_cv": strand3d_cv,
         "bending_energy": bending, "sym3d_order": sym_k, "sym3d_score": sym_score,
         "_centers3d": centers,
     }
@@ -682,7 +743,11 @@ def _strip_private(m):
 #  1. Generation  (SnapPy global + backtrack, re-rooted each round)
 # --------------------------------------------------------------------------- #
 def simplify_once(dt, backtrack_rounds, backtrack_steps, seed):
-    """One round: SnapPy global simplify with backtrack, return the new DT string."""
+    """One round: SnapPy global simplify with backtrack, return the new DT string.
+
+    ``seed`` seeds ``random`` and ``numpy.random`` but does NOT determine the result:
+    spherogram picks its moves out of identity-ordered sets, so repeated calls with the
+    same root and seed return different codes.  See the module docstring."""
     import snappy
     random.seed(seed)
     try:
@@ -693,6 +758,77 @@ def simplify_once(dt, backtrack_rounds, backtrack_steps, seed):
     L = LE.backtrack_simplify(snappy, L, mode="global",
                               rounds=backtrack_rounds, steps=backtrack_steps)
     return LE.dt_to_string(LE.parse_dt_any(L.DT_code()))
+
+
+_SUBPROC_SRC = """
+import sys, random, importlib.util
+import snappy
+_spec = importlib.util.spec_from_file_location("LE", sys.argv[1])
+LE = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(LE)
+dt, br, bs, seed = sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), int(sys.argv[5])
+random.seed(seed)
+try:
+    import numpy as _np; _np.random.seed(seed & 0x7FFFFFFF)
+except Exception:
+    pass
+L = snappy.Link(dt)
+L = LE.backtrack_simplify(snappy, L, mode="global", rounds=br, steps=bs)
+sys.stdout.write(LE.dt_to_string(LE.parse_dt_any(L.DT_code())))
+"""
+
+
+def simplify_once_subprocess(dt, backtrack_rounds, backtrack_steps, seed, timeout=600):
+    """One round, run in a FRESH interpreter.
+
+    spherogram picks its moves from identity-ordered collections, so the set of diagrams
+    reachable from a given start depends on the process's allocation history.  Running a
+    reset in a new process therefore explores a genuinely different part of the space --
+    the effect that makes a union over separate runs larger than any single run.  Costs a
+    process spawn plus a snappy import (~1-3 s), so it only pays at large --reset-every.
+    Falls back to the in-process routine if the subprocess fails for any reason.
+    """
+    import subprocess
+    try:
+        out = subprocess.run([sys.executable, "-c", _SUBPROC_SRC, LE.__file__, dt,
+                              str(backtrack_rounds), str(backtrack_steps), str(seed)],
+                             capture_output=True, text=True, timeout=timeout)
+        code = (out.stdout or "").strip()
+        if code.startswith("DT:"):
+            return code
+    except Exception:  # noqa: BLE001
+        pass
+    return simplify_once(dt, backtrack_rounds, backtrack_steps, seed)
+
+
+def reencode_same_diagram(dt, rng, tries=24):
+    """A DIFFERENT DT string for the SAME diagram (new base points, directions, order).
+
+    Correct by construction: choosing a base point and a direction per component, and an
+    order of the components, is exactly a re-encoding, and _walk_to_dt returns None for
+    any choice that is not a valid DT code.  No canonicalisation is needed to check it,
+    which matters because canonicalising a many-component link is expensive.
+
+    The point is that spherogram builds its internal objects -- and therefore its
+    candidate ORDER -- from the code it is handed, so a fresh encoding of the same
+    diagram explores differently.  Measured on K10a3: twelve encodings of one diagram,
+    60 rounds each, found 4 diagrams individually but 9 between them.
+    """
+    tours, n = _diagram_tours(dt)
+    variants = [_component_variants(t, False) for t in tours]
+    order = list(range(len(tours)))
+    for _ in range(tries):
+        rng.shuffle(order)
+        walk, bounds, off = [], [], 0
+        for ci in order:
+            walk.extend(rng.choice(variants[ci]))
+            bounds.append((off, off + len(tours[ci])))
+            off += len(tours[ci])
+        tup = _walk_to_dt(walk, n, bounds)
+        if tup is not None:
+            cand = CDT2.fmt_dt(tup)
+            if cand != dt:
+                return cand
+    return dt
 
 
 def _read_checkpoint(path):
@@ -715,15 +851,26 @@ def _append_checkpoint(path, rnd, dt):
         fh.write(json.dumps({"round": rnd, "dt": dt}) + "\n")
 
 
+RESET_MODES = ("origin", "equal", "inverse")
+
+
 def generate_chain(dt0, rounds, backtrack_rounds, backtrack_steps, base_seed,
-                   checkpoint=None, max_seconds=None, reset_every=0, verbose=True):
+                   checkpoint=None, max_seconds=None, reset_every=0, verbose=True,
+                   reset_mode="origin", reset_reencode=False, reset_subprocess=False):
     """Return the list of DT strings [dt0, dt1, ..., dt_rounds]; resumable via checkpoint.
+
+    NOT reproducible from ``base_seed`` -- see the module docstring.  Re-running gives
+    a different sample; only the checkpoint replays a chain exactly.
 
     If ``reset_every > 0`` the chain is re-rooted at ``dt0`` after every
     ``reset_every`` rounds (i.e. rounds reset_every+1, 2*reset_every+1, ...
     start again from the original diagram).  This prevents the walk from getting
     trapped cycling among a few common minimal diagrams and re-seeds exploration
-    from the canonical starting point."""
+    from the canonical starting point.  Measured, on alternating knots with an
+    exhaustive enumeration for ground truth: SHORT, FREQUENT restarts explore best.
+    Against a plain 80-round chain, a second 80-round run at reset_every=10 added 25
+    diagrams over 196 knots, while a 1600-round run at reset_every=80 added only 17 --
+    twenty times the work for less gain.  Prefer several short runs to one long one."""
     chain = _read_checkpoint(checkpoint)
     if chain and verbose:
         print("  using EXISTING checkpoint '%s': %d round(s) already present (%d DT codes); "
@@ -737,14 +884,55 @@ def generate_chain(dt0, rounds, backtrack_rounds, backtrack_steps, base_seed,
     elif chain[0] != dt0:
         raise ValueError("Checkpoint root DT does not match --dt; use a fresh --checkpoint.")
 
+    if reset_mode not in RESET_MODES:
+        raise ValueError("reset_mode must be one of %s" % (RESET_MODES,))
+
+    # Pool of restart candidates, keyed by the cheap signature so that equivalent DT
+    # strings count as ONE diagram.  value = [representative DT string, times used as root]
+    rng = random.Random((int(base_seed) ^ 0x5EED) & 0x7FFFFFFF)
+    pool, _keycache = {}, {}
+
+    def _remember(dt):
+        k = _keycache.get(dt)
+        if k is None:
+            try:
+                k = canonical_key(dt)
+            except Exception:  # noqa: BLE001  -- never let bookkeeping kill a run
+                return
+            _keycache[dt] = k
+        pool.setdefault(k, [dt, 0])
+
+    def _pick_root():
+        """Where a reset restarts from, per reset_mode."""
+        if reset_mode == "origin" or not pool:
+            return dt0
+        items = list(pool.values())
+        if reset_mode == "equal":
+            choice = rng.choice(items)                       # uniform over DISTINCT diagrams
+        else:                                                # inverse: prefer least-used
+            weights = [1.0 / (1.0 + it[1]) for it in items]
+            choice = rng.choices(items, weights=weights, k=1)[0]
+        choice[1] += 1
+        return choice[0]
+
+    for _dt in chain:                        # seed the pool from any resumed checkpoint
+        _remember(_dt)
+
     t0 = time.time()
     while (len(chain) - 1) < rounds:
         i = len(chain)                       # next round index (1..rounds)
         seed = (int(base_seed) * 1000003 + i) & 0x7FFFFFFF
         root = chain[-1]
-        if reset_every and i > 1 and ((i - 1) % int(reset_every) == 0):
-            root = dt0                       # periodic re-root at the original diagram
-        dt_new = simplify_once(root, backtrack_rounds, backtrack_steps, seed)
+        is_reset = bool(reset_every) and i > 1 and ((i - 1) % int(reset_every) == 0)
+        if is_reset:
+            root = _pick_root()              # origin / equal / inverse
+            if reset_reencode:               # same diagram, fresh encoding
+                root = reencode_same_diagram(root, rng)
+        if is_reset and reset_subprocess:    # fresh interpreter for this round
+            dt_new = simplify_once_subprocess(root, backtrack_rounds, backtrack_steps, seed)
+        else:
+            dt_new = simplify_once(root, backtrack_rounds, backtrack_steps, seed)
+        _remember(dt_new)
         chain.append(dt_new)
         _append_checkpoint(checkpoint, i, dt_new)
         if verbose and (i % 20 == 0 or i == rounds):
@@ -752,6 +940,134 @@ def generate_chain(dt0, rounds, backtrack_rounds, backtrack_steps, base_seed,
         if max_seconds and (time.time() - t0) >= max_seconds:
             break
     return chain
+
+
+def generate_archive(dt0, calls, backtrack_rounds, backtrack_steps, base_seed,
+                    checkpoint=None, max_seconds=None, verbose=True,
+                    target_crossings=None):
+    """Stage 1 by HARVESTING: keep every diagram that ties the minimum.
+
+    Each call runs ``backtrack_rounds`` complicate/re-simplify cycles and archives every
+    minimum-crossing diagram met along the way, rather than the single best one.  That is
+    where the diagrams actually are: see the module docstring for the calibration.
+
+    Returns the list of harvested DT strings (dt0 first).
+
+    Each call restarts from a diagram at the BEST crossing count found so far (the
+    starting code itself while it is still one of them).  The equal / inverse weightings
+    that generate_chain offers are deliberately NOT used here: harvesting already sweeps
+    a call's whole neighbourhood, and measured on a 24-crossing 5-component link the
+    plain best-so-far rule gave 493 minimal codes in eight calls against 391 for uniform
+    weighting -- the weighting only slows the descent by restarting from diagrams that
+    are no longer minimal.
+    """
+    import snappy
+    found = _read_checkpoint(checkpoint) or [dt0]
+    bag = set(found)
+    rng = random.Random((int(base_seed) ^ 0x5EED) & 0x7FFFFFFF)
+    pool, _keycache = {}, {}
+    _best = {"n": None}                      # running minimum crossing number
+    _warned = {"origin": False}
+
+    def _n_of(dt):
+        try:
+            return sum(len(t) for t in DDOL.parse_dt(dt))
+        except Exception:  # noqa: BLE001
+            return None
+
+    n0 = target_crossings
+
+    def _remember(dt):
+        """Pool the diagram -- but only ever at the BEST crossing count seen.
+
+        A restart above the running minimum wastes the whole call re-descending ground
+        already covered.  Measured on a 24-crossing 5-component link before this guard:
+        the roots handed to eight calls were 24, 22, 20, 24, 22, 22, 20, 22 -- half of
+        them at or above the best already known, twice at the original code after a
+        20-crossing diagram had been found.  So a better minimum PURGES the pool.
+        """
+        try:
+            n = sum(len(t) for t in DDOL.parse_dt(dt))
+        except Exception:  # noqa: BLE001
+            return
+        if _best["n"] is None or n < _best["n"]:
+            _best["n"] = n
+            pool.clear()
+        elif n > _best["n"]:
+            return
+        k = _keycache.get(dt)
+        if k is None:
+            try:
+                k = canonical_key(dt)
+            except Exception:  # noqa: BLE001
+                return
+            _keycache[dt] = k
+        pool.setdefault(k, [dt, 0])
+
+    def _pick_root():
+        """A diagram at the best crossing count so far; dt0 while it still qualifies."""
+        if _best["n"] is None or _n_of(dt0) == _best["n"]:
+            return dt0
+        if not _warned["origin"]:
+            _warned["origin"] = True
+            if verbose:
+                print("  [note] the starting code has %d crossings but %d has been reached; "
+                      "restarting from the smaller diagrams instead"
+                      % (_n_of(dt0), _best["n"]), flush=True)
+        if not pool:
+            return dt0
+        return rng.choice(list(pool.values()))[0]
+
+    if n0 is None:
+        try:
+            n0 = sum(len(t) for t in DDOL.parse_dt(dt0))
+        except Exception:  # noqa: BLE001
+            n0 = None
+    _remember(dt0)
+
+    t0 = time.time()
+    for i in range(1, int(calls) + 1):
+        root = dt0 if i == 1 else _pick_root()
+        before = len(found)
+        try:
+            LE.backtrack_simplify(snappy, snappy.Link(root), mode="global",
+                                  rounds=backtrack_rounds, steps=backtrack_steps,
+                                  collect_minimal=bag)
+        except Exception:  # noqa: BLE001
+            pass
+        seen_now = set(found)
+        for dt in sorted(bag - seen_now):
+            _remember(dt)                    # _remember itself keeps only the best
+            found.append(dt)
+            _append_checkpoint(checkpoint, len(found) - 1, dt)
+        if verbose and (i % 5 == 0 or i == int(calls)):
+            print("  call %3d/%d  %d codes harvested (+%d)  %.1fs"
+                  % (i, calls, len(found), len(found) - before, time.time() - t0), flush=True)
+        if max_seconds and (time.time() - t0) >= max_seconds:
+            break
+
+    # a harvesting call can dip BELOW the starting crossing number; keep the true minimum
+    best = None
+    for dt in found:
+        try:
+            n = sum(len(t) for t in DDOL.parse_dt(dt))
+        except Exception:  # noqa: BLE001
+            continue
+        best = n if best is None else min(best, n)
+    if best is not None:
+        if verbose and best != _n_of(dt0):
+            print("  minimum crossing number reached: %d (the given code has %d)"
+                  % (best, _n_of(dt0)), flush=True)
+        keep = []
+        for dt in found:
+            try:
+                if sum(len(t) for t in DDOL.parse_dt(dt)) == best:
+                    keep.append(dt)
+            except Exception:  # noqa: BLE001
+                pass
+        if keep:
+            found = keep
+    return found
 
 
 # --------------------------------------------------------------------------- #
@@ -785,8 +1101,13 @@ def canonical_key(dt):
     (Weisfeiler-Lehman hash of the over/under-labelled diagram graph,
      strand-length spectrum, planar face-degree spectrum).
     Isomorphic diagrams (rotation/reflection/relabel/cyclic-perm/component-reorder,
-    over-under preserved) share this signature; collisions between genuinely
-    different diagrams are astronomically unlikely, so no per-member VF2 is needed."""
+    over-under preserved) always share this signature, so it is a sound BUCKETER.
+
+    It is NOT a decision procedure.  Collisions between genuinely different diagrams
+    are common, not "astronomically unlikely" as this docstring used to claim: for a
+    KNOT the strand spectrum is a single number, so two thirds of the signature carries
+    no information, and K10a3's 12 minimal diagrams fall into just 4 buckets.  Callers
+    must split each bucket with an exact test -- `dedup` does this via `_exact_iso`."""
     G, model = _iso_graph(dt)
     wl = nx.weisfeiler_lehman_graph_hash(G, node_attr="lab", iterations=5)
     strand = tuple(sorted(len(cp) for cp in model["comp_positions"]))
@@ -891,10 +1212,60 @@ def canonical_dt(dt, allow_flip=True, return_symmetry=False):
     return (best, n_min) if return_symmetry else best
 
 
+_ISO_GRAPH_CACHE = {}
+
+
+def _iso_graph_cached(dt):
+    """`_iso_graph` memoised on the DT string -- dedup asks for the same graphs a lot."""
+    g = _ISO_GRAPH_CACHE.get(dt)
+    if g is None:
+        g = _iso_graph(dt)[0]
+        _ISO_GRAPH_CACHE[dt] = g
+    return g
+
+
+def _split_signature_bucket(strings):
+    """Split one canonical_key bucket into genuinely distinct diagrams, UP TO MIRROR.
+
+    The signature only buckets (see `canonical_key`); this is the exact step.  Each
+    string is compared by labelled-graph VF2 against one representative per subgroup,
+    directly and after mirroring, so a diagram and its mirror image stay together --
+    which is what the up-to-mirror diagram count means.
+
+    VF2 on these graphs is milliseconds, so this is cheap; it is NOT the factorial
+    canonicalisation of `_mirror_canonical` and is not subject to the cost guard.
+    """
+    nm = nx.algorithms.isomorphism.categorical_node_match("lab", "")
+    subs = []                                  # [[rep_graph, rep_mirror_graph_or_None, [dt...]]]
+    for dt in strings:
+        G = _iso_graph_cached(dt)
+        placed = False
+        for sub in subs:
+            if G.number_of_nodes() != sub[0].number_of_nodes():
+                continue
+            if nx.is_isomorphic(G, sub[0], node_match=nm):
+                sub[2].append(dt); placed = True; break
+            if sub[1] is None:
+                try:
+                    sub[1] = _iso_graph_cached(_mirror_dt(sub[2][0]))
+                except Exception:  # noqa: BLE001
+                    sub[1] = False
+            if sub[1] and nx.is_isomorphic(G, sub[1], node_match=nm):
+                sub[2].append(dt); placed = True; break
+        if not placed:
+            subs.append([G, None, [dt]])
+    return [sub[2] for sub in subs]
+
+
 def dedup(chain):
     """Collapse identical diagrams.  Returns a list of class dicts sorted by first
-    appearance.  Groups by the composite signature from canonical_key(), computed once
-    per *distinct* DT string (fast: no per-member graph isomorphism search)."""
+    appearance.
+
+    Two stages: the cheap `canonical_key` signature buckets the distinct DT strings,
+    then `_split_signature_bucket` splits each bucket by exact labelled-graph VF2.
+    The second stage is essential -- the signature collides routinely (see
+    `canonical_key`), and without it different diagrams are merged and the diagram
+    count comes out too low."""
     # 1. group member round-indices by exact DT string, preserving first-seen order
     str_members, str_first = {}, {}
     for idx, dt in enumerate(chain):
@@ -916,18 +1287,22 @@ def dedup(chain):
         sig = canonical_key(dt)
         groups.setdefault(sig, []).append(dt)
 
+    # 3. the signature only BUCKETS -- split each bucket by exact labelled-graph VF2.
+    #    Without this step a signature collision silently merges different diagrams:
+    #    K10a3's 12 minimal diagrams share only 4 signatures.
     classes = []
     for sig, strings in groups.items():
-        members = sorted(m for s in strings for m in str_members[s])
-        classes.append({
-            "rep_dt": strings[0],              # earliest first-seen string in the class
-            "strings": strings,
-            "members": members,
-            "multiplicity": len(members),
-            "rep_round": min(members),
-            "n_distinct_strings": len(strings),
-            "sig": sig,
-        })
+        for part in (_split_signature_bucket(strings) if len(strings) > 1 else [strings]):
+            members = sorted(m for s in part for m in str_members[s])
+            classes.append({
+                "rep_dt": part[0],             # earliest first-seen string in the class
+                "strings": part,
+                "members": members,
+                "multiplicity": len(members),
+                "rep_round": min(members),
+                "n_distinct_strings": len(part),
+                "sig": sig,
+            })
     classes.sort(key=lambda c: c["rep_round"])
 
     # UP-TO-MIRROR MERGE: collapse classes that are mirror images of each other.
@@ -952,6 +1327,12 @@ def dedup(chain):
         base["n_distinct_strings"] = len(base["strings"])
         base["mirror_canonical"] = mk
         base["mirror_merged"] = len(cs) > 1
+        # Keep EVERY merged signature, not just the leader's.  A mirror-merged class
+        # contains members whose signature is the partner's (WL/face signatures are
+        # over/under-preserving, so a diagram and its mirror have different ones), and
+        # check_sampled looks members up by signature: dropping them made it answer
+        # "NOT found" for diagrams the run had demonstrably sampled.
+        base["sigs"] = [c["sig"] for c in cs]
         merged.append(base)
     merged.sort(key=lambda c: c["rep_round"])
     classes = merged
@@ -1001,8 +1382,16 @@ def verify_classes(classes, sample=25):
 
 def check_sampled(classes, queries):
     """For each query DT code, report whether an equivalent diagram was sampled
-    (i.e. its signature matches one of the representative classes)."""
-    sigmap = {c["sig"]: c for c in classes}
+    (i.e. its signature matches one of the representative classes).
+
+    Matching is UP TO MIRROR, like dedup itself: a class merged from an enantiomeric
+    pair answers to both signatures (see the "sigs" list built in dedup), and a query
+    is also tried mirrored.  Both are needed -- the WL/face signature preserves
+    over/under, so a diagram and its mirror image never share one."""
+    sigmap = {}
+    for c in classes:
+        for sig in (c.get("sigs") or [c["sig"]]):
+            sigmap.setdefault(sig, c)
     out = []
     for q in queries:
         try:
@@ -1011,6 +1400,11 @@ def check_sampled(classes, queries):
             out.append({"dt": q, "sampled": False, "error": str(exc)})
             continue
         c = sigmap.get(k)
+        if c is None:                       # try the mirror image (up-to-mirror dedup)
+            try:
+                c = sigmap.get(canonical_key(_mirror_dt(q)))
+            except Exception:  # noqa: BLE001
+                c = None
         out.append({
             "dt": q,
             "sampled": c is not None,
@@ -1032,11 +1426,40 @@ def _jones(dt):
         return "n/a (needs Sage)"
 
 
+def _linking_matrix(L):
+    """Pairwise linking numbers of a SnapPy/spherogram Link, WITHOUT Sage.
+
+    ``Link.linking_matrix()`` is decorated ``@sage_method`` in spherogram, so it
+    raises SageNotAvailable headless even though its body is plain Python over the
+    crossing signs.  Recomputing it here is what makes _linking_fp live up to its
+    name: previously every headless run silently produced no fingerprint at all and
+    the same-link check reported "0 fingerprints (expected 1)" on a perfectly good
+    result.  lk(i, j) = half the signed count of crossings between components i and j.
+    """
+    comps = L.link_components
+    n = len(comps)
+    M = [[0] * n for _ in range(n)]
+    for i in range(n):
+        for j in range(i + 1, n):
+            tot = 0.0
+            for c in L.crossings:
+                a = sum(1 for x in comps[i] if x[0] is c)
+                b = sum(1 for x in comps[j] if x[0] is c)
+                if a == 1 and b == 1:
+                    tot += 0.5 * c.sign
+            M[i][j] = M[j][i] = int(tot)
+    return M
+
+
 def _linking_fp(dt):
     """Headless same-link fingerprint: sorted off-diagonal linking numbers."""
     try:
         import snappy
-        M = snappy.Link(dt).linking_matrix()
+        L = snappy.Link(dt)
+        try:
+            M = L.linking_matrix()          # fast path when running under Sage
+        except Exception:                   # noqa: BLE001  -- SageNotAvailable, headless
+            M = _linking_matrix(L)
         vals = sorted(int(M[i][j]) for i in range(len(M)) for j in range(len(M)) if i < j)
         return tuple(vals)
     except Exception:
@@ -1063,6 +1486,9 @@ def _canonical_entry(dt, allow_flip=False):
     entry = _CANON_CACHE.get(key)
     if isinstance(entry, dict) and all(k in entry for k in ("dt", "sym", "group")):
         return entry
+    if _too_complex(dt, "symmetry order"):
+        # Not cached to disk: it is a fallback, not a computed answer.
+        return {"dt": dt, "sym": 1, "group": "n/a (too complex)"}
     # canonical form + symmetry order + symmetry GROUP, via the shared canonical_dt module
     res = CDT2.analyze(dt)
     entry = {"dt": res["canonical"], "sym": int(res["symmetry_order"]),
@@ -1097,6 +1523,50 @@ def canonical_dt_string(dt, allow_flip=False):
     return _canonical_entry(dt)["dt"]
 
 
+# Canonicalisation enumerates C! x prod(2*Li) relabellings (Li = positions in component
+# i), which is factorial in the component count.  4BL sits at 884 736 and takes ~5 s; a
+# 5-component 22-crossing link needs 1.4e8 and a 28-crossing one 7.6e8, i.e. hours per
+# class.  Past the limit the exact form is skipped and the cheap signature is used
+# instead -- see _canonical_cost / _too_complex.
+CANONICAL_COST_LIMIT = 5_000_000
+_COMPLEXITY_WARNED = set()
+
+
+def _canonical_cost(dt):
+    """How many relabellings the exact canonical form would have to enumerate."""
+    try:
+        comps = DDOL.parse_dt(dt)
+    except Exception:  # noqa: BLE001
+        return None
+    cost = math.factorial(len(comps))
+    for c in comps:
+        cost *= 4 * len(c)          # 2 * (positions in the component) = 2 * (2 * entries)
+    return cost
+
+
+def _too_complex(dt, what="canonical form"):
+    """True when the exact canonicalisation is out of reach; warns once per run."""
+    if not CANONICAL_COST_LIMIT:
+        return False
+    cost = _canonical_cost(dt)
+    if cost is None or cost <= CANONICAL_COST_LIMIT:
+        return False
+    key = "".join(str(dt).split())
+    if key not in _COMPLEXITY_WARNED:
+        _COMPLEXITY_WARNED.add(key)
+        try:
+            comps = DDOL.parse_dt(dt)
+            print("  [complexity] %d components / %d crossings would need %.3g relabellings "
+                  "for the exact %s (limit %.3g).  Falling back to the signature; grouping is "
+                  "still exact up to the WL hash, but the mirror merge and the symmetry order "
+                  "are SKIPPED for this diagram."
+                  % (len(comps), sum(len(c) for c in comps), cost, what, CANONICAL_COST_LIMIT),
+                  flush=True)
+        except Exception:  # noqa: BLE001
+            pass
+    return True
+
+
 _MIRROR_CANON_CACHE = {}
 
 
@@ -1107,6 +1577,11 @@ def _mirror_canonical(dt):
     key = "".join(str(dt).split())
     if key in _MIRROR_CANON_CACHE:
         return _MIRROR_CANON_CACHE[key]
+    if _too_complex(dt, "canonical form"):
+        # Return the code unchanged: still a VALID DT string (everything downstream scores
+        # and draws it), just not canonical -- so mirror-image classes will not merge.
+        _MIRROR_CANON_CACHE[key] = dt
+        return dt
     try:
         comps = [tuple(c) for c in CDT2.parse_dt(dt)]
         canon, _, _ = CDT2.canonicalize(comps, allow_flip=True)
@@ -1294,9 +1769,14 @@ def write_excel(scored, path, run_info):
     # widths
     for cidx, (header, _) in enumerate(cols, start=1):
         letter = get_column_letter(cidx)
-        if header == "DT code":
+        # NB: match the headers _cols() actually emits.  These tested "DT code" and
+        # "Jones (same link check)", neither of which exists any more, so the widest
+        # column in the sheet (a 77-character canonical DT code) was being squeezed
+        # into the 19-wide default.
+        if header == "Canonical DT code":
             ws.column_dimensions[letter].width = 42
-        elif header in ("Jones (same link check)", "Strand lengths"):
+        elif header in ("Jones (Sage only)", "Strand lengths", "Clasp structure",
+                        "Linking numbers (sorted)"):
             ws.column_dimensions[letter].width = 22
         else:
             ws.column_dimensions[letter].width = max(11, min(20, len(header) + 2))
@@ -1371,9 +1851,9 @@ _METRIC_LEGEND = [
     ("Edge length CV", "descriptive", "DESCRIPTIVE ONLY (not scored): uniformity of segment lengths in the relaxed 2-D layout. Depends on which face draw_dt turns to the outside (the 'puncture'), which is not intrinsic when faces tie for largest -- so it is excluded from the composite."),
     ("Dirichlet energy", "descriptive", "DESCRIPTIVE ONLY (not scored): 2-D spring energy. Puncture-dependent (see Edge length CV), so excluded from the composite."),
     ("Crossing angle dev (deg)", "descriptive", "DESCRIPTIVE ONLY (not scored): deviation of crossings from ideal 90-degree X shapes in the 2-D layout. Puncture-dependent, so excluded from the composite."),
-    ("2D symmetry score", "descriptive", "DESCRIPTIVE ONLY (not scored): rotational symmetry of the crossing POSITIONS in the 2-D layout; IGNORES over/under AND depends on the puncture, so excluded from the composite. Use 'Symmetry order' (sign-aware) and '3D point group' instead."),
+    ("2D symmetry score", "descriptive", "DESCRIPTIVE ONLY (not scored): rotational symmetry of the crossing POSITIONS in the 2-D layout; IGNORES over/under AND depends on the puncture, so excluded from the composite. Use 'Symmetry order' (sign-aware) and '3D point group' instead. A score of 0 means no rotational symmetry was found at all (order 1), the same convention as the 3-D column."),
     ("Thomson energy", "lower = better", "Crowding of crossings on the sphere; lower = more evenly spread."),
-    ("Sphere spread quality", "higher = better", "Evenness of the spread on the sphere vs ideal; 1 = ideal."),
+    ("Sphere spread quality", "higher = better", "Evenness of the crossing spread on the sphere, as a ratio to a Fibonacci-spiral reference of the same number of points. CAPPED AT 1: the reference is evenly spread but not the true minimum-energy arrangement, so a small very even diagram can beat it; the uncapped ratio is kept as sphere_spread_raw in the JSON."),
     ("3D strand length CV", "lower = better", "Evenness of strand lengths measured on the 3-D sphere."),
     ("Bending energy", "lower = better", "How sharply strands turn in 3-D; lower = gentler, relaxed curves."),
     ("3D dot-pattern symmetry", "descriptive", "DESCRIPTIVE ONLY (not scored): largest rotational symmetry of the crossing POSITIONS only in the 3-D layout (a k-fold dot pattern); IGNORES over/under and crossing signs, so it false-positives on low-symmetry diagrams (e.g. a spurious 2-fold on the C1 Lopsided and Cs Offset clasps) -- excluded from the composite. The composite's 'q: diagram symmetry' uses the loop-gated '3D point group' order instead. Use 'Symmetry order'/'Symmetry group'/'3D point group' for the sign-respecting values."),
@@ -1472,6 +1952,13 @@ def _compute_sym3d(dt, C3):
     """Run the V2_0 rotation-system + eigenvalue engine once for `dt` in the frame
     of C3 and cache both the typed elements and the short point-group label
     (Cn / Cs / Ci / Sn ...).  A full-loop reliability gate is applied inside."""
+    if _too_complex(dt, "3-D point group"):
+        # CDT2.symmetry_3d enumerates the same relabellings (_flipfalse_syms), so it hangs
+        # on exactly the diagrams _mirror_canonical does.  order 0 makes
+        # _point_group_order_3d fall back to the automorphism order.
+        out = {"order": 0, "elements": [], "point_group": "n/a (too complex)"}
+        _SYM3D_CACHE[dt] = out
+        return out
     try:
         comps = tuple(tuple(c) for c in CDT2.parse_dt(dt))          # dt is already canonical here
         C3 = np.asarray(C3, float)
@@ -2319,7 +2806,7 @@ def launch_gui(defaults=None):
     def dv(name, fallback):
         return str(getattr(defaults, name, fallback)) if defaults is not None else str(fallback)
 
-    root.title("DT Diagram Scorer  —  score_diagramV2_2")
+    root.title("DT Diagram Scorer  —  score_diagramV2_5")
     frm = tk.Frame(root, padx=10, pady=8)
     frm.pack(fill="x")
 
@@ -2357,27 +2844,40 @@ def launch_gui(defaults=None):
                "component. A negative even number marks that the over-strand passes there. Every "
                "alternative the search finds is the SAME link, just drawn differently.\n\n"
                "Example:\nDT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]"),
-        "rounds": ("Rounds (simplifications)",
-               "How many simplify-and-perturb cycles to run. Each round yields one alternative "
-               "drawing of the same link, so more rounds explore more drawings (and take longer).\n\n"
-               "Example: 99 for a quick look, 999 for a thorough search."),
-        "backtrack_rounds": ("Backtrack rounds",
-               "Inside each round, how many times SnapPy randomly re-tangles then re-simplifies the "
-               "diagram to escape the current arrangement. Higher = more variety per round, slower.\n\n"
-               "Example: 200."),
-        "backtrack_steps": ("Backtrack steps",
-               "How many random crossing moves make up one backtrack attempt. Higher = a bigger "
-               "perturbation before re-simplifying.\n\nExample: 30."),
-        "reset_every": ("Reset to root every N rounds",
-               "Re-start the walk from the original DT every N rounds (0 = never). Stops the search "
-               "drifting into one region and keeps it sampling the full variety of drawings.\n\n"
-               "Example: 20."),
-        "seed": ("Seed (reproducibility)",
-               "The search is randomized — each round randomly tangles the diagram before "
-               "re-simplifying, which is how it finds different diagrams. The seed fixes that "
-               "randomness so the run is fully reproducible: the same seed always gives the same "
-               "diagrams and scores (and lets a run resume from its checkpoint and be re-run "
-               "identically for a paper). Change it to explore a different random path.\n\n"
+        "rounds": ("Calls (simplifier runs)",
+               "How many times to run the simplifier. In HARVESTING mode each call keeps every "
+               "diagram it meets at the smallest crossing number — often a hundred or more — so "
+               "far fewer calls are needed than the old one-per-round chain. In LEGACY CHAIN mode "
+               "each call yields exactly one diagram.\n\n"
+               "Example: 24 harvesting (6 was enough to get every diagram right on a 196-knot "
+               "test); 999 for the legacy chain."),
+        "backtrack_rounds": ("Backtrack rounds (per call)",
+               "Inside each call, how many times the diagram is randomly re-tangled and "
+               "re-simplified. This is where the diagrams actually come from: in harvesting mode "
+               "every one of these cycles that ties the smallest crossing number is kept, so this "
+               "number — not Calls — is the main yield lever.\n\nExample: 200."),
+        "backtrack_steps": ("Backtrack steps (perturbation size)",
+               "How many random crossing moves make up one re-tangle before re-simplifying. It "
+               "matters more than it looks: on one test knot 30 steps found 12 distinct minimal "
+               "diagrams where 20 steps found 7.\n\nExample: 30."),
+        "reset_every": ("Reset every N rounds (legacy chain only)",
+               "LEGACY CHAIN ONLY — greyed out in harvesting mode. Re-start the walk from the "
+               "original DT every N rounds (0 = never), so the chain does not drift into one "
+               "region.\n\n"
+               "Harvesting does not need it: every call already restarts from a diagram at the "
+               "smallest crossing count found so far, and switches away from the starting code "
+               "automatically once something smaller turns up.\n\nExample: 20."),
+        "seed": ("Seed (does NOT make a run repeatable)",
+               "The search is randomized: each call randomly re-tangles the diagram before "
+               "re-simplifying, which is how it finds different drawings. The seed steers the "
+               "script's own choices, but it does NOT make a run repeatable — SnapPy/spherogram "
+               "picks its moves from collections ordered by object identity, so the same seed "
+               "gives different diagrams every time. Verified in fresh processes with "
+               "PYTHONHASHSEED fixed.\n\n"
+               "• To replay a run exactly, use the Checkpoint file — that is the only exact "
+               "record.\n"
+               "• Counts are therefore lower bounds. If an exact count matters, run several "
+               "times and pool the results rather than making one run longer.\n\n"
                "Example: 20260708."),
         "verify": ("Verify sample",
                "An extra EXACT isomorphism check on the grouped diagrams, on top of the fast "
@@ -2397,19 +2897,18 @@ def launch_gui(defaults=None):
                "de-duplicated by rotation / flip / strand-reversal of the picture). Untick it to "
                "skip that figure; its path, per-group count and rasterize option then grey out."),
         "checkpoint": ("Checkpoint file",
-               "A JSONL file (use Browse to choose its FOLDER and name) that records EVERY diagram "
-               "produced during generation — one line per round. It stores only the generation "
-               "chain, not scores or figures.\n\n"
-               "• Resume / extend: if the file already exists, generation continues from where it "
-               "stopped. Ask for more rounds to add only the difference — e.g. a 999-round file "
-               "re-run with Rounds = 1999 generates just the extra 1000 rounds. Asking for the same "
-               "or fewer rounds does no new generation.\n"
-               "• Always recomputed: dedup, Verify, scoring and ALL figures (including the raw "
-               "grouping) are rebuilt fresh from the loaded chain on every run — so changing Verify "
-               "or the raw settings and re-running takes effect without re-generating.\n"
-               "• Identical continuation needs the same DT, Seed, Backtrack settings and Reset-every "
-               "(the root DT must match the file, or the run is refused). A different Seed simply "
-               "explores a different additional path.\n\nExample: /path/to/chain999.jsonl."),
+               "A JSONL file (use Browse to choose its FOLDER and name) recording every diagram "
+               "produced during generation — one line each. It stores only the generated codes, "
+               "not scores or figures, and it is the ONLY exact record of a run, since the seed "
+               "does not make one repeatable.\n\n"
+               "• Resume / extend: if the file exists, generation continues from it. Asking for "
+               "more calls adds only the difference.\n"
+               "• Always recomputed: dedup, Verify, scoring and ALL figures are rebuilt fresh "
+               "from the loaded codes every run — so changing Verify or the raw settings and "
+               "re-running takes effect without re-generating.\n"
+               "• The root DT must match the file, or the run is refused. Do not mix a harvesting "
+               "checkpoint with a legacy-chain one: they hold different things.\n\n"
+               "Example: /path/to/chain.jsonl."),
         "xlsx": ("Excel output",
                "Path for the metrics workbook (.xlsx); blank = skip. Contains every score, the "
                "diagram names + clasp structure, and a colour-coded metric-direction legend.\n\n"
@@ -2425,6 +2924,16 @@ def launch_gui(defaults=None):
         "json": ("JSON output",
                "Path for the full machine-readable results (all metrics + any membership checks); "
                "blank = skip.\n\nExample: results.json."),
+        "generator": ("Generator",
+               "HARVESTING (default) keeps every diagram that ties the smallest crossing number "
+               "inside each simplifier call. LEGACY CHAIN is the older behaviour: one diagram per "
+               "call, the rest discarded.\n\n"
+               "The difference is large. Checked against an exhaustive enumeration of every "
+               "alternating knot of 10 crossings or fewer — 196 knots, 509 minimal diagrams known "
+               "exactly — harvesting found 509 of 509, right on all 196. The legacy chain found "
+               "438 in one run and 463 pooled over three, and running it 20x longer added "
+               "nothing.\n\n"
+               "Use the legacy chain only to reproduce an older result."),
         "check": ("Check DT codes (membership test)",
                "After the run, each DT code you paste here (one per line) is tested against the "
                "diagrams that were found: the log reports whether an equivalent diagram was sampled "
@@ -2459,7 +2968,7 @@ def launch_gui(defaults=None):
                             command=_make_browser(v, ft, ft[0][1].lstrip("*"),
                                                   confirm=(key != "checkpoint")))
             btn.pack(side="left")
-        widgets[key] = {"entry": ent, "browse": btn}
+        widgets[key] = {"entry": ent, "browse": btn, "label": None}
         return v
 
     def _num_pair(spec_a, spec_b):
@@ -2472,14 +2981,27 @@ def launch_gui(defaults=None):
             key, label, val = spec
             v = tk.StringVar(value=str(val))
             vars_[key] = v
-            tk.Label(row, text=label, width=16, anchor="w").pack(side="left")
+            lab_w = tk.Label(row, text=label, width=16, anchor="w")
+            lab_w.pack(side="left")
             ent = tk.Entry(row, textvariable=v, width=11)
             ent.pack(side="left", padx=(0, 2))
             _help_badge(row, key).pack(side="left", padx=(2, 18))
-            widgets[key] = {"entry": ent, "browse": None}
+            widgets[key] = {"entry": ent, "browse": None, "label": lab_w}
 
     _full_row("dt", "DT code", dv("dt", DEFAULT_DT))
-    _num_pair(("rounds", "Rounds", dv("rounds", 99)),
+
+    # --- generator: harvesting (default) or the legacy one-per-call chain ---
+    gen_var = tk.StringVar(value="chain" if getattr(defaults, "legacy_chain", False) else "harvest")
+    gen_row = tk.Frame(frm)
+    gen_row.pack(fill="x", pady=(6, 0))
+    tk.Label(gen_row, text="Generator", width=26, anchor="w").pack(side="left")
+    tk.Radiobutton(gen_row, text="Harvesting (recommended)", variable=gen_var,
+                   value="harvest").pack(side="left")
+    tk.Radiobutton(gen_row, text="Legacy chain", variable=gen_var,
+                   value="chain").pack(side="left", padx=(8, 0))
+    _help_badge(gen_row, "generator").pack(side="left", padx=6)
+
+    _num_pair(("rounds", "Calls", dv("rounds", 24)),
               ("backtrack_rounds", "Backtrack rounds", dv("backtrack_rounds", 200)))
     _num_pair(("backtrack_steps", "Backtrack steps", dv("backtrack_steps", 30)),
               ("reset_every", "Reset every N", reset_default))
@@ -2540,6 +3062,24 @@ def launch_gui(defaults=None):
     write_raw_var.trace_add("write", _sync_raw_state)
     _sync_raw_state()          # apply the initial (default = off) greying
 
+    # dynamic greying: "Reset every N" only means anything for the legacy chain, and the
+    # first field counts CALLS when harvesting but ROUNDS on the chain.
+    def _sync_generator_state(*_):
+        legacy = (gen_var.get() == "chain")
+        w = widgets.get("reset_every", {})
+        if w.get("entry") is not None:
+            w["entry"].config(state="normal" if legacy else "disabled")
+        if w.get("label") is not None:
+            w["label"].config(fg="black" if legacy else "#999999")
+        lw = widgets.get("rounds", {}).get("label")
+        if lw is not None:
+            lw.config(text="Rounds" if legacy else "Calls")
+        if not legacy and vars_["rounds"].get().strip() in ("99", "999"):
+            vars_["rounds"].set("24")        # chain-sized counts are wasteful when harvesting
+
+    gen_var.trace_add("write", _sync_generator_state)
+    _sync_generator_state()
+
     log = scrolledtext.ScrolledText(root, width=104, height=20, font=("Menlo", 9))
     log.pack(fill="both", expand=True, padx=10, pady=(4, 10))
 
@@ -2589,6 +3129,8 @@ def launch_gui(defaults=None):
                 json=vars_["json"].get().strip() or None,
                 check=[ln.strip() for ln in check_text.get("1.0", "end").splitlines() if ln.strip()],
                 check_file=None, gui=False,
+                legacy_chain=(gen_var.get() == "chain"),
+                reset_mode="origin", reset_reencode=False, reset_subprocess=False,
             )
         except ValueError as exc:
             q.put("Invalid parameter: %s\n" % exc)
@@ -2630,11 +3172,41 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dt", default=DEFAULT_DT)
-    ap.add_argument("--rounds", type=int, default=99)
+    ap.add_argument("--rounds", type=int, default=24,
+                    help="number of simplifier CALLS.  With harvesting far fewer "
+                         "are needed than the old one-diagram-per-round chain")
     ap.add_argument("--backtrack-rounds", type=int, default=200)
     ap.add_argument("--backtrack-steps", type=int, default=30)
-    ap.add_argument("--seed", type=int, default=20260708)
+    ap.add_argument("--seed", type=int, default=20260708,
+                    help="base seed for the per-round seeds.  NOTE: this does not make "
+                         "the chain repeatable (see the module docstring); use "
+                         "--checkpoint to replay a chain, and pool several runs when an "
+                         "exact count matters")
     ap.add_argument("--checkpoint", default="chainV2.jsonl")
+    ap.add_argument("--canonical-limit", type=float, default=CANONICAL_COST_LIMIT,
+                    help="skip the exact canonical form when it would need more than this "
+                         "many relabellings (0 = never skip, and risk hours per class on "
+                         "many-component links).  Default %d" % CANONICAL_COST_LIMIT)
+    ap.add_argument("--legacy-chain", action="store_true",
+                    help="use the V2.3 generator, which keeps ONE diagram per simplifier "
+                         "call.  The default harvests every minimum-crossing diagram each "
+                         "call and finds far more (see the module docstring)")
+    ap.add_argument("--reset-mode", choices=list(RESET_MODES), default="origin",
+                    help="where a reset restarts from: 'origin' the starting diagram "
+                         "(old behaviour), 'equal' a uniformly random diagram among those "
+                         "found so far, 'inverse' one weighted by 1/(1+times used). "
+                         "Only has an effect together with --reset-every")
+    ap.add_argument("--reset-reencode", action="store_true",
+                    help="on each reset, hand spherogram a DIFFERENT ENCODING of the "
+                         "chosen restart diagram (same diagram, new base points and "
+                         "component order).  Changes spherogram's internal ordering, so "
+                         "the restart explores differently.  Costs microseconds.  "
+                         "LEGACY-CHAIN ONLY")
+    ap.add_argument("--reset-subprocess", action="store_true",
+                    help="on each reset, run that round in a FRESH interpreter.  The "
+                         "strongest decorrelation available, but costs a process spawn "
+                         "(~1-3 s) per reset, so use it with a large --reset-every.  "
+                         "LEGACY-CHAIN ONLY")
     ap.add_argument("--reset-every", type=int, default=0,
                     help="re-root the chain at the original DT after every N rounds "
                          "(0 = never); avoids getting trapped cycling among a few diagrams")
@@ -2668,6 +3240,7 @@ def main(argv=None):
                     help="launch the graphical interface (also the default when no "
                          "arguments are given)")
     args = ap.parse_args(raw)
+    globals()["CANONICAL_COST_LIMIT"] = int(getattr(args, "canonical_limit", CANONICAL_COST_LIMIT) or 0)
 
     if (not raw) or args.gui:
         launch_gui(args)
@@ -2679,19 +3252,36 @@ def run_pipeline(args, log=None):
     """Run generation -> dedup -> (verify) -> membership check -> score -> outputs.
     Prints progress with print(); the GUI redirects stdout to capture it."""
     t_start = time.time()
-    print("Generating chain: %d rounds, backtrack %dx%d ..."
-          % (args.rounds, args.backtrack_rounds, args.backtrack_steps), flush=True)
-    chain = generate_chain(
-        args.dt, args.rounds, args.backtrack_rounds, args.backtrack_steps,
-        args.seed, checkpoint=args.checkpoint,
-        max_seconds=(args.max_seconds or None), reset_every=args.reset_every,
-    )
+    harvest = not getattr(args, "legacy_chain", False)
+    print("Generating (%s): %d calls, backtrack %dx%d ..."
+          % ("harvesting" if harvest else "legacy chain", args.rounds,
+             args.backtrack_rounds, args.backtrack_steps), flush=True)
+    if harvest:
+        chain = generate_archive(
+            args.dt, args.rounds, args.backtrack_rounds, args.backtrack_steps,
+            args.seed, checkpoint=args.checkpoint,
+            max_seconds=(args.max_seconds or None),
+        )
+    else:
+        chain = generate_chain(
+            args.dt, args.rounds, args.backtrack_rounds, args.backtrack_steps,
+            args.seed, checkpoint=args.checkpoint,
+            max_seconds=(args.max_seconds or None), reset_every=args.reset_every,
+            reset_mode=getattr(args, "reset_mode", "origin"),
+            reset_reencode=getattr(args, "reset_reencode", False),
+            reset_subprocess=getattr(args, "reset_subprocess", False),
+        )
     done = len(chain) - 1
-    print("Chain has %d/%d rounds (%d DT codes)." % (done, args.rounds, len(chain)), flush=True)
-    if args.generate_only or done < args.rounds:
-        if done < args.rounds:
-            print("Not finished; re-run to resume from checkpoint %s." % args.checkpoint)
-        return
+    if harvest:
+        print("Harvested %d minimal DT codes." % len(chain), flush=True)
+        if args.generate_only:
+            return
+    else:
+        print("Chain has %d/%d rounds (%d DT codes)." % (done, args.rounds, len(chain)), flush=True)
+        if args.generate_only or done < args.rounds:
+            if done < args.rounds:
+                print("Not finished; re-run to resume from checkpoint %s." % args.checkpoint)
+            return
 
     print("Deduplicating %d DT codes ..." % len(chain), flush=True)
     classes = dedup(chain)
@@ -2738,9 +3328,13 @@ def run_pipeline(args, log=None):
             pass
 
     fps = set(m["linking_fp"] for m in scored if m["linking_fp"] is not None)
-    print("  same-link check: %d distinct linking-number fingerprint(s) among "
-          "representatives (expected 1: all are the same link by construction)"
-          % len(fps), flush=True)
+    if not fps:
+        print("  same-link check: SKIPPED (no linking numbers available -- is SnapPy "
+              "importable?)", flush=True)
+    else:
+        print("  same-link check: %d distinct linking-number fingerprint(s) among "
+              "representatives%s (expected 1: all are the same link by construction)"
+              % (len(fps), "" if len(fps) == 1 else "  <-- MISMATCH"), flush=True)
 
     # Raw-grouping figure: built AFTER scoring so its groups appear in the SAME order
     # (by composite rank) as the ranked figure, and are labelled with rank + name.
@@ -2752,12 +3346,19 @@ def run_pipeline(args, log=None):
         print("wrote %s" % args.raw_svg, flush=True)
 
     run_info = {
-        "software": "score_diagramV2_2.py",
+        "software": "score_diagramV2_5.py",
         "root_DT": args.dt,
         "rounds": args.rounds,
         "backtrack_rounds": args.backtrack_rounds,
         "backtrack_steps": args.backtrack_steps,
         "reset_every": args.reset_every,
+        "canonical_cost_limit": CANONICAL_COST_LIMIT,
+        "canonical_fallbacks": len(_COMPLEXITY_WARNED),
+        "generator": "harvesting (every minimum-crossing diagram kept)"
+                     if not getattr(args, "legacy_chain", False) else "legacy chain",
+        "reset_mode": getattr(args, "reset_mode", "origin"),
+        "reset_reencode": getattr(args, "reset_reencode", False),
+        "reset_subprocess": getattr(args, "reset_subprocess", False),
         "seed": args.seed,
         "total_DT_codes": len(chain),
         "distinct_representatives": len(classes),
