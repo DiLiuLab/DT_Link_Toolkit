@@ -53,6 +53,7 @@ Usage
     python3 enumerate_puncturing_dt.py --gui                  # GUI, explicitly
     python3 enumerate_puncturing_dt.py --dt "DT: [(4,6,2)]" --svg trefoil_atlas.svg
     python3 enumerate_puncturing_dt.py --dt "DT: [...]" --list-faces   # no drawing
+    python3 enumerate_puncturing_dt.py --dt "DT: [...]" --order multiplicity
     python3 enumerate_puncturing_dt.py --dt "DT: [...]" --svg atlas.svg --json atlas.json
 
 Notes
@@ -180,6 +181,15 @@ CONGRUENCE_NDIGITS = 3         # rounding of the normalised distance multiset
 # It roughly doubles the room in the worst panel and helps the non-bigon panels
 # too, with no false crossings.  --decompress 0 restores the raw-grouping
 # figure's exact settings; --decompress auto searches the ladder below.
+# Panel order in the atlas.  "gon" is the default: biggest punctured polygon
+# first, which reads as a progression -- the large faces give the open, airy
+# drawings and the bigons the tight ones -- and keeps panels of the same polygon
+# size together.  The V1 order ("multiplicity") sorted by how many faces give
+# each picture, which scattered the polygon sizes: on the Lopsided clasp it ran
+# 5,4,4,3,3,3,2,4,4 because the two singleton 4-gons fell behind the bigon.
+ORDERINGS = ("gon", "multiplicity", "face")
+DEFAULT_ORDER = "gon"
+
 DEFAULT_DECOMPRESS = 0.3
 DECOMPRESS_LADDER = (0.0, 0.15, 0.3, 0.45, 0.6)
 
@@ -730,8 +740,34 @@ def verify_grouping(result, log=print, tutte_extra=None):
 # --------------------------------------------------------------------------- #
 #  4. The enumeration itself
 # --------------------------------------------------------------------------- #
+_ORDER_DESCRIPTION = {
+    "gon": "largest punctured polygon first",
+    "multiplicity": "most faces first (the V1 order)",
+    "face": "face enumeration order",
+}
+
+
+def _order_key(order):
+    """Sort key for the atlas panels.
+
+    Every ordering keeps the DEFAULT drawing ahead of its equals rather than
+    ahead of everything: draw_dt only ever punctures a largest face, so under
+    "gon" the default already sits in the leading group and pinning it to the
+    very front would not fight the polygon order.  Ties fall back on the face
+    enumeration order, which is itself deterministic, so the atlas is stable.
+    """
+    if order == "multiplicity":
+        return lambda c: (not c["is_default"], -len(c["members"]),
+                          -c["rep"]["n_edges"], c["rep"]["index"])
+    if order == "face":
+        return lambda c: (c["rep"]["index"],)
+    return lambda c: (-c["rep"]["n_edges"], not c["is_default"],
+                      -len(c["members"]), c["rep"]["index"])
+
+
 def enumerate_punctures(dt, log=print, keep_positions=True, tutte_extra=None,
-                        confirm=True, auto=False, chiral_merge=True):
+                        confirm=True, auto=False, chiral_merge=True,
+                        order=DEFAULT_ORDER):
     """Puncture every face of ``dt`` in turn and group the drawings that agree.
 
     Faces are grouped by the exact criterion -- a symmetry of the diagram carries
@@ -802,13 +838,10 @@ def enumerate_punctures(dt, log=print, keep_positions=True, tutte_extra=None,
                ", %d FALSE CROSSING%s" % (panel["false"], "" if panel["false"] == 1 else "S")
                if panel["false"] else ""))
 
-    # The default drawing leads the atlas; then the drawings reachable from the
-    # most faces (a picture many faces give is the more "typical" one), then the
-    # biggest punctured polygon first.
-    classes.sort(key=lambda c: (not c["is_default"], -len(c["members"]),
-                                -c["rep"]["n_edges"], c["rep"]["index"]))
+    classes.sort(key=_order_key(order))
     for i, c in enumerate(classes, start=1):
         c["rank"] = i
+    log("  panel order: %s" % _ORDER_DESCRIPTION.get(order, order))
 
     # ANNOTATION (not grouping): drawings whose crossings land in congruent
     # positions but which are different link diagrams.  The Tutte layout is a
@@ -847,7 +880,7 @@ def enumerate_punctures(dt, log=print, keep_positions=True, tutte_extra=None,
     return {"dt": str(dt).strip(), "model": model, "G": G, "faces": recs,
             "classes": classes, "n_crossings": ncross,
             "tutte_extra": dict(tutte_extra or {}), "decompress": used,
-            "chiral_merge": bool(chiral_merge)}
+            "chiral_merge": bool(chiral_merge), "order": order}
 
 
 # --------------------------------------------------------------------------- #
@@ -901,11 +934,12 @@ def _atlas_text(result, wrap):
     import textwrap
     head = ("Atlas of the plane drawings of one diagram, one per punctured face\n"
             "%s\n%d crossings — %d faces punctured (every polygon, bigons included) — "
-            "%d distinct drawing%s — shaped-tutte, decompress %.2f"
+            "%d distinct drawing%s — shaped-tutte, decompress %.2f — panels %s"
             % ("\n".join(textwrap.wrap(result["dt"], wrap)), result["n_crossings"],
                len(result["faces"]), len(result["classes"]),
                "" if len(result["classes"]) == 1 else "s",
-               result.get("decompress", DEFAULT_DECOMPRESS)))
+               result.get("decompress", DEFAULT_DECOMPRESS),
+               _ORDER_DESCRIPTION.get(result.get("order", DEFAULT_ORDER), "")))
     foot = textwrap.fill(
         "A diagram lives on a sphere; drawing it flat sends one face to the outer region "
         "(the 'puncture'), and each choice gives a different plane picture of the SAME "
@@ -1037,6 +1071,7 @@ def write_json(result, path):
                              "min_separation": DRAW_MIN_SEP,
                              "congruence_ndigits": CONGRUENCE_NDIGITS,
                              "decompress": result.get("decompress"),
+                             "panel_order": result.get("order", DEFAULT_ORDER),
                              "extra_tutte_opts": result.get("tutte_extra") or {}},
         "faces": [{"index": r["index"], "label": r["label"], "n_edges": r["n_edges"],
                    "crossings": [int(k) + 1 for k in r["crossings"]],
@@ -1086,7 +1121,8 @@ def run_pipeline(args, log=print):
             raise ValueError("--decompress takes a number or 'auto', not %r" % (raw_dc,))
     result = enumerate_punctures(
         args.dt, log=log, tutte_extra=tutte_extra, auto=auto,
-        chiral_merge=not getattr(args, "distinguish_chirality", False))
+        chiral_merge=not getattr(args, "distinguish_chirality", False),
+        order=getattr(args, "order", DEFAULT_ORDER) or DEFAULT_ORDER)
     if getattr(args, "verify", False):
         verify_grouping(result, log=log, tutte_extra=result.get("tutte_extra"))
     for line in report_lines(result):
@@ -1152,6 +1188,16 @@ HELP = {
                    "the boundary. Measured no help on the bigon panels, and combined with a "
                    "large Decompress it produced false crossings — leave it at 0 unless you "
                    "have a reason.\n\nExample: 0.3."),
+    "order": ("Panel order",
+              "How the atlas panels are ordered.\n\n"
+              "'gon' (default) puts the largest punctured polygon first, so the panels "
+              "run from the open, airy drawings the big faces give down to the tight ones "
+              "the bigons give, with equal polygon sizes kept together.\n\n"
+              "'multiplicity' puts the pictures reachable from the most faces first — the "
+              "original order, which scattered the polygon sizes.\n\n"
+              "'face' uses the face enumeration order.\n\n"
+              "In every order the default (blue-outlined) drawing leads its equals, and "
+              "ties fall back on the face enumeration, so the atlas is reproducible."),
     "distinguish_chirality": ("Keep chirality apart",
               "By default a drawing and its mirror THROUGH THE PLANE OF THE PAPER — the same "
               "shadow with every crossing flipped at once, i.e. the ordinary mirror image, "
@@ -1263,6 +1309,15 @@ def launch_gui(defaults=None):
     _num_pair(("decompress", "Decompress / auto", dv("decompress", DEFAULT_DECOMPRESS)),
               ("com_expand", "COM expand", dv("com_expand", 0.0)))
 
+    ordrow = tk.Frame(frm)
+    ordrow.pack(fill="x", pady=2)
+    tk.Label(ordrow, text="Panel order", width=16, anchor="w").pack(side="left")
+    order_var = tk.StringVar(value=str(getattr(defaults, "order", DEFAULT_ORDER)
+                                       if defaults else DEFAULT_ORDER))
+    vars_["order"] = order_var
+    tk.OptionMenu(ordrow, order_var, *ORDERINGS).pack(side="left", padx=(0, 2))
+    _help_badge(ordrow, "order").pack(side="left", padx=(2, 18))
+
     chkrow = tk.Frame(frm)
     chkrow.pack(fill="x", pady=(6, 2))
     flags = {}
@@ -1315,6 +1370,7 @@ def launch_gui(defaults=None):
                 com_expand=float(vars_["com_expand"].get() or 0.0),
                 labels=flags["labels"].get(),
                 crossing_ids=flags["crossing_ids"].get(),
+                order=vars_["order"].get().strip() or DEFAULT_ORDER,
                 distinguish_chirality=flags["distinguish_chirality"].get(),
                 raster=flags["raster"].get(),
                 verify=flags["verify"].get(),
@@ -1380,6 +1436,12 @@ def main(argv=None):
                          "(shaped-tutte 'tutte COM expand'). Measured no help on the bigon "
                          "panels here, and combined with a large --decompress it produced "
                          "false crossings; left at 0 unless you have a reason")
+    ap.add_argument("--order", choices=ORDERINGS, default=DEFAULT_ORDER,
+                    help="panel order in the atlas: 'gon' (default) largest punctured "
+                         "polygon first, so the panels run from the open drawings the big "
+                         "faces give down to the tight ones the bigons give; "
+                         "'multiplicity' puts the pictures reachable from the most faces "
+                         "first; 'face' uses the face enumeration order")
     ap.add_argument("--distinguish-chirality", action="store_true",
                     help="keep a drawing and its through-the-paper mirror (every crossing "
                          "flipped at once) as separate panels. By default they are merged, "

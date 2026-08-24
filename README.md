@@ -501,6 +501,14 @@ polygon, which otherwise crushes the diagram into a blob at the centre.
 `--decompress auto` searches for the value that gives the tightest panel the
 most room without creating a false crossing.
 
+Panels are ordered largest punctured polygon first (`--order gon`, the default),
+so an atlas runs from the open drawings the big faces give down to the tight
+ones the bigons give, with equal polygon sizes kept together. `--order
+multiplicity` puts the pictures reachable from the most faces first instead, and
+`--order face` uses the face enumeration order; in every case the default
+(blue-outlined) drawing leads its equals and ties fall back on the deterministic
+face order, so the atlas is reproducible.
+
 Canonical DT code and symmetry:
 
 ```bash
