@@ -37,6 +37,7 @@ find_link_in_snappy.py           Search SnapPy link databases for DT matches
 score_diagramV2_5.py             Generate, deduplicate, score, and rank diagrams
 enumerate_puncturing_dt.py       Atlas of the plane drawings, one per punctured face
 canonical_dt_V2_0.py             Canonical DT code (up to mirror) and symmetry
+dt_converter.py                  Convert between DT, Gauss, PD, braid and named codes
 figure_to_dt_V3_0.py             Extract a DT code from a diagram image
 assets/dt_link_toolkit_icon.png  Optional icon for the launcher (Borromean rings)
 assets/strand_passage_icon.png   Optional window/task-menu icon
@@ -108,6 +109,7 @@ strand-passage   Strand-passage explorer (GUI / --nongui / --demo)
 score            Diagram generation, deduplication, and scoring
 puncture         Atlas of the plane drawings, one per punctured face
 canonical        Canonical DT code and diagram symmetry
+convert          Convert between DT, Gauss, PD, braid and named codes
 figure           Extract a DT code from a diagram image
 find             Search SnapPy databases for a DT match
 ```
@@ -563,6 +565,125 @@ available, and what `score_diagramV2_5.py` uses to name a diagram's group. The
 rotation system and an eigenvalue fit; it is richer (mirrors, inversion,
 rotoreflections) but needs the drawing engine and a numerical tolerance, so it
 can be unavailable where the combinatorial count still succeeds.
+
+Convert between notations:
+
+```bash
+python3 dt_converter.py                       # no arguments -> graphical interface
+python3 dt_converter.py -i 8_19               # every notation for 8_19
+python3 dt_converter.py -i "DT: [(4,6,2)]" --to gauss-ou,pd-kt,braid
+python3 dt_converter.py -i "PD[X[1,4,2,5],X[3,6,4,1],X[5,2,6,3]]" --to dt
+python3 dt_converter.py --list-formats
+python3 dt_converter.py --selftest
+```
+
+`dt_converter.py` routes every notation through one hub — the signed DT code
+used everywhere else in this repository — so a conversion is always `X -> DT`
+followed by `DT -> Y`. It reads and writes the signed DT code (the project
+spelling, and with a flip vector), the alphabetical Knotscape/SnapPy code, the
+packed hex and compact spellings, the classical unsigned code, signed and
+extended Gauss codes, PD codes (plain and KnotTheory `X[...]`), braid words
+(plain and `BR[n,{...}]`), and Rolfsen / Alexander-Briggs / Thistlethwaite /
+torus names. It also
+reports the exterior's isometry signature, SnapPy's census names, and the
+diagram's basic invariants. The input notation is detected automatically;
+`--from` overrides the guess when a string is genuinely ambiguous.
+
+**Chirality is the thing to watch, and the tool is explicit about it.** For a
+*prime* diagram a signed DT code names the link only **up to mirror image**:
+take the in-plane mirror — reflect the paper in a line — and every DT label and
+every over/under choice survives, so the code does not change, but the link
+becomes its mirror. Measured on 20 knots and links from spherogram's tables, a
+`DT_code()` -> `Link('DT: …')` round trip came back with the *opposite* writhe in
+**9** of them. That is not a bug; it is the ambiguity.
+
+For a **non-prime** diagram it is worse, and this is the trap: each summand of a
+connected sum reflects independently, and the code records neither the
+decomposition nor the relative reflection. The granny knot (trefoil # trefoil)
+has the connected, non-split code `DT: [(10,-6,-2,-4,12,8)]` and writhe 6 — and
+that code has **four** realisable flip vectors, of writhes +6, 0, 0 and −6: the
+granny, the **square knot** twice, and the granny's mirror. A converter that
+took the code at face value would hand you the square knot and call it a
+mirror-image ambiguity.
+
+So the tool counts the independently reflectable pieces (`Link.deconnect_sum`,
+about a millisecond) and every run prints a `[chirality]` line saying exactly
+which situation you are in:
+
+```text
+[chirality]  determined -- carried through from the input (flips 01001010)
+[chirality]  normalised -- the input did not say which mirror image; ...
+[chirality]  AMBIGUOUS -- this code admits 4 realisations (2 diagrams up to
+             mirror image), because it is a connected sum / split union of 2
+             independently reflectable pieces ...
+```
+
+Nothing is ever silently mirrored or silently substituted. `--flips 110` states
+the chirality explicitly; `--mirror` asks for the other one; and PD codes, braid
+words, extended Gauss codes and the flip-carrying DT spellings all pin it down
+on the way in.
+
+Alexander-Briggs names a knot `C_I` and a **link** `C^K_I` — C crossings, K
+components, index I — with the K a superscript and the I a subscript in print.
+Every rendering people actually type is accepted, not just the one spherogram
+takes:
+
+```bash
+python3 dt_converter.py -i "6^2_3"      # the standard ASCII form
+python3 dt_converter.py -i "6_3^2"      # parts swapped
+python3 dt_converter.py -i "6^{2}_{3}"  # out of LaTeX
+python3 dt_converter.py -i "6²₃"        # pasted out of a PDF
+```
+
+`6_3_2`, with **both** scripts flattened to underscores, is genuinely
+ambiguous — it could be `6^2_3` (2 components, index 3) or `6^3_2` (3
+components, index 2), and both links exist — so it is refused with both
+readings named rather than guessed at. Where only one reading exists (`7_3_2`)
+that one is used and a `[note]` records the assumption.
+
+Input is checked for **realisability**, not just well-formedness: there are
+well-formed even-integer sequences that no planar diagram produces, and those
+are rejected with a reason rather than converted into nonsense.
+`--check-toolkit` additionally runs the code through `parse_dt` and the gadget
+planarity gate in the newest `draw_dt_original_labels*.py`, confirming that a
+code this tool accepts is one `draw`, `score` and `puncture` accept too.
+
+Input is also protected by a clock. spherogram's DT decoder **does not
+terminate** on some well-formed DT codes — `DT: [(8,6,2,4)]`, four crossings, is
+the smallest case — with no exception and no progress, and neither the DT
+well-formedness checks nor the gadget planarity test rejects them. `--timeout`
+(default 20 s) bounds each embedding attempt; for scale, the slowest realisable
+embedding measured was 3.1 ms, on a 101-crossing torus knot.
+
+The GUI runs each conversion in a **subprocess**, which is why it has a `Stop`
+button: SnapPy opens its census tables as 24 SQLite connections at import and
+those may only be used by the thread that opened them, so name lookups from a
+worker thread fail outright; the embedding clock is `SIGALRM`, which only
+reaches a main thread; and cypari installs signal handlers on first import. A
+separate process sidesteps all three and can be killed.
+
+`--selftest` round-trips every notation over a fixed corpus — knots and links
+from spherogram's tables, torus knots either side of the per-format size caps, a
+split diagram, and this project's own 4BL and Borromean codes — and checks that
+malformed, non-realisable and non-terminating codes are all rejected with a
+reason. It prints the corpus size and takes a few seconds. Conway notation is **not** supported:
+computing it from a diagram means finding an algebraic decomposition, which
+nothing here provides.
+
+The pure combinatorics need nothing but Python: DT to and from Gauss codes
+(plain *and* extended — the crossing handedness is computed from the DT code and
+the flip vector directly), and the alphabetical, hex and unsigned spellings. So
+with `--flips` supplied, every chirality-carrying spelling works in a bare
+Python. PD codes, braid words, names, the compact spelling, the realisability
+check and *resolving* an unstated chirality need `spherogram`; the isometry
+signature and census names need SnapPy as well. Without them the tool still runs
+and says which targets it had to skip.
+
+Each conversion that loses something says so on a `[warn]` line rather than
+leaving you to notice. The loudest is `dt-unsigned` on a non-alternating
+diagram: an unsigned DT code fixes only the shadow, so reading it back gives the
+*alternating* diagram with that shadow — a different link. 8_19's unsigned code,
+read back, is the knot 8_16.
 
 Extract a DT code from an image:
 
