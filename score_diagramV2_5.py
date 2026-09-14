@@ -944,7 +944,7 @@ def generate_chain(dt0, rounds, backtrack_rounds, backtrack_steps, base_seed,
 
 def generate_archive(dt0, calls, backtrack_rounds, backtrack_steps, base_seed,
                     checkpoint=None, max_seconds=None, verbose=True,
-                    target_crossings=None):
+                    target_crossings=None, on_call=None):
     """Stage 1 by HARVESTING: keep every diagram that ties the minimum.
 
     Each call runs ``backtrack_rounds`` complicate/re-simplify cycles and archives every
@@ -952,6 +952,13 @@ def generate_archive(dt0, calls, backtrack_rounds, backtrack_steps, base_seed,
     where the diagrams actually are: see the module docstring for the calibration.
 
     Returns the list of harvested DT strings (dt0 first).
+
+    ``on_call(i, found)``, if given, is invoked after each call with the 1-based call
+    number and the codes harvested SO FAR.  It exists so a caller can measure a
+    cumulative yield curve -- how the diagram count grows as calls are pooled -- from
+    the one run, instead of re-running the whole generator per curve point.  A curve
+    built that way is monotone; four independent runs are not, and a curve that can
+    fall cannot answer "has this stopped finding new diagrams".
 
     Each call restarts from a diagram at the BEST crossing count found so far (the
     starting code itself while it is still one of them).  The equal / inverse weightings
@@ -1040,6 +1047,11 @@ def generate_archive(dt0, calls, backtrack_rounds, backtrack_steps, base_seed,
             _remember(dt)                    # _remember itself keeps only the best
             found.append(dt)
             _append_checkpoint(checkpoint, len(found) - 1, dt)
+        if on_call is not None:
+            try:
+                on_call(i, found)
+            except Exception:  # noqa: BLE001  -- a progress hook must never kill the run
+                pass
         if verbose and (i % 5 == 0 or i == int(calls)):
             print("  call %3d/%d  %d codes harvested (+%d)  %.1fs"
                   % (i, calls, len(found), len(found) - before, time.time() - t0), flush=True)
