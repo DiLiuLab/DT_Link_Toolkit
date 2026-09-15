@@ -77,11 +77,33 @@ def parse_dt(text):
     m = re.search(r"\[.*\]", text.strip(), re.DOTALL)
     if not m:
         raise ValueError("Could not find a '[...]' list in the DT input.")
-    raw = ast.literal_eval(m.group(0))
+    body = m.group(0)
+    # Read parenthesised groups TEXTUALLY, before any literal_eval: "(-4)" is
+    # not a tuple, so evaluating "[(-4), (-2)]" gives the flat list [-4, -2],
+    # which the single-component shorthand below would then read as ONE
+    # component -- turning the Hopf link into a knot.  Taking the groups as
+    # written keeps both the correct "[(-4,), (-2,)]" spelling and the older
+    # comma-less one meaning two components, while a bare "[4, 6, 2]" (no
+    # parentheses at all) still means one.
+    groups = re.findall(r"\(([^()]*)\)", body)
+    if groups:
+        raw = []
+        for ci, g in enumerate(groups, 1):
+            try:
+                vals = [int(v) for v in re.findall(r"[-+]?\d+", g)]
+            except ValueError:
+                raise ValueError("Component %d is not a list of integers." % ci)
+            if not vals:
+                raise ValueError("Component %d of the DT code is empty." % ci)
+            raw.append(tuple(vals))
+    else:
+        raw = ast.literal_eval(body)
+        if not isinstance(raw, (list, tuple)) or len(raw) == 0:
+            raise ValueError("Empty or invalid DT code.")
+        if all(isinstance(x, int) for x in raw):  # shorthand [4,6,2]
+            raw = [tuple(raw)]
     if not isinstance(raw, (list, tuple)) or len(raw) == 0:
         raise ValueError("Empty or invalid DT code.")
-    if all(isinstance(x, int) for x in raw):   # single-component shorthand [4,6,2]
-        raw = [tuple(raw)]
     comps = []
     for ci, comp in enumerate(raw, 1):
         if not isinstance(comp, (list, tuple)):
@@ -217,7 +239,23 @@ def canonicalize(comps, allow_flip=False, record_ops=False):
 
 
 def fmt_dt(tup):
-    return "DT: [" + ", ".join("(" + ", ".join(str(x) for x in comp) + ")" for comp in tup) + "]"
+    """Format signed DT components as ``DT: [(-8, -12, 16), (...)]``.
+
+    A ONE-crossing component is written ``(-4,)``, with the trailing comma.
+    Without it the string is not the tuple it looks like: ``ast.literal_eval``
+    reads ``[(-4), (-2)]`` as the flat list ``[-4, -2]``, which parse_dt then
+    takes for the single-component shorthand -- silently turning the 2-component
+    Hopf link into a knot.  README.md already documents the trailing comma as
+    the required INPUT spelling; this is the same rule on output.  parse_dt
+    below reads both spellings, so codes already written the old way still
+    load correctly."""
+    parts = []
+    for comp in tup:
+        body = ", ".join(str(x) for x in comp)
+        if len(comp) == 1:
+            body += ","
+        parts.append("(" + body + ")")
+    return "DT: [" + ", ".join(parts) + "]"
 
 
 def _perm_order(sigma):

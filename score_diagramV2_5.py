@@ -1482,6 +1482,41 @@ _CANON_CACHE = None
 _CANON_CACHE_PATH = os.environ.get("CANON_CACHE", "canonical_cache.json")
 
 
+def _normalise_canon_cache(cache):
+    """Re-spell every cached canonical DT string, and drop what will not parse.
+
+    Self-healing, because entries written before canonical_dt_V2_0.fmt_dt gained
+    the trailing comma on a one-crossing component hold a spelling that reads
+    back WRONG: "DT: [(-4), (-2)]" is the 2-component Hopf link written so that
+    ast.literal_eval sees the flat list [-4, -2], i.e. a knot.  Both the stored
+    canonical value and the "N:<canonical>" self-mapping key could carry it, so
+    a correctly spelled input could still be served a broken canonical code from
+    cache long after the formatter was fixed.  Only the SPELLING was ever wrong
+    -- the symmetry order and group are computed from the parsed components, and
+    were verified unchanged -- so entries are re-spelled rather than discarded."""
+    if not isinstance(cache, dict):
+        return {}
+    out = {}
+    for key, entry in cache.items():
+        if not (isinstance(entry, dict) and "dt" in entry):
+            out[key] = entry
+            continue
+        fixed = dict(entry)
+        try:
+            fixed["dt"] = CDT2.fmt_dt(
+                tuple(tuple(c) for c in CDT2.parse_dt(entry["dt"])))
+        except Exception:  # noqa: BLE001  -- unparseable: drop, it is recomputable
+            continue
+        if isinstance(key, str) and key.startswith("N:"):
+            try:
+                key = "N:" + CDT2.fmt_dt(
+                    tuple(tuple(c) for c in CDT2.parse_dt(key[2:])))
+            except Exception:  # noqa: BLE001
+                pass
+        out[key] = fixed
+    return out
+
+
 def _canonical_entry(dt, allow_flip=False):
     """Return {'dt': canonical string, 'sym': symmetry order}, memoized on disk so the
     (somewhat expensive) canonicalization is computed once per diagram per run."""
@@ -1494,6 +1529,7 @@ def _canonical_entry(dt, allow_flip=False):
                     _CANON_CACHE = json.load(fh)
             except Exception:
                 _CANON_CACHE = {}
+            _CANON_CACHE = _normalise_canon_cache(_CANON_CACHE)
     key = "N:" + dt
     entry = _CANON_CACHE.get(key)
     if isinstance(entry, dict) and all(k in entry for k in ("dt", "sym", "group")):

@@ -25,8 +25,16 @@ DT2 = [(18, -8), (2, 24, 14, 16), (20, 22), (6, 12, 10, -4)]
 
 
 def dt_str(dt):
-    return "DT: [" + ", ".join(
-        "(" + ",".join(str(x) for x in c) + ")" for c in dt) + "]"
+    """``DT: [(...),(...)]`` text.  A one-crossing component keeps its trailing
+    comma -- "(4)" is the integer 4 to ast.literal_eval, so without it a
+    2-component code reads back as a 1-component one."""
+    pieces = []
+    for c in dt:
+        body = ",".join(str(x) for x in c)
+        if len(c) == 1:
+            body += ","
+        pieces.append("(" + body + ")")
+    return "DT: [" + ", ".join(pieces) + "]"
 
 
 def parse_dt_code(text):
