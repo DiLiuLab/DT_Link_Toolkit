@@ -62,6 +62,25 @@ V5.6 changes
   planar, hence not link diagrams at all.  prepare_diagram rejects those, but
   calling the layout helpers directly does not -- check planarity when driving
   the internals.)
+* 3D: the clearance repair now reports when it was FULLY MASKED by the crossing
+  exclusion zones.  Close approaches whose midpoint lies within
+  max(2.4 x crossing offset, R sin(crossing angle)) of a crossing anchor are
+  excluded from the repair, so the deliberate over/under separation at true
+  crossings is never "repaired" away.  On a dense diagram those exclusion balls
+  can blanket the whole sphere -- the 7BL square link (42 crossings, sphere
+  radius 20, offset 10) gives exclusion radius 24 while no conflict midpoint is
+  farther than ~13 from an anchor -- and then EVERY conflict (42 085 in that
+  run) is silently excluded: no [fix] line prints, and the only symptom is the
+  final topology-audit FAIL.  Each repair stage now counts the excluded
+  conflicts and, when conflicts existed but ALL of them were excluded, prints
+    [warn] xyz <stage>: clearance repair fully masked ...
+  reporting the exclusion radius against the closest anchor spacing and the
+  actionable fix (lower --crossing-offset, or --sphere-layout stereo-safe).
+  Report-only: the repaired geometry is unchanged (sparse-diagram output
+  verified byte-identical).  Also reworded audit_xyz's failure detail -- two
+  non-isometric links can share a volume to the printed precision, so
+  "vol 50.7270 != vol 50.7270" now reads "curve link is NOT isometric to the
+  DT link (volumes 50.7270 vs 50.7270)".
 
 V5.5 changes
 ------------
@@ -6389,12 +6408,15 @@ def _build_cubic_angled_components(xyz_components, model, sphere_radius,
 # --------------------------------------------------------------------------
 
 def _xyz_conflict_pairs(comps, clearance, skip=4, anchors=None,
-                        exclude_radius=0.0):
+                        exclude_radius=0.0, excluded_out=None):
     """Close approaches between non-neighboring points of closed polylines.
 
     Returns a list of (ci, i, cj, j, dist).  Point sampling is dense
     (xyz_spacing), so point-point distance is an adequate proxy for
-    segment-segment distance at these clearances."""
+    segment-segment distance at these clearances.  ``excluded_out``, when
+    given a one-element list, has its first entry incremented once per close
+    approach that was dropped by the crossing exclusion balls -- the repair
+    can then tell "no conflicts" from "every conflict was masked"."""
     cell = max(float(clearance), 1.0e-9)
     grid = {}
     for ci, pts in enumerate(comps):
@@ -6431,6 +6453,8 @@ def _xyz_conflict_pairs(comps, clearance, skip=4, anchors=None,
                                     dmin = np.min(np.linalg.norm(
                                         anchors - mid[None, :], axis=1))
                                     if dmin < exclude_radius:
+                                        if excluded_out is not None:
+                                            excluded_out[0] += 1
                                         continue   # inside a true crossing
                                 out.append((ci, i, cj, j, dist))
     return out
@@ -6447,14 +6471,17 @@ def _repair_xyz_clearance(comps, clearance, max_iters=80, halfwidth=8,
     to a trivial R2 pair on one consistent side).  Returns (comps, report).
     """
     comps = [np.array(c, float) for c in comps]
-    report = {"initial": None, "iters": 0, "resolved": True,
+    report = {"initial": None, "excluded": 0, "iters": 0, "resolved": True,
               "max_push": 0.0, "layers": 1}
     total_push = [np.zeros(len(c)) for c in comps]
     for it in range(max_iters):
+        _excluded = [0]
         conflicts = _xyz_conflict_pairs(comps, clearance, anchors=anchors,
-                                        exclude_radius=exclude_radius)
+                                        exclude_radius=exclude_radius,
+                                        excluded_out=_excluded)
         if report["initial"] is None:
             report["initial"] = len(conflicts)
+            report["excluded"] = _excluded[0]
         if not conflicts:
             report["iters"] = it
             break
@@ -7081,6 +7108,26 @@ def _run_xyz_repair_stage(xyz_components, clearance, stage, messages,
                "all resolved" if rep["resolved"] else
                "WARNING: NOT fully resolved", rep["layers"],
                rep["max_push"]))
+    elif rep.get("excluded"):
+        # V5.6: conflicts existed but the crossing exclusion balls swallowed
+        # every one, so the repair silently did nothing -- exactly the dense
+        # regime where it is most needed.  Report it; the geometry is not
+        # touched (the repair still sees zero conflicts, as before).
+        _spacing = None
+        if anchors is not None and len(anchors) >= 2:
+            _a = np.asarray(anchors, float)
+            _dm = np.linalg.norm(_a[:, None, :] - _a[None, :, :], axis=2)
+            _spacing = float(np.min(_dm[np.triu_indices(len(_a), 1)]))
+        _vs = ("exclusion radius %.2f vs closest anchor spacing %.2f -- the "
+               "exclusion balls blanket the sphere" % (exclude_radius, _spacing)
+               if _spacing is not None
+               else "exclusion radius %.2f" % exclude_radius)
+        messages.append(
+            "[warn] xyz %s: clearance repair fully masked -- all %d close "
+            "approaches (< %.2f) fell inside the exclusion zones around the "
+            "crossings (%s), so NOTHING was repaired.  Lower "
+            "--crossing-offset or use --sphere-layout stereo-safe."
+            % (stage, rep["excluded"], clearance, _vs))
     return comps, rep
 
 

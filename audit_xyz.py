@@ -195,10 +195,13 @@ def audit_components_against_dt(xyz_components, dt_string, attempts=4,
                         'detail': 'curve link isometric to DT link '
                                   '(vol %.4f)' % v}
             if iso is False:
+                # Two non-isometric manifolds can share a volume to the
+                # printed precision, so do not phrase this as "vol A != vol
+                # B" -- with A == B that reads as a contradiction.
                 return {'status': 'FAIL',
-                        'detail': 'curve link vol %.4f != DT link vol %.4f '
-                                  '(NOT isometric): a strand passed through '
-                                  'another' % (v, vref)}
+                        'detail': 'curve link is NOT isometric to the DT '
+                                  'link (volumes %.4f vs %.4f): a strand '
+                                  'passed through another' % (v, vref)}
             last = ('isometry undecided (curve vol %.4f, DT vol %.4f)'
                     % (v, vref))
         except Exception as e:
