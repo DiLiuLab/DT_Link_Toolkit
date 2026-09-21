@@ -1,11 +1,45 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-draw_dt_original_labelsV5_6.py
+draw_dt_original_labelsV5_7.py
 ==============================
 
 Draw a smooth planar oriented link diagram from a signed Dowker-Thistlethwaite
 (DT) code while preserving the original traversal labels supplied by the user.
+
+V5.7 changes
+------------
+* 3D: --crossing-offset may now be NEGATIVE, which inverts the over/under
+  layering at every crossing (the over-strand runs INSIDE the base surface and
+  the under-strand outside).  The exported curve is then the MIRROR of the
+  positive-offset build -- the other handedness of the SAME signed DT code.
+  This is not a corruption: a signed DT code does not determine handedness.
+  Reflecting the diagram in a line of the page preserves every label and every
+  over/under choice while mirroring the link, so a prime diagram's code has two
+  realisations of writhes +w and -w (see dt_converter's Invariant 10), and
+  spherogram silently picks one by normalising the first crossing to positive.
+  The negative offset is simply how you ask for the other one, without editing
+  the DT code and without changing the 2D drawing.
+  Measured on 5_2 (DT: [(-6,-8,-10,-4,-2)], spherogram reads it as writhe +5):
+  --crossing-offset 5 exports a curve reconstructing to writhe -5, and
+  --crossing-offset -5 one reconstructing to writhe +5, over three projection
+  seeds each.
+  Two things had to change besides the input guard, because both are radial
+  DISTANCES that were reading the signed value: the clearance-repair threshold
+  (0.8 * offset) and the crossing exclusion radius (2.4 * offset) now take
+  abs(offset).  The first mattered -- a negative offset made the threshold
+  negative, and every `xyz_repair and _clr > 0.0` test then silently switched
+  the WHOLE clearance repair off.  Only the magnitude is bounded by
+  --sphere-radius.
+  A [info] status line reports the inversion whenever the offset is negative,
+  and says that the topology audit CANNOT confirm which of the two you got:
+  SnapPy's is_isometric_to is mirror-blind (measured -- 5_2's exterior reports
+  isometric to its own mirror, as do 6_1 and L6a5).  Judge handedness from the
+  reconstructed writhe, not from the audit line.
+  (Note _enforce_crossing_orders and _layered_radial_rebuild also read the
+  signed offset, and would fight the inversion -- but both have been dead code
+  since V5.4, with no callers.  Wire either back in and they must be made
+  sign-aware first.)
 
 V5.6 changes
 ------------
@@ -574,7 +608,7 @@ Outputs:
   and a spherical XYZ coordinate file with blank lines between components.
 
 Example:
-  python draw_dt_original_labelsV5_6.py \
+  python draw_dt_original_labelsV5_7.py \
     --dt 'DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]' \
     --output example_v3.svg \
     --table example_v3.csv \
@@ -733,7 +767,7 @@ GUI_HELP_TEXT = {
     "sphere_layout": "XYZ sphere layout. spherical-kamada distributes the graph directly over the sphere and is best for symmetric spherical models. shaped-kamada warps that construction onto a shaped surface. cubic-kamada maps it onto a cube, aligning a detected cyclic symmetry with a matching cube axis (see cube style for smooth vs 90-degree-angled strands). raw-kk skips the projection altogether: the 3-D Kamada-Kawai layout puts nodes at different distances from the centre, and the other layouts throw that away by pushing everything onto one sphere. raw-kk keeps each crossing at its own radius, so the diagram sits on as many concentric shells as the graph actually wants, and the sorted radii are printed as [raw-KK] status lines (1.000 = the mean shell). Some links layer cleanly -- the Bing-double clasps put one component pair on its own outer shell -- while others give a continuous spread. Useful for seeing the structure the projection hides; the strands still carry the usual over/under bumps and the topology audit still runs. stereographic maps the current 2D drawing onto a sphere. stereo-safe uses the audited planar layout, stereographically lifts it, and adds only radial crossing bumps; it is the correct-by-construction choice when a dense Kamada layout fails the topology audit.",
     "sphere_radius": "Base radius of the sphere in XYZ coordinate units. Default: 50.0. With crossing offset = 0, all XYZ points lie at this radius.",
     "sphere_extent": "Only used by stereographic. Dimensionless. After centering the 2D drawing, the farthest planar point is scaled to this radius before inverse stereographic projection. 1.0 reaches the equator; larger values use more of the southern hemisphere.",
-    "crossing_offset": "Absolute radial offset in XYZ coordinate units, not a ratio. Over-layer radius is R + offset; under-layer radius is R - offset. Default: 5.0. Use 0 for a perfect sphere with no height separation.",
+    "crossing_offset": "Signed radial offset in XYZ coordinate units, not a ratio. Over-layer radius is R + offset; under-layer radius is R - offset. Default: 5.0. Use 0 for a perfect sphere with no height separation. A NEGATIVE value swaps the two layers, inverting every crossing: the exported curve is then the MIRROR of the positive-offset build. That is a legitimate second realisation, because a signed DT code does not determine handedness -- but note the topology audit cannot tell the two apart (SnapPy's isometry test is mirror-blind). Only the magnitude is limited by the sphere radius.",
     "sphere_bump_frac": "Dimensionless ratio, not an absolute distance. It does not change the 2D preview. Without direct connecting, it controls local crossing bump width: 1.0 uses the whole crossing patch and smaller values narrow the bump. With direct connecting, local crossing arcs stay on their inner/outer layer; for dip-to-bump or bump-to-dip connectors this fraction controls how much of the connector is used for the smooth radial transition. Default: 1.0.",
     "sphere_crossing_angle": "Angular half-size of each local crossing patch, in degrees. Larger values make crossings more open on the sphere. Default: 15 degrees.\n\nHOW LARGE CAN IT BE? Each crossing occupies a patch of this half-width, so two neighbouring crossings need TWICE this angle between their centres or their patches overlap -- and overlapping patches let strands belonging to DIFFERENT crossings meet, which is how a dense kamada layout comes out as the wrong link. The governing number is the closest pair of crossings on the sphere ('nn min'): the largest safe crossing angle is nn min / 2. The average spacing ('nn mean') describes typical crowding and can look comfortable while nn min is already too tight, so read the minimum, not the mean.\n\nEvery kamada-family 3-D build prints a [geom] line with both numbers and the verdict, before any repair runs. Nothing is clamped automatically -- the angle you ask for is the angle you get; the numbers are advisory. The hard limit is still below 28.5 degrees.",
     "sphere_refine": "V5.6. After the kamada layout is projected onto the sphere, run a SECOND stress minimisation with the points constrained to the sphere and distances measured as great-circle arcs. Default: OFF.\n\nWhy it exists: the kamada layouts minimise the stress in flat 3-D space and only then project onto the sphere, so the energy that was optimised is not the energy of the arrangement that is actually drawn. This closes that gap. It is a refinement, never a replacement -- started from scratch the spherical stress collapses into degenerate minima, so it is always warm-started from the projected layout, and if it cannot improve on its input the unrefined layout is kept.\n\nApplies to spherical-kamada, shaped-kamada (ellipsoid / cylinder / torus) and cubic-kamada alike, because it acts on the directions BEFORE the gadgets are compacted; the shaped and cube warps run afterwards as usual. Not used by stereographic or stereo-safe.\n\nAcross 17 test links it lowered the spherical stress in every case but improved the closest crossing spacing in only some of them, so it is opt-in. When on, a [refine] status line reports stress, closest pair and mean spacing before and after, so you can check whether it helped THIS diagram. Costs roughly 1.4-2x the layout time.",
@@ -7212,10 +7246,8 @@ def build_spherical_xyz_components(
         raise ValueError("--sphere-radius must be positive.")
     if sphere_extent <= 0.0:
         raise ValueError("--sphere-extent must be positive.")
-    if sphere_offset < 0.0:
-        raise ValueError("--crossing-offset must be non-negative.")
-    if sphere_offset >= sphere_radius:
-        raise ValueError("--crossing-offset must be smaller than --sphere-radius.")
+    if abs(sphere_offset) >= sphere_radius:
+        raise ValueError("|--crossing-offset| must be smaller than --sphere-radius.")
     if sphere_bump_frac <= 0.0 or sphere_bump_frac > 1.0:
         raise ValueError("--sphere-bump-frac must be in the range 0 < value <= 1.")
     if xyz_spacing <= 0.0:
@@ -7282,9 +7314,22 @@ def build_spherical_xyz_components(
         raise ValueError("Unknown --sphere-layout %r." % sphere_layout)
 
     _msgs = status_messages if status_messages is not None else []
-    _clr = float(xyz_clearance) if xyz_clearance else 0.8 * float(sphere_offset)
-    _excl = max(2.4 * float(sphere_offset),
+    # A NEGATIVE crossing offset inverts the over/under layering (see below);
+    # these two are radial DISTANCES, so they take its magnitude -- otherwise
+    # _clr goes negative and silently switches the whole clearance repair off.
+    _clr = float(xyz_clearance) if xyz_clearance else 0.8 * abs(float(sphere_offset))
+    _excl = max(2.4 * abs(float(sphere_offset)),
                 float(sphere_radius) * math.sin(sphere_crossing_angle))
+    if sphere_offset < 0.0:
+        _msgs.append(
+            "[info] crossing offset is NEGATIVE (%.3f): the over-strand runs "
+            "INSIDE the base surface and the under-strand outside, so every "
+            "crossing is inverted and this curve is the MIRROR of the "
+            "+%.3f build.  A signed DT code does not fix handedness -- both "
+            "are valid realisations of it -- and the topology audit CANNOT "
+            "tell them apart, because SnapPy's isometry test is mirror-blind "
+            "(measured: 5_2 reports isometric to its own mirror)."
+            % (sphere_offset, abs(sphere_offset)))
     _anch = None
     if skeleton_out is not None and skeleton_out.get("points") is not None \
             and len(skeleton_out.get("points", [])):
@@ -9495,9 +9540,13 @@ def build_arg_parser():
     ap.add_argument(
         "--crossing-offset", dest="sphere_offset", type=float, default=5.0,
         help=(
-            "Absolute radial over/under displacement near crossings, in XYZ "
+            "Signed radial over/under displacement near crossings, in XYZ "
             "coordinate units. Over = R + offset; under = R - offset. "
-            "Default: 5.0. Use 0 for all points exactly on the base sphere."
+            "Default: 5.0. Use 0 for all points exactly on the base sphere. "
+            "A NEGATIVE value inverts every crossing (over runs inside, under "
+            "outside), giving the mirror realisation of the same DT code -- "
+            "use it when you need the opposite handedness. Only the magnitude "
+            "may reach --sphere-radius."
         ),
     )
     ap.add_argument("--sphere-offset", dest="sphere_offset", type=float, help=argparse.SUPPRESS)
@@ -9636,7 +9685,7 @@ def run_gui(initial_args):
         return 1
 
     apply_tk_window_icon(root, tk)
-    root.title("draw_dt_original_labelsV5_6")
+    root.title("draw_dt_original_labelsV5_7")
     root.geometry("1320x860")
     root.minsize(1050, 680)
 

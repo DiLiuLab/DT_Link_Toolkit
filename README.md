@@ -30,7 +30,7 @@ Development notes and version history are in [DEVELOPMENT_LOG.md](DEVELOPMENT_LO
 DT_Link_Toolkit.py               Universal launcher for all tools below
 strand_passage_guiV4_2.py        Strand-passage explorer: GUI, --nongui, --demo
 link_engine_v4_0.py              Diagram engine and SnapPy bridge
-draw_dt_original_labelsV5_6.py   DT parser, layout, renderer, XYZ audit, and GUI
+draw_dt_original_labelsV5_7.py   DT parser, layout, renderer, XYZ audit, and GUI
 audit_xyz.py                     Audit a 3D XYZ curve against its signed DT link
 check_two_dt.py                  Standalone SnapPy/Sage DT-comparison utility
 find_link_in_snappy.py           Search SnapPy link databases for DT matches
@@ -51,7 +51,7 @@ LICENSE                          MIT license
 Import chain:
 
 ```text
-strand_passage_guiV4_2 -> link_engine_v4_0 -> draw_dt_original_labelsV5_6
+strand_passage_guiV4_2 -> link_engine_v4_0 -> draw_dt_original_labelsV5_7
 ```
 
 ## Install
@@ -203,7 +203,7 @@ If the path does not end in `.xlsx`, the script adds it first. For example,
 directory and basename of the spreadsheet path.
 
 Custom displayed crossing IDs use the same syntax as
-`draw_dt_original_labelsV5_6.py`.  The combined
+`draw_dt_original_labelsV5_7.py`.  The combined
 `--crossing-labels` option detects assignment-style text as a crossing map,
 and a plain list as crossing order.
 
@@ -233,7 +233,7 @@ Drawing settings:
 - Strand-passage drawings default to `shaped-tutte` with `tutte shape =
   ellipse` and `tutte aspect = 1.0`.
 - In the GUI, click `Load drawing session` to load a JSON session saved by
-  `draw_dt_original_labelsV5_6.py`. The saved 2-D drawing settings then apply to
+  `draw_dt_original_labelsV5_7.py`. The saved 2-D drawing settings then apply to
   the root diagram and following strand-passage diagrams.
 - In batch/demo modes, use `--drawing-session path/to/session.json`. If the
   session contains a DT code it is used when `--dt` is not supplied; explicit
@@ -245,7 +245,7 @@ Drawing settings:
 Standalone drawing and audited XYZ export:
 
 ```bash
-sage -python draw_dt_original_labelsV5_6.py --dt "DT: [(4,6,2)]"
+sage -python draw_dt_original_labelsV5_7.py --dt "DT: [(4,6,2)]"
 sage -python audit_xyz.py link_sphere.xyz "DT: [(4,6,2)]"
 ```
 
@@ -308,6 +308,36 @@ predictable rather than post-hoc:
   A `[refine]` line reports stress, closest pair and mean spacing before and
   after — worth reading, because lowering the stress does not always leave more
   room between crossings.
+
+V5.7 adds a **negative `--crossing-offset`**, which selects the opposite
+handedness of the exported 3-D curve:
+
+```bash
+draw_dt_original_labelsV5_7.py --dt "DT: [(-6,-8,-10,-4,-2)]" \
+  --xyz-output link.xyz --crossing-offset=-5
+```
+
+The offset is the radial over/under displacement at each crossing (over at
+`R + offset`, under at `R - offset`), so a negative value swaps the two layers:
+the over-strand runs *inside* the base surface and the under-strand outside.
+Every crossing inverts, and the exported curve is the mirror of the
+positive-offset build.
+
+This is a second valid realisation, not a corruption. **A signed DT code does
+not determine handedness** — reflecting the diagram in a line of the page
+preserves every label and every over/under choice while mirroring the link — so
+a prime diagram's code has two realisations, of writhes `+w` and `-w`, and
+Spherogram picks one by normalising the first crossing to positive. The
+negative offset asks for the other one without editing the DT code, and the
+2-D drawing is unchanged (it is a valid diagram of both).
+
+Note the **topology audit cannot tell you which one you got**: SnapPy's
+`is_isometric_to` is mirror-blind, so both builds report `[ok] ... isometric to
+DT link`. Judge handedness from the reconstructed writhe instead. Measured on
+`5_2`, which Spherogram reads as writhe +5: `--crossing-offset 5` exports a
+curve reconstructing to writhe −5, `--crossing-offset=-5` one reconstructing to
++5. Use the `=` form on the command line so the leading `-` is not parsed as a
+flag. Only the *magnitude* of the offset is bounded by `--sphere-radius`.
 
 Extra `holed-tutte` controls:
 
@@ -753,7 +783,7 @@ To make the Python scripts directly executable on macOS/Linux:
 
 ```bash
 chmod +x strand_passage_guiV4_2.py
-chmod +x draw_dt_original_labelsV5_6.py
+chmod +x draw_dt_original_labelsV5_7.py
 chmod +x audit_xyz.py
 chmod +x check_two_dt.py
 chmod +x find_link_in_snappy.py
@@ -798,7 +828,7 @@ sage -python ./strand_passage_guiV4_2.py
   byte-identical rasters. The fallback stack also protects machines without
   Arial, which previously substituted silently. Text remains editable — this is
   deliberately not a switch to `svg.fonttype: 'path'` outlines.
-- Standalone SVGs from `draw_dt_original_labelsV5_6.py` use the same Arial
+- Standalone SVGs from `draw_dt_original_labelsV5_7.py` use the same Arial
   editable-text policy and roomier DT-label/crossing-ID boxes. Requested layouts
   are kept even when they create false crossings, with those artifacts
   highlighted and a metadata caption added to saved diagrams. The standalone
