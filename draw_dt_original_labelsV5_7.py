@@ -37,9 +37,142 @@ V5.7 changes
   isometric to its own mirror, as do 6_1 and L6a5).  Judge handedness from the
   reconstructed writhe, not from the audit line.
   (Note _enforce_crossing_orders and _layered_radial_rebuild also read the
-  signed offset, and would fight the inversion -- but both have been dead code
-  since V5.4, with no callers.  Wire either back in and they must be made
-  sign-aware first.)
+  signed offset, and would have fought the inversion -- but both had been dead
+  code since V5.4, with no callers, and are now removed; see below.)
+* Removed dead code (~650 lines, no behaviour change): _layered_radial_rebuild
+  and _enforce_crossing_orders (no callers since V5.4, and not sign-aware),
+  the helpers only they used (_match_visit_sequence, _match_all_visits), and
+  the GUI's save_all, whose button was removed in V4.4.  Nothing in the
+  toolkit referenced them; the XYZ output is byte-identical before and after.
+* 3D: the surfaces the curve is built on can be written as a binary glTF file
+  (--shells-glb [PATH]; GUI '3D XYZ' tab, "'Save XYZ' also writes surface
+  shells (.glb)"; default off).  Every sphere layout builds the curve on a BASE
+  surface and lifts the strands at the crossings by the crossing offset along
+  its normal, so the curve rides three nested shells; the .glb holds them as
+  three meshes, inner_shell / base_surface / outer_shell (offsets -|offset|,
+  0, +|offset|).  The base is the sphere, the shaped-kamada ellipsoid,
+  cylinder or torus (its offsets are the true parallel surfaces), or the
+  cubic-kamada cube (offsets are concentric cubes, the angled style's three
+  shells); raw-kk has no single sphere, so its base follows the radius each
+  strand is built on (recorded during the build) and is Shepard-interpolated
+  between strands, with radial offsets as raw-kk uses.  Without a PATH the
+  file is '<xyz stem>_shells.glb' next to the XYZ.  The meshes are in the XYZ
+  file's own coordinates (no recentring, no axis swap), so they overlay any
+  model made from the same XYZ, and they come from the SAME build as the XYZ
+  (build_spherical_xyz_components fills ``shells_out``), never a rebuild.
+  Written with numpy + struct alone and checked to load in trimesh: the
+  sphere, ellipsoid, torus and raw-kk shells are watertight and outward-wound
+  (the cube keeps four vertices per face for flat shading; the cylinder is
+  open-ended, as the warp is), and every buffer view is 4-byte aligned.  The
+  XYZ output is unchanged: byte-identical to before over 5 DT codes x 9
+  layout/surface variants, including negative offsets, with or without
+  --shells-glb.
+  Status lines describe the surfaces and measure the fit -- the share of the
+  curve's points between the inner and outer shell, by an exact signed offset
+  per surface (a bisection point-to-ellipsoid distance for the ellipsoid,
+  checked to 1e-13), to within 5% of the offset.  On 4BL: 100% for
+  spherical-kamada, stereographic, stereo-safe, the ellipsoid and both cube
+  styles.  A [note] names the cause wherever the curve itself leaves its
+  surface, each one verified: shaped-kamada cylinder (4BL 10%) and torus
+  (7.5%) strands that pass the sphere's poles run as straight chords across
+  the open ends / the hole; the angled cube's 90-degree connectors cut
+  through the cube between crossings (trefoil); raw-kk's default final
+  smoothing rescales its multi-radius offsets (4BL 80% inside, and 100% with
+  --no-xyz-final-smooth on all six test diagrams); and the clearance repair
+  on dense diagrams.  A [warn] fires when an offset
+  shell turns inside out (offset beyond the smallest radius of curvature,
+  e.g. a torus tube thinner than the offset).  SCRIPT_VERSION, left at V5.6
+  by the V5.7 bump, now reads V5.7 (it is stamped into sessions, image
+  metadata and the .glb).
+* 3D: the shells .glb can also carry the curve itself as solid rods of a
+  chosen diameter (--glb-rod-diameter D with --shells-glb; GUI 'rod diameter
+  (0 = none)' under the shells checkbox; default 0 = no rods).  One
+  watertight, 24-sided, opaque mesh per component, named component_1,
+  component_2, ... like the trimesh tube files, in the drawing's component
+  colours (tab10, converted to glTF's linear colour), built along the
+  written XYZ points so the rods sit exactly on the saved curve.  _rod_mesh
+  frames the rings by a rotation-minimising (double-reflection) frame and
+  spreads the leftover rotation of one lap evenly, so a closed rod has no
+  twist and no seam; corners get a miter stretch (capped at 2x) so the rod
+  keeps its diameter through the angled cube's 90-degree turns.  (A first
+  draft that projected the frame from ring to ring flipped it at those
+  corners: 134-degree twist, non-unit normals.)  Verified: rod vertices sit
+  2.000-2.005 from the centre line at radius 2, volumes are exactly the
+  24-gon's 1.14% under pi r^2 L, seams turn 0.7-1.9 degrees, every rod
+  watertight and outward-wound.  _rod_clearance reports how close DIFFERENT
+  strands come -- the widest rods that stay apart -- and the tightest bend,
+  and [warn] lines fire when D is wider or the bend is under the rod radius.
+  Within one component a pair counts only if its chord is near-perpendicular
+  to the curve at both ends (the doubly critical pairs of tube thickness):
+  with an arc-length window alone, points just past the window on a smooth
+  strand always won and reported the window size (3.6 on 4BL, where an
+  independent brute force finds nothing under 6).  Now it matches that brute
+  force: 4BL 7.407 between components 1 and 3, 5_2 9.279, and ~10 (the
+  2 x offset over/under gap) on the trefoil and Borromean rings.
+* 3D: a second final-smoothing method that keeps the crossings exact,
+  --xyz-smooth-method crossing-pinned (GUI '3D XYZ' tab, 'smoothing method';
+  the original method is 'gaussian', stays the default and is unchanged).
+  Measured at every crossing (radius of the over- and under-strand where they
+  pass the same direction), the original smoothing does not keep crossings on
+  their layers: its kernel (window 10 x 5 passes ~ sigma 10 points ~ 18
+  units) is wider than a crossing patch (26 units at 15 deg, 14 at 8 deg), so
+  each strand's radius at a crossing is averaged with its connectors, and the
+  offset rescale restores only the global extremes.  4BL: over/under gaps
+  7.4-10.0 (spherical-kamada) and 8.0-11.7 (raw-kk) for a designed 10; the
+  40-crossing C5BL at 8 deg inverts 10 of 40 crossings and the topology
+  audit FAILS ("reduces to an UNLINK") -- unsmoothed, every crossing is exact
+  and the audit passes.  'crossing-pinned' gives every point a window of its
+  own: zero within the central 35% of each crossing patch (CROSSING_PIN_CORE,
+  measured by angle to the crossing centre over the patch half-width), then
+  growing one point per point of distance, up to --xyz-smooth-window -- so no
+  averaging ever reaches into a crossing core, and the offsets need no
+  rescale.  Result: every crossing gap 9.98-10.01 on 4BL, trefoil, 5_2,
+  Borromean, Hopf and C5BL in spherical-kamada and raw-kk; C5BL passes the
+  audit.  Kinks (largest turning angle between consecutive segments) stay
+  far below the unsmoothed curve (unsmoothed / gaussian / crossing-pinned:
+  4BL 28.0 / 7.8 / 9.7 deg; raw-kk 4BL 39.7 / 22.9 / 10.6; 5_2 34.4 / 3.7 /
+  9.3; C5BL 61.8 / 11.7 (link broken) / 32.4).  A negative offset keeps its
+  inverted layers exactly (5_2: over-strand 44.99-45.00, under 54.99-55.00).
+  On stereographic the crossings ARE the narrow radial bumps, so keeping
+  them keeps their steep flanks; there gaussian smooths mostly by flattening
+  the bumps (4BL gaps 3.9-9.7).  Applies to every layout that
+  smooths -- stereographic pins its mapped 2D crossings over their bump
+  width -- and stereo-safe never smooths.  The design was measured, not
+  guessed: smoothing fully and then blending the cores back left S-bends
+  sharper than no smoothing (4BL 36.8 deg); a window growing faster than one
+  point per point makes larger kinks and, with a smaller core, inverts
+  crossings on C5BL (core 0.35 x3: 6 inverted, 0.25 x2: 1); and a 0.25 core
+  smooths barely more than 0.35.
+* 3D: even point spacing (--xyz-even-spacing, DEFAULT ON; turn it off with
+  --no-xyz-even-spacing; GUI '3D XYZ' tab, 'even point spacing (equal
+  segments)').  As the very last change to the curve -- after smoothing,
+  clearance repair and any surface warp, before the topology audit -- each
+  component is re-spaced so that ALL its segments, the closing one from the
+  last point back to the first included, have the same length: the
+  component's average.  Same number of points, slid along the same polyline,
+  first point fixed.  _even_closed_polyline finds the common length by
+  bisection on a compass walk, so the straight segments (not the arcs) come
+  out equal.  Where the curve itself turns more sharply than the point
+  spacing, equal chords would cut it short, so the more even of the
+  best-closing walk and an even arc-length resample is kept, the count is
+  never changed, and the [spacing] line says which components these were.
+  (Letting the count change by up to 5 points closes 11 of 13 such
+  components exactly, but those walks stray up to 1.7 units from the curve
+  against 0.75 for the arc-length resample -- rejected.)  Why: the resamplers already
+  space points evenly, but the clearance repair moves points AFTER the last
+  resample -- the saved 7BL square session had segments down to 0.63x the
+  median and a closing segment of 0.95x.  Measured over 5 DT codes x 9
+  layout variants and all 9 saved sessions: every component exactly even
+  (segments equal to ~1e-9, the XYZ text precision) in spherical-kamada,
+  raw-kk, ellipsoid, stereographic and stereo-safe; 15 of 16 in cylinder
+  and torus and 5 of 16 in cube smooth, whose other components have
+  hairpins sharper than the spacing (offset strands jumping across a cube
+  edge; pole chords) and are spread evenly along the curve instead (worst
+  75%); one kinked 7BL component within 0.44%.  Crossings, kinks and
+  topology-audit outcomes unchanged in all 63 cases.
+  Skipped for the angled cube style, whose points are its corners.  This
+  changes the default output; --no-xyz-even-spacing reproduces the previous
+  output byte for byte.
 
 V5.6 changes
 ------------
@@ -634,6 +767,7 @@ import math
 import os
 import queue
 import re
+import struct
 import sys
 import threading
 
@@ -655,7 +789,7 @@ matplotlib.rcParams["svg.fonttype"] = "none"
 matplotlib.rcParams["pdf.fonttype"] = 42
 matplotlib.rcParams["ps.fonttype"] = 42
 DIAGRAM_FONT_FAMILY = "Arial"
-SCRIPT_VERSION = "V5.6"
+SCRIPT_VERSION = "V5.7"
 VERSION = SCRIPT_VERSION
 # V5.6: crossing-separation measurement from the most recent kamada-family XYZ
 # build, so the GUI "?" popup for the crossing angle can show live numbers.
@@ -773,11 +907,15 @@ GUI_HELP_TEXT = {
     "sphere_refine": "V5.6. After the kamada layout is projected onto the sphere, run a SECOND stress minimisation with the points constrained to the sphere and distances measured as great-circle arcs. Default: OFF.\n\nWhy it exists: the kamada layouts minimise the stress in flat 3-D space and only then project onto the sphere, so the energy that was optimised is not the energy of the arrangement that is actually drawn. This closes that gap. It is a refinement, never a replacement -- started from scratch the spherical stress collapses into degenerate minima, so it is always warm-started from the projected layout, and if it cannot improve on its input the unrefined layout is kept.\n\nApplies to spherical-kamada, shaped-kamada (ellipsoid / cylinder / torus) and cubic-kamada alike, because it acts on the directions BEFORE the gadgets are compacted; the shaped and cube warps run afterwards as usual. Not used by stereographic or stereo-safe.\n\nAcross 17 test links it lowered the spherical stress in every case but improved the closest crossing spacing in only some of them, so it is opt-in. When on, a [refine] status line reports stress, closest pair and mean spacing before and after, so you can check whether it helped THIS diagram. Costs roughly 1.4-2x the layout time.",
     "direct_connecting": "Only for spherical-kamada XYZ export. Default: on. If off, connectors return to the middle sphere layer between localized crossing bumps/dips. If on, each segment from crossing to crossing directly connects its endpoint layers: dip-to-dip stays on the inner layer, bump-to-bump stays on the outer layer, and dip-to-bump or bump-to-dip transitions smoothly between layers.",
     "xyz_spacing": "Target separation between adjacent XYZ points, in the same coordinate units as the sphere radius. Default: 1.8. The script resamples each closed component so points are distributed evenly along the curve; the exact spacing is adjusted slightly so each component closes cleanly.",
+    "xyz_even_spacing": "V5.7. When checked (the default), the finished curve is re-spaced as the very last step -- after smoothing, clearance repair and any surface warp -- so that every segment of each component, including the closing one from the last point back to the first, has the same length: that component's average. The number of points and the curve stay the same; the points only slide along it (the first point stays put). Why: the clearance repair moves points after the last resampling, so without this the dense 7BL square had segments down to 0.63x the typical one and a short closing segment. Where the curve itself turns more sharply than the point spacing (cube smooth: offset strands jumping across a cube edge; torus/cylinder: pole chords; dense diagrams: repair kinks), equal chords would cut it short, so those components are spread evenly along the curve instead and the status log names how many. Not applied to the angled cube style, whose points are its corners. CLI: --no-xyz-even-spacing turns it off.",
     "xyz_final_smooth": "Final smoothing for the written 3D XYZ curve. This is applied after the spherical construction and even point redistribution. It smooths unit directions and radial offsets separately, so crossing layers remain recognizable while small stitched-arc kinks are reduced. Default: on.",
     "xyz_smooth_window": "Final smoothing window, measured in number of adjacent XYZ points on each side. Larger values make smoother curves but may soften local features. Default: 10.",
     "xyz_smooth_passes": "Number of repeated final smoothing passes. Larger values smooth more strongly. Default: 5. Use 0 or uncheck final smooth to disable.",
+    "xyz_smooth_method": "V5.7. How the final smoothing treats the crossings. Default: gaussian.\n\ngaussian -- the original smoothing: directions and radial offsets are Gaussian-smoothed along the curve, then the offsets are rescaled so the highest and lowest points are back at +/- the crossing offset. The kernel (window 10 x 5 passes, about 18 units at the default spacing) is wider than a crossing patch, so each strand's radius AT a crossing is averaged with the connectors on either side: the over/under gap at a crossing can shrink or grow (4BL: 7.4-10.0 for a designed 10; raw-kk 8.0-11.7), and on dense diagrams with small crossing angles it can invert -- the 40-crossing C5BL at 8 deg loses 10 of 40 crossings and the topology audit fails.\n\ncrossing-pinned -- the same Gaussian smoothing, but each point is smoothed over at most its own distance from the nearest crossing core (the central 35% of each crossing patch), up to the smooth window. The cores never move, so every crossing stays centred on the base surface (its own shell for raw-kk) with the over-strand at + and the under-strand at - the crossing offset; connectors are smoothed more the farther they are from a crossing, and the stitch kinks at the patch edges are still rounded. Measured: every crossing gap exact on all test diagrams, and the C5BL that gaussian breaks passes the audit. Right next to a crossing the curve is a little less smooth than with gaussian. Works with every layout that smooths (stereo-safe never smooths). CLI: --xyz-smooth-method crossing-pinned.",
     "xyz_decimals": "Number of decimal places written for each x y z coordinate.",
     "xyz_close_components": "If checked, repeat the first coordinate at the end of each component block so plotting tools display closed loops. Default: unchecked/off.",
+    "shells_glb": "V5.7. When checked, 'Save XYZ' also writes the surfaces the 3D curve is built on, as one binary glTF file next to the .xyz: <xyz name>_shells.glb. Default: off.\n\nIt holds three meshes: base_surface -- the sphere of the sphere layout, or its ellipsoid / cylinder / torus (shaped-kamada) or cube (cubic-kamada) -- and inner_shell / outer_shell, the base offset by -/+ |crossing offset| along its normal. Those two are the layers the strands ride at the crossings: with a positive offset the over-strand is on the outer shell, with a negative one on the inner. raw-kk has no single sphere, so its base shell follows the radius its strands are built on and is interpolated between them.\n\nThe meshes are in the XYZ file's own coordinates and units (no recentring, no axis swap), so they line up with anything else made from the same XYZ, e.g. a tube model. They are translucent and double-sided; any glTF viewer opens them (Blender, ChimeraX, three.js). Set 'rod diameter' to put the curve itself into the same file as solid rods (one mesh per component).\n\nThe status log reports the surfaces and how well the finished curve fits them -- the share of its points between the inner and outer shell -- and warns when an offset shell turns inside out (an offset larger than the surface's smallest radius of curvature, e.g. a thin torus tube). CLI: --shells-glb [PATH].",
+    "glb_rod_diameter": "V5.7. With 'Save XYZ also writes surface shells' on, also put the curve itself into the .glb as solid rods of this diameter, in XYZ units (the same units as the sphere radius). 0 = no rods (default). Each component becomes one watertight, 24-sided mesh named component_1, component_2, ... in the component colours, built along the written XYZ points, so the rods sit exactly on the saved curve and inside the shells. The status log reports how close the strands come to each other -- the widest rods that still stay apart -- and warns when your diameter is wider than that (rods would overlap, and fuse in a print) or when the curve bends more tightly than the rod radius somewhere (the rod's inner wall would fold). Over/under strands at a crossing are 2 x |crossing offset| apart, so rods narrower than that clear every crossing. CLI: --glb-rod-diameter D (with --shells-glb).",
     "view_xyz": "Open an interactive 3D preview window for the current Sphere XYZ parameters. The viewer computes the XYZ curves in memory and does not require saving the XYZ file first.",
     "show_crossing_ids": "Draw displayed crossing IDs such as c1, c2, etc. These IDs stay fixed at the true crossing centers; if they overlap DT labels, the DT labels move outward. IDs can be remapped with crossing order or explicit map.",
     "color_crossing_ids_by_overstrand": "Color each crossing ID by the component color of the over-strand. This helps identify the top strand when the label sits near the crossing.",
@@ -4806,8 +4944,96 @@ def _preserve_signed_offset_extrema(original_offsets, smoothed_offsets):
     return np.clip(smoothed, lo, hi)
 
 
+# V5.7: final-smoothing methods.  'gaussian' is the original smoothing.
+# 'crossing-pinned' runs the same Gaussian smoothing with a window of its own
+# for every point -- zero in the core of each crossing patch, growing by one
+# point per point of distance from it -- so no averaging window ever reaches
+# into a crossing core: each crossing stays exactly as built, centred on the
+# base surface with its over- and under-strand on the outer and inner layer,
+# while connectors are smoothed more the farther they are from a crossing and
+# the stitch kinks at the patch edges are still rounded.  (A first draft that
+# smoothed fully and then blended the cores back left S-bends sharper than no
+# smoothing at all: 4BL max turning angle 36.8 deg vs 28.0 unsmoothed.)
+# Why it is needed: the Gaussian kernel (window 10 x 5 passes ~
+# sigma 10 points, ~18 units at the default spacing) is WIDER than a crossing
+# patch (2 x angle x R = 26 units at 15 deg, 14 at 8 deg), so each strand's
+# radius at a crossing is averaged with the connectors on either side, and the
+# extremum rescale only restores the global highest/lowest point.  Measured at
+# the crossing points: 4BL spherical-kamada gaps 7.4-10.0 for a designed 10;
+# raw-kk 8.0-11.7 (its rescale is set by shells that are not crossing layers);
+# and on the 40-crossing C5BL with 8 deg patches 10 of 40 crossings INVERT, so
+# the topology audit fails ("reduces to an UNLINK") -- with no smoothing every
+# crossing is exact.
+XYZ_SMOOTH_METHODS = ("gaussian", "crossing-pinned")
+CROSSING_PIN_CORE = 0.35   # fraction of the patch half-width held exactly
+                            # (0.5 and 0.25 tested: 0.35 smooths nearly as
+                            # well as 0.25 and holds more of each crossing)
+
+
+def _crossing_pin_mask(dirs, pins):
+    """
+    True for the points 'crossing-pinned' smoothing holds exactly as built:
+    those within CROSSING_PIN_CORE of a crossing's patch half-width from its
+    centre.  ``pins`` holds the crossing centre unit ``dirs`` and the patch
+    ``halfwidths`` (radians, one per centre).
+    """
+    C = np.asarray(pins.get("dirs", np.zeros((0, 3))), float)
+    if len(C) == 0:
+        return np.zeros(len(dirs), bool)
+    hw = np.maximum(np.asarray(pins["halfwidths"], float), 1.0e-9)
+    reach = np.min(np.arccos(np.clip(np.asarray(dirs, float) @ C.T, -1.0, 1.0))
+                   / hw[None, :], axis=1)
+    return reach <= CROSSING_PIN_CORE
+
+
+def _cyclic_steps_to_mask(mask):
+    """Each point's distance, in points along the closed curve, to the nearest
+    True entry of ``mask`` (len(mask) when there is none)."""
+    n = len(mask)
+    steps = np.full(n, n, int)
+    hits = np.flatnonzero(mask)
+    if len(hits) == 0:
+        return steps
+    for direction in (1, -1):
+        run = 0
+        for k in range(n):
+            i = (hits[0] + direction * k) % n
+            run = 0 if mask[i] else run + 1
+            steps[i] = min(steps[i], run)
+    return steps
+
+
+def _smooth_periodic_array_adaptive(values, windows, passes=2):
+    """
+    _smooth_periodic_array with a window of its own for every point: point i
+    is averaged over +/- windows[i] neighbours with the same Gaussian profile
+    (sigma = half the window).  A window of 0 leaves the point untouched, so
+    windows that grow from 0 away from held points smooth the curve without
+    moving them and without a seam where the smoothing starts.
+    """
+    arr = np.asarray(values, float)
+    npasses = int(round(float(passes)))
+    win = np.asarray(windows, int)
+    if len(arr) < 5 or npasses <= 0 or not len(win) or int(win.max()) <= 0:
+        return arr.copy()
+    top = min(int(win.max()), max(1, len(arr) // 3))
+    win = np.clip(win, 0, top)
+    shifts = np.arange(-top, top + 1)
+    sigma = np.maximum(0.5 * win, 1.0e-6)[:, None]
+    weights = np.exp(-0.5 * (shifts[None, :] / sigma) ** 2)
+    weights[np.abs(shifts)[None, :] > win[:, None]] = 0.0
+    weights /= np.sum(weights, axis=1, keepdims=True)
+    out = arr.copy()
+    for _ in range(npasses):
+        smoothed = np.zeros_like(out, dtype=float)
+        for j, shift in enumerate(shifts):
+            smoothed += weights[:, j][:, None] * np.roll(out, int(shift), axis=0)
+        out = smoothed
+    return out
+
+
 def _final_smooth_xyz_component(points, sphere_radius, xyz_spacing,
-                                smooth_window=10, smooth_passes=5):
+                                smooth_window=10, smooth_passes=5, pins=None):
     """
     Smooth a closed XYZ component after the spherical construction.
 
@@ -4815,6 +5041,13 @@ def _final_smooth_xyz_component(points, sphere_radius, xyz_spacing,
     radial offset from the base sphere.  This removes visible kink artifacts at
     stitched local arcs while keeping crossing over/under layers recognizable.
     With zero crossing offset, all returned points remain on the base sphere.
+
+    With ``pins`` (the 'crossing-pinned' method) every point gets its own
+    window: zero inside the core of a crossing patch (_crossing_pin_mask), so
+    the crossing keeps its built direction AND radius exactly, growing one
+    point per point of distance from that core up to ``smooth_window``.  The
+    offsets are then not rescaled -- the crossings already sit on their
+    layers.  Without ``pins`` this is the original 'gaussian' smoothing.
     """
     pts = np.asarray(points, float)
     if len(pts) < 5:
@@ -4831,6 +5064,16 @@ def _final_smooth_xyz_component(points, sphere_radius, xyz_spacing,
     if not np.all(safe):
         dirs = _normalize_rows(dirs)
     offsets = r - radius
+
+    if pins is not None:
+        windows = np.minimum(_cyclic_steps_to_mask(_crossing_pin_mask(dirs, pins)),
+                             int(round(float(smooth_window))))
+        smooth_dirs = _normalize_rows(
+            _smooth_periodic_array_adaptive(dirs, windows, passes=smooth_passes))
+        smooth_offsets = _smooth_periodic_array_adaptive(
+            offsets[:, None], windows, passes=smooth_passes).reshape(-1)
+        return _resample_closed_unit_offset_curve(
+            smooth_dirs, smooth_offsets, sphere_radius=radius, xyz_spacing=xyz_spacing)
 
     smooth_dirs = _smooth_periodic_array(dirs, window=smooth_window, passes=smooth_passes)
     smooth_dirs = _normalize_rows(smooth_dirs)
@@ -4851,8 +5094,10 @@ def _final_smooth_xyz_component(points, sphere_radius, xyz_spacing,
 
 
 def _apply_final_xyz_smoothing(xyz_components, sphere_radius, xyz_spacing,
-                               enabled=True, smooth_window=10, smooth_passes=5):
-    """Apply the optional final 3D smoothing pass to every component."""
+                               enabled=True, smooth_window=10, smooth_passes=5,
+                               pins=None):
+    """Apply the optional final 3D smoothing pass to every component
+    (``pins``: see _final_smooth_xyz_component)."""
     if not enabled:
         return xyz_components
     window = int(round(float(smooth_window)))
@@ -4866,6 +5111,7 @@ def _apply_final_xyz_smoothing(xyz_components, sphere_radius, xyz_spacing,
             xyz_spacing=xyz_spacing,
             smooth_window=window,
             smooth_passes=passes,
+            pins=pins,
         )
         for arr in xyz_components
     ]
@@ -4896,8 +5142,15 @@ def _build_stereo_xyz_components(
     sphere_offset,
     sphere_bump_frac,
     xyz_spacing,
+    pins_out=None,
 ):
-    """Map the 2D diagram to the sphere, then evenly resample each XYZ component."""
+    """Map the 2D diagram to the sphere, then evenly resample each XYZ component.
+
+    ``pins_out``, when given a dict, receives each crossing visit's centre on
+    the unit sphere (``dirs``) and its bump half-width there in radians
+    (``halfwidths``: the planar bump width times the stereographic scale
+    2 * scale / (1 + |uv|^2)), for the 'crossing-pinned' smoothing.
+    """
     internal_samples = _internal_samples_per_span_for_xyz(sphere_radius, sphere_offset, xyz_spacing)
     component_samples = _sample_planar_components_for_sphere(
         model, P, centers, internal_samples
@@ -4907,6 +5160,7 @@ def _build_stereo_xyz_components(
     bump_radius = float(sphere_bump_frac) * 0.04 * span
 
     xyz_components = []
+    _pin_dirs, _pin_hw = [], []
     for item in component_samples:
         xy = item["xy"]
         if len(xy) == 0:
@@ -4914,6 +5168,15 @@ def _build_stereo_xyz_components(
             continue
         uv = (xy - center) * scale
         unit = _inverse_stereographic_to_unit_sphere(uv)
+        if pins_out is not None:
+            # same bump width as _crossing_radial_offsets uses for this component
+            width = min(bump_radius, 0.25 * _closed_curve_arclength_values(xy)[1])
+            for control_index, _pos, _over in item["marks"]:
+                if control_index < len(item["starts"]):
+                    i = int(item["starts"][control_index])
+                    if i < len(xy):
+                        _pin_dirs.append(unit[i])
+                        _pin_hw.append(2.0 * scale * width / (1.0 + float(uv[i] @ uv[i])))
         radial_offsets = _crossing_radial_offsets(
             xy,
             item["marks"],
@@ -4929,6 +5192,9 @@ def _build_stereo_xyz_components(
                 xyz_spacing=xyz_spacing,
             )
         )
+    if pins_out is not None:
+        pins_out["dirs"] = np.asarray(_pin_dirs, float).reshape(-1, 3)
+        pins_out["halfwidths"] = np.asarray(_pin_hw, float)
     return xyz_components
 
 
@@ -5471,6 +5737,11 @@ def _build_spherical_kamada_xyz_components(
 
     bump_half_angle = float(crossing_angle) * float(sphere_bump_frac)
 
+    # raw-kk: the radius scale the strands' BASE follows (direction, scale),
+    # sampled along every crossing patch and connector, so the surface-shell
+    # export can rebuild the multi-radius base surface the curve rides on.
+    _base_dirs = []
+    _base_scales = []
     xyz_components = []
     for ci, cp in enumerate(model["comp_positions"]):
         directions = []
@@ -5511,6 +5782,8 @@ def _build_spherical_kamada_xyz_components(
                 # the whole crossing patch sits on its own shell
                 cross_offsets = np.asarray(cross_offsets, float) + (
                     (_cross_scale.get(k, 1.0) - 1.0) * float(sphere_radius))
+                _base_dirs.append(np.asarray(cross_dirs, float))
+                _base_scales.append(np.full(len(cross_dirs), _cross_scale.get(k, 1.0)))
             _append_direction_samples(directions, radial_offsets, cross_dirs, cross_offsets)
 
             q = model["nextpos"][p]
@@ -5542,6 +5815,8 @@ def _build_spherical_kamada_xyz_components(
                       + _t ** 2 * _cross_scale.get(next_k, 1.0))
                 conn_offsets = np.asarray(conn_offsets, float) + (
                     (_r - 1.0) * float(sphere_radius))
+                _base_dirs.append(np.asarray(conn_dirs, float))
+                _base_scales.append(np.asarray(_r, float))
             _append_direction_samples(directions, radial_offsets, conn_dirs, conn_offsets)
 
         if not directions:
@@ -5555,6 +5830,9 @@ def _build_spherical_kamada_xyz_components(
                 xyz_spacing=xyz_spacing,
             )
         )
+    if radii_report is not None and _base_dirs:
+        radii_report["base_dirs"] = np.vstack(_base_dirs)
+        radii_report["base_scales"] = np.concatenate(_base_scales)
     return xyz_components
 
 
@@ -5750,17 +6028,149 @@ def _geom_resample_closed_3d(points, spacing):
     return out
 
 
+def _compass_walk_closed(pts, d, n):
+    """
+    From pts[0], take n-1 steps along the closed polyline ``pts`` (a list of
+    3-tuples), each to the first point at straight-line distance ``d`` ahead.
+    Returns (points, closing_chord), or (None, None) when the walk runs past
+    the start, i.e. ``d`` is too long.
+    """
+    m = len(pts)
+    d2 = d * d
+    cx, cy, cz = pts[0]
+    out = [pts[0]]
+    j, t = 0, 0.0                         # current segment pts[j] -> pts[j+1], parameter t
+    for _ in range(1, n):
+        while True:
+            if j >= m:
+                return None, None
+            ax, ay, az = pts[j]
+            bx, by, bz = pts[(j + 1) % m]
+            ex, ey, ez = bx - cx, by - cy, bz - cz
+            if ex * ex + ey * ey + ez * ez >= d2:
+                # leave the sphere of radius d around the current point on this segment
+                Bx, By, Bz = bx - ax, by - ay, bz - az
+                Ax, Ay, Az = ax - cx, ay - cy, az - cz
+                bb = Bx * Bx + By * By + Bz * Bz
+                ab = Ax * Bx + Ay * By + Az * Bz
+                aa = Ax * Ax + Ay * Ay + Az * Az
+                tau = 1.0 if bb <= 0.0 else \
+                    (-ab + math.sqrt(max(ab * ab - bb * (aa - d2), 0.0))) / bb
+                t = min(1.0, max(t, tau))
+                cx, cy, cz = ax + t * Bx, ay + t * By, az + t * Bz
+                out.append((cx, cy, cz))
+                break
+            j, t = j + 1, 0.0
+    x0, y0, z0 = pts[0]
+    return out, math.sqrt((cx - x0) ** 2 + (cy - y0) ** 2 + (cz - z0) ** 2)
+
+
+def _even_closed_polyline(points):
+    """
+    Re-space a closed polyline so that all of its segments -- the closing one
+    from the last point back to the first included -- have the same length:
+    the same number of points, slid along the same polyline, the first point
+    fixed.  The common length is found by bisection on a compass walk (chords,
+    not arc length, so the segments come out equal as straight lines).  Falls
+    back to an even arc-length resample if the walk cannot close.
+    """
+    P = np.asarray(points, float)
+    n = len(P)
+    if n < 4:
+        return P.copy()
+    seg = np.linalg.norm(np.roll(P, -1, axis=0) - P, axis=1)
+    total = float(np.sum(seg))
+    if total <= 1.0e-12:
+        return P.copy()
+    pts = [tuple(map(float, p)) for p in P]
+    hi = total / n                        # chords never exceed arcs: the walk overshoots
+    lo = 0.95 * hi
+    best = None
+    for _ in range(12):                   # bracket: a short enough step must close late
+        walk, close = _compass_walk_closed(pts, lo, n)
+        if walk is not None and close >= lo:
+            best = (walk, close)
+            break
+        lo *= 0.8
+    if best is not None:
+        for _ in range(48):
+            mid = 0.5 * (lo + hi)
+            walk, close = _compass_walk_closed(pts, mid, n)
+            if walk is not None and close >= mid:
+                lo, best = mid, (walk, close)
+            else:
+                hi = mid
+        if abs(best[1] - lo) <= 1.0e-6 * lo:
+            return np.asarray(best[0], float)
+    # The walk can fail to close exactly where the curve has a sharp corner
+    # (the closing chord then jumps past d instead of crossing it); keep the
+    # best walk -- every segment d, the closing one a little longer -- or an
+    # even arc-length resample, whichever has the smaller spread of segments.
+    cum = np.concatenate(([0.0], np.cumsum(seg)))
+    arc = np.zeros((n, 3), float)
+    for i in range(n):
+        target = i * total / n
+        j = max(0, min(int(np.searchsorted(cum, target, side="right") - 1), n - 1))
+        t = 0.0 if seg[j] <= 1.0e-12 else (target - cum[j]) / seg[j]
+        arc[i] = (1.0 - t) * P[j] + t * P[(j + 1) % n]
+
+    def spread(Q):
+        s = np.linalg.norm(np.roll(Q, -1, axis=0) - Q, axis=1)
+        return float((s.max() - s.min()) / max(s.mean(), 1.0e-12))
+
+    if best is not None:
+        walked = np.asarray(best[0], float)
+        if spread(walked) < spread(arc):
+            return walked
+    return arc
+
+
+def _even_space_components(xyz_components):
+    """
+    _even_closed_polyline on every component.  Returns (components, report):
+    the shortest/longest segment over all components before and after, how
+    many components came out exactly even, and the worst relative spread of
+    segments among the others (curves with turns sharper than the spacing).
+    """
+    out = []
+    rep = {"before": [np.inf, 0.0], "after": [np.inf, 0.0], "count": 0,
+           "exact": 0, "worst": 0.0}
+    for arr in xyz_components:
+        arr = np.asarray(arr, float)
+        if len(arr) < 4:
+            out.append(arr)
+            continue
+        s0 = np.linalg.norm(np.roll(arr, -1, axis=0) - arr, axis=1)
+        new = _even_closed_polyline(arr)
+        s1 = np.linalg.norm(np.roll(new, -1, axis=0) - new, axis=1)
+        spread = float((s1.max() - s1.min()) / max(s1.mean(), 1.0e-12))
+        rep["before"] = [min(rep["before"][0], float(s0.min())), max(rep["before"][1], float(s0.max()))]
+        rep["after"] = [min(rep["after"][0], float(s1.min())), max(rep["after"][1], float(s1.max()))]
+        rep["count"] += 1
+        if spread <= 1.0e-6:
+            rep["exact"] += 1
+        else:
+            rep["worst"] = max(rep["worst"], spread)
+        out.append(new)
+    return out, rep
+
+
 def _warp_components_to_surface(xyz_components, sphere_radius, surface_shape,
                                 surface_aspect, surface_tube, xyz_spacing,
                                 surface_auto_orient=True, surface_auto_aspect=True,
                                 surface_orient=0.0, surface_tilt=0.0,
-                                return_warp=False):
+                                return_warp=False, surface_info=None):
     """
     Warp spherical components (built on the base sphere of radius R) onto a
     shaped surface.  Each spherical point is decomposed into a unit direction and
     a signed radial offset, a common orientation frame + shape parameters are
     resolved once from all components' directions, and every point is remapped
     and then re-spaced evenly along the surface.
+
+    ``surface_info``, when given a dict, receives the resolved ``kind``,
+    ``resolved`` shape parameters and frame ``M``.  The warped points are in
+    the surface's own axis-aligned frame (the rotation is applied to the
+    directions, not undone), so ``kind`` + ``resolved`` alone fix the surface.
     """
     R = float(sphere_radius)
     decomposed = []
@@ -5789,6 +6199,9 @@ def _warp_components_to_surface(xyz_components, sphere_radius, surface_shape,
         tilt_degrees=surface_tilt,
     )
     warp = _surface_warp_fn(surface_shape, R, resolved, M)
+    if surface_info is not None:
+        surface_info.update({"kind": _normalize_surface_shape(surface_shape),
+                             "resolved": dict(resolved), "M": np.asarray(M, float)})
 
     out = []
     for item in decomposed:
@@ -6572,563 +6985,6 @@ def _repair_xyz_clearance(comps, clearance, max_iters=80, halfwidth=8,
     return comps, report
 
 
-
-
-
-
-def _match_visit_sequence(runs, want_ids):
-    """Order-aware matching of a component's clustered Voronoi runs
-    [(id, i0, j0, dmin), ...] (cyclic) against the diagram's expected
-    crossing-visit sequence want_ids (cyclic), minimizing the summed
-    closest-approach distance.  Tries both orientations and all cyclic
-    starts.  Returns the matched runs in want order, or None."""
-    M, m = len(runs), len(want_ids)
-    if M < m:
-        return None
-    best = None
-    for orient in (1, -1):
-        seq = runs if orient == 1 else runs[::-1]
-        starts = [s for s in range(M) if seq[s][0] == want_ids[0]]
-        for s in starts:
-            INF = float("inf")
-            cost = [[INF] * M for _ in range(m)]
-            parent = [[-1] * M for _ in range(m)]
-            cost[0][0] = seq[s][3]
-            for t in range(1, m):
-                run_min, run_arg = INF, -1
-                for p in range(t - 1, M - (m - t)):
-                    if cost[t - 1][p] < run_min:
-                        run_min, run_arg = cost[t - 1][p], p
-                    q = p + 1
-                    if q < M and seq[(s + q) % M][0] == want_ids[t]:
-                        c = run_min + seq[(s + q) % M][3]
-                        if c < cost[t][q]:
-                            cost[t][q] = c
-                            parent[t][q] = run_arg
-                # also allow q beyond consecutive: fill remaining columns
-                for q in range(t, M):
-                    if seq[(s + q) % M][0] != want_ids[t]:
-                        continue
-                    run_min2 = min(cost[t - 1][p] for p in range(0, q))
-                    if run_min2 < INF:
-                        c = run_min2 + seq[(s + q) % M][3]
-                        if c < cost[t][q]:
-                            cost[t][q] = c
-                            parent[t][q] = int(np.argmin(
-                                [cost[t - 1][p] for p in range(0, q)]))
-            endc = min(cost[m - 1])
-            if endc < INF and (best is None or endc < best[0]):
-                q = int(np.argmin(cost[m - 1]))
-                idxs = [0] * m
-                idxs[m - 1] = q
-                for t in range(m - 1, 0, -1):
-                    q = parent[t][q]
-                    idxs[t - 1] = q
-                matched = [seq[(s + q) % M] for q in idxs]
-                best = (endc, matched)
-    return None if best is None else best[1]
-
-
-
-
-
-
-def _match_all_visits(comps, model, anchors, ball_radius, messages):
-    """Recover, for every component, its ordered crossing visits on the 3D
-    curve: [(anchor_k, passage_point_index, over_flag), ...] per component,
-    aligned with the diagram via order-aware minimum-distance matching.
-    Returns None (with a warning) if alignment fails."""
-    anchors = np.asarray(anchors, float)
-    visits_by_comp = []
-    for pts in comps:
-        n = len(pts)
-        d = np.linalg.norm(pts[:, None, :] - anchors[None, :, :], axis=2)
-        lab = np.argmin(d, axis=1)
-        runs = []
-        i = 0
-        while i < n:
-            j = i
-            while j + 1 < n and lab[j + 1] == lab[i]:
-                j += 1
-            runs.append([int(lab[i]), i, j])
-            i = j + 1
-        merged = []
-        for r in runs:
-            if merged and merged[-1][0] == r[0]:
-                merged[-1][2] = r[2]
-            else:
-                merged.append(list(r))
-        if len(merged) > 1 and merged[0][0] == merged[-1][0]:
-            merged[0] = [merged[0][0], merged[-1][1] - n, merged[0][2]]
-            merged.pop()
-        gap_pts = max(6, int(round(ball_radius / max(
-            1.0e-9, float(np.median(np.linalg.norm(
-                np.diff(pts, axis=0), axis=1)))))))
-        clustered = []
-        last_of = {}
-        for kk, i0, j0 in merged:
-            if kk in last_of and i0 - clustered[last_of[kk]][2] <= gap_pts:
-                clustered[last_of[kk]][2] = j0
-            else:
-                clustered.append([kk, i0, j0])
-                last_of[kk] = len(clustered) - 1
-        if len(clustered) > 1 and clustered[0][0] == clustered[-1][0] and \
-                (clustered[0][1] + n - clustered[-1][2]) <= gap_pts:
-            clustered[0] = [clustered[0][0],
-                            clustered[-1][1] - n, clustered[0][2]]
-            clustered.pop()
-        out_runs = []
-        for kk, i0, j0 in clustered:
-            idxs = [t % n for t in range(i0, j0 + 1)]
-            dmin = float(np.min(d[idxs, kk]))
-            out_runs.append((kk, i0, j0, dmin))
-        visits_by_comp.append(out_runs)
-    result = []
-    for ci, runs in enumerate(visits_by_comp):
-        pts = comps[ci]
-        n = len(pts)
-        want = [model["pos_cross"][p] for p in model["comp_positions"][ci]]
-        overs = [bool(model["over_at"][p])
-                 for p in model["comp_positions"][ci]]
-        matched = _match_visit_sequence(runs, want)
-        if matched is None:
-            from collections import Counter as _C
-            have = _C(r[0] for r in runs)
-            need = _C(want)
-            new_runs = []
-            for (kk, i0, j0, dmin) in runs:
-                if have[kk] < need.get(kk, 0):
-                    idxs = [t % n for t in range(i0, j0 + 1)]
-                    prof = np.linalg.norm(
-                        pts[idxs] - anchors[kk][None, :], axis=1)
-                    if len(prof) >= 5:
-                        a_ = int(np.argmin(prof))
-                        prof2 = prof.copy()
-                        prof2[max(0, a_ - 2):a_ + 3] = np.inf
-                        b_ = int(np.argmin(prof2))
-                        lo_, hi_ = sorted((a_, b_))
-                        cut = lo_ + int(np.argmax(prof[lo_:hi_ + 1]))
-                        new_runs.append((kk, i0, i0 + cut,
-                                         float(prof[:cut + 1].min())))
-                        new_runs.append((kk, i0 + cut + 1, j0,
-                                         float(prof[cut + 1:].min())))
-                        continue
-                new_runs.append((kk, i0, j0, dmin))
-            matched = _match_visit_sequence(new_runs, want)
-        if matched is None:
-            messages.append("[WARN] xyz visit matching failed for "
-                            "component %d; layered rebuild skipped." % ci)
-            return None
-        vis = []
-        for t, k in enumerate(want):
-            kk, i0, j0 = matched[t][:3]
-            idxs = [tt % n for tt in range(i0, j0 + 1)]
-            dd = np.linalg.norm(pts[idxs] - anchors[k][None, :], axis=1)
-            vis.append((k, idxs[int(np.argmin(dd))], overs[t]))
-        result.append(vis)
-    return result
-
-
-def _layered_radial_rebuild(comps, model, anchors, sphere_radius,
-                            sphere_offset, ball_radius, messages):
-    """V5.4 principled fix: rebuild the entire radial structure from the
-    diagram.  Complex diagrams cannot live on ONE surface layer: first
-    compute how many layers are necessary, then render.
-
-    Every inter-crossing arc gets a radial LAYER such that (i) arcs whose
-    2D routes come close sit on different layers and (ii) arcs passing
-    through a foreign crossing's gadget zone avoid the center layer (no
-    silent threading between that crossing's over/under strands).  At each
-    crossing passage the radius is exactly anchor_radius +/- sphere_offset
-    per the DT over/under, blended smoothly into the arc layers.
-    Returns (comps, n_layers) or (comps, -1) if visit matching failed."""
-    comps = [np.array(c, float) for c in comps]
-    anchors = np.asarray(anchors, float)
-    ncross = len(anchors)
-    visits = _match_all_visits(comps, model, anchors, ball_radius, messages)
-    if visits is None:
-        return comps, -1
-    # ---- arcs: (ci, passage index v) spans passages v -> v+1 (cyclic)
-    arcs = []            # (ci, t_start, t_end)  point-index span (cyclic)
-    arc_of = {}
-    for ci, vis in enumerate(visits):
-        n = len(comps[ci])
-        m = len(vis)
-        for v in range(m):
-            t0 = vis[v][1]
-            t1 = vis[(v + 1) % m][1]
-            arcs.append((ci, t0, t1 if t1 > t0 else t1 + n))
-            arc_of[(ci, v)] = len(arcs) - 1
-    # ---- conflict graph over arcs (angular proximity away from gadgets)
-    R = float(sphere_radius)
-    thr = 0.85 * float(ball_radius)
-    pts_dir = [c / np.maximum(np.linalg.norm(c, axis=1)[:, None], 1e-12)
-               for c in comps]
-    a_dir = anchors / np.maximum(
-        np.linalg.norm(anchors, axis=1)[:, None], 1e-12)
-    samples = []
-    for ai, (ci, t0, t1) in enumerate(arcs):
-        n = len(comps[ci])
-        idxs = [t % n for t in range(t0, t1 + 1, 3)]
-        D = pts_dir[ci][idxs] * R
-        da = np.linalg.norm(D[:, None, :] - a_dir[None, :, :] * R, axis=2)
-        far = np.min(da, axis=1) > 1.1 * float(ball_radius)
-        samples.append((D, far, np.min(da, axis=1)))
-    conflict = [set() for _ in arcs]
-    threader = [False] * len(arcs)
-    for ai in range(len(arcs)):
-        Da, fara, dmina = samples[ai]
-        # does this arc cut through a FOREIGN gadget core?  (an arc may
-        # legitimately enter only its own two endpoint gadgets)
-        ci, t0, t1 = arcs[ai]
-        vlist = visits[ci]
-        vv = [v for v in range(len(vlist)) if arc_of[(ci, v)] == ai]
-        own = set()
-        for v in vv:
-            own.add(vlist[v][0])
-            own.add(vlist[(v + 1) % len(vlist)][0])
-        da_all = np.linalg.norm(Da[:, None, :] - a_dir[None, :, :] * R,
-                                axis=2)
-        # ignore samples close to the arc's endpoints (inside own gadgets)
-        for k in range(ncross):
-            if k in own:
-                continue
-            if np.any(da_all[:, k] < 0.7 * float(ball_radius)):
-                threader[ai] = True
-                break
-        for bj in range(ai + 1, len(arcs)):
-            cj = arcs[bj][0]
-            Db, farb, _ = samples[bj]
-            sel_a = fara
-            if not sel_a.any():
-                continue
-            dd = np.linalg.norm(Da[sel_a][:, None, :] - Db[None, :, :],
-                                axis=2)
-            mask_b = farb[None, :] if farb.any() else None
-            if mask_b is None:
-                continue
-            dd = np.where(np.broadcast_to(farb[None, :], dd.shape), dd,
-                          np.inf)
-            if np.min(dd) < thr:
-                conflict[ai].add(bj)
-                conflict[bj].add(ai)
-    # ---- greedy coloring (highest degree first)
-    order = sorted(range(len(arcs)), key=lambda a: -len(conflict[a]))
-    layer = [-1] * len(arcs)
-    for a in order:
-        used = {layer[b] for b in conflict[a] if layer[b] >= 0}
-        l = 0
-        while l in used:
-            l += 1
-        layer[a] = l
-    L = max(layer) + 1
-    # threading arcs must not sit on the center layer (radius ~ R)
-    if L == 1 and any(threader):
-        L = 2
-    center = (L - 1) / 2.0
-    for a in range(len(arcs)):
-        if threader[a] and abs(layer[a] - center) < 0.25:
-            used = {layer[b] for b in conflict[a] if layer[b] >= 0}
-            l = 0
-            while l in used or abs(l - center) < 0.25:
-                l += 1
-            layer[a] = l
-            L = max(L, l + 1)
-            center = (L - 1) / 2.0
-    lam = 2.6 * float(sphere_offset)
-    # ---- rebuild radii: exact passage radii at crossings, layer radii
-    # mid-arc, cosine blends along each arc's OWN arclength; short arcs
-    # interpolate passage-to-passage directly.
-    blend = max(1.0e-9, float(ball_radius))
-    for ci, vis in enumerate(visits):
-        pts = comps[ci]
-        n = len(pts)
-        m = len(vis)
-        new_r = np.zeros(n)
-        assigned = np.zeros(n, bool)
-        for v in range(m):
-            a_idx = arc_of[(ci, v)]
-            t0, t1 = arcs[a_idx][1], arcs[a_idx][2]
-            r_layer = R + (layer[a_idx] - (L - 1) / 2.0) * lam
-            k0, ov0 = vis[v][0], vis[v][2]
-            k1, ov1 = vis[(v + 1) % m][0], vis[(v + 1) % m][2]
-            r_p0 = np.linalg.norm(anchors[k0]) + \
-                (1.0 if ov0 else -1.0) * float(sphere_offset)
-            r_p1 = np.linalg.norm(anchors[k1]) + \
-                (1.0 if ov1 else -1.0) * float(sphere_offset)
-            idxs = [t % n for t in range(t0, t1 + 1)]
-            seg = pts[idxs]
-            ds = np.linalg.norm(np.diff(seg, axis=0), axis=1)
-            s = np.concatenate([[0.0], np.cumsum(ds)])
-            S = max(s[-1], 1.0e-9)
-            for t_, m_ in enumerate(idxs):
-                d0, d1 = s[t_], S - s[t_]
-                if S < 2.0 * blend:
-                    w = 0.5 * (1 + math.cos(math.pi * min(1.0, d0 / S)))
-                    r = w * r_p0 + (1 - w) * r_p1
-                elif d0 < blend:
-                    w = 0.5 * (1 + math.cos(math.pi * d0 / blend))
-                    r = w * r_p0 + (1 - w) * r_layer
-                elif d1 < blend:
-                    w = 0.5 * (1 + math.cos(math.pi * d1 / blend))
-                    r = w * r_p1 + (1 - w) * r_layer
-                else:
-                    r = r_layer
-                if not assigned[m_]:
-                    new_r[m_] = r
-                    assigned[m_] = True
-        for v in range(m):                       # exact passage radii last
-            k0, p_idx, ov0 = vis[v]
-            new_r[p_idx % n] = np.linalg.norm(anchors[k0]) + \
-                (1.0 if ov0 else -1.0) * float(sphere_offset)
-        rr = np.linalg.norm(pts, axis=1)
-        scale = np.where(rr > 1e-9, new_r / np.maximum(rr, 1e-9), 1.0)
-        comps[ci] = pts * scale[:, None]
-    messages.append("[fix] xyz layered rebuild: %d arc conflict pair(s), "
-                    "%d gadget-threading arc(s); diagram needs %d radial "
-                    "layer(s) (spacing %.1f)."
-                    % (sum(len(c) for c in conflict) // 2,
-                       sum(1 for t in threader if t), L, lam))
-    return comps, L
-
-
-def _enforce_crossing_orders(comps, model, anchors, sphere_offset,
-                             ball_radius, messages, halfwidth=6):
-    """V5.4: verify and enforce the DT over/under RADIAL order at every
-    true crossing of the raw spherical curve.
-
-    Overlapping bump/dip profiles of nearby crossings can partially cancel,
-    silently flipping a crossing and changing the link type.  For each
-    crossing anchor, the two strand visits are recovered by nearest-anchor
-    segmentation, aligned with the model's per-component position lists,
-    and the radial order at their closest approach is checked against
-    model['over_at']; violations (or margins below sphere_offset) are
-    repaired by pushing the two visits radially apart around the crossing.
-    Returns (comps, n_fixed)."""
-    comps = [np.array(c, float) for c in comps]
-    anchors = np.asarray(anchors, float)
-    ncross = len(anchors)
-    # ---- segment each component into nearest-anchor (Voronoi) visit runs,
-    # in curve order; every point belongs to its nearest crossing, so the
-    # number of runs equals the number of crossing visits exactly.
-    visits_by_comp = []
-    for pts in comps:
-        d = np.linalg.norm(pts[:, None, :] - anchors[None, :, :], axis=2)
-        lab = np.argmin(d, axis=1)
-        runs = []
-        i = 0
-        n = len(pts)
-        while i < n:
-            j = i
-            while j + 1 < n and lab[j + 1] == lab[i]:
-                j += 1
-            runs.append([int(lab[i]), i, j])
-            i = j + 1
-        # merge fragments (wobble across a Voronoi boundary) and wraparound
-        merged = []
-        for r in runs:
-            if merged and merged[-1][0] == r[0]:
-                merged[-1][2] = r[2]
-            else:
-                merged.append(list(r))
-        if len(merged) > 1 and merged[0][0] == merged[-1][0]:
-            merged[0] = [merged[0][0],
-                         merged[-1][1] - len(pts), merged[0][2]]
-            merged.pop()
-        # gap-tolerant clustering: Voronoi boundaries oscillate inside
-        # tight gadget clusters, splitting one true visit into several
-        # interleaved runs; re-merge same-anchor runs whose index gap is
-        # smaller than a gadget span.
-        gap_pts = max(6, int(round(ball_radius / max(
-            1.0e-9, float(np.median(np.linalg.norm(
-                np.diff(pts, axis=0), axis=1)))))))
-        clustered = []
-        last_of = {}
-        for kk, i0, j0 in merged:
-            if kk in last_of and i0 - clustered[last_of[kk]][2] <= gap_pts:
-                clustered[last_of[kk]][2] = j0
-            else:
-                clustered.append([kk, i0, j0])
-                last_of[kk] = len(clustered) - 1
-        # wraparound cluster merge
-        if len(clustered) > 1 and clustered[0][0] == clustered[-1][0] and \
-                (clustered[0][1] + n - clustered[-1][2]) <= gap_pts:
-            clustered[0] = [clustered[0][0],
-                            clustered[-1][1] - n, clustered[0][2]]
-            clustered.pop()
-        # attach each run's closest approach to its anchor
-        out_runs = []
-        for kk, i0, j0 in clustered:
-            idxs = [t % n for t in range(i0, j0 + 1)]
-            dmin = float(np.min(d[idxs, kk]))
-            out_runs.append((kk, i0, j0, dmin))
-        visits_by_comp.append(out_runs)
-    # ---- expected visit sequences from the model
-    exp_cross, exp_over = [], []
-    for cp in model["comp_positions"]:
-        exp_cross.append([model["pos_cross"][p] for p in cp])
-        exp_over.append([bool(model["over_at"][p]) for p in cp])
-    # ---- order-aware matching of clustered runs to expected visits
-    per_cross = {}
-    ok_align = True
-    for ci, runs in enumerate(visits_by_comp):
-        want = exp_cross[ci]
-        matched = _match_visit_sequence(runs, want)
-        if matched is None:
-            # fused U-turn visits: split deficient ids at the distance
-            # profile's two minima, then retry once
-            from collections import Counter as _C
-            have = _C(r[0] for r in runs)
-            need = _C(want)
-            pts = comps[ci]
-            n = len(pts)
-            new_runs = []
-            for (kk, i0, j0, dmin) in runs:
-                if have[kk] < need.get(kk, 0):
-                    idxs = [t % n for t in range(i0, j0 + 1)]
-                    prof = np.linalg.norm(
-                        pts[idxs] - anchors[kk][None, :], axis=1)
-                    if len(prof) >= 5:
-                        a_ = int(np.argmin(prof))
-                        prof2 = prof.copy()
-                        prof2[max(0, a_ - 2):a_ + 3] = np.inf
-                        b_ = int(np.argmin(prof2))
-                        lo_, hi_ = sorted((a_, b_))
-                        cut = lo_ + int(np.argmax(prof[lo_:hi_ + 1]))
-                        new_runs.append((kk, i0, i0 + cut,
-                                         float(prof[:cut + 1].min())))
-                        new_runs.append((kk, i0 + cut + 1, j0,
-                                         float(prof[cut + 1:].min())))
-                        continue
-                new_runs.append((kk, i0, j0, dmin))
-            matched = _match_visit_sequence(new_runs, want)
-        if matched is None:
-            import os as _os
-            if _os.environ.get("V54_DEBUG"):
-                messages.append("[dbg] comp %d want=%r" % (ci, want))
-                messages.append("[dbg] comp %d runs=%r"
-                                % (ci, [r[0] for r in runs]))
-            ok_align = False
-            break
-        for t, k in enumerate(want):
-            per_cross.setdefault(k, []).append(
-                (ci, tuple(matched[t][:3]), exp_over[ci][t]))
-    if not ok_align:
-        messages.append("[WARN] xyz crossing-order check: could not align "
-                        "curve visits with the diagram; skipped.")
-        return comps, -1
-    n_fixed = 0
-    for _sweep in range(4):
-        fixed_this = 0
-        for k, pair in per_cross.items():
-            if len(pair) != 2:
-                continue
-            (c1, (a1, i1, j1), ov1), (c2, (a2, i2, j2), ov2) = pair
-            if ov1 == ov2:
-                continue
-            n1, n2 = len(comps[c1]), len(comps[c2])
-            idx1 = [t % n1 for t in range(i1, j1 + 1)]
-            idx2 = [t % n2 for t in range(i2, j2 + 1)]
-            # the crossing passage = each run's closest point to the anchor
-            d1 = np.linalg.norm(comps[c1][idx1] - anchors[k][None, :], axis=1)
-            d2 = np.linalg.norm(comps[c2][idx2] - anchors[k][None, :], axis=1)
-            a = int(np.argmin(d1)); b = int(np.argmin(d2))
-            p1, p2 = comps[c1][idx1[a]], comps[c2][idx2[b]]
-            r1, r2 = np.linalg.norm(p1), np.linalg.norm(p2)
-            margin = (r1 - r2) if ov1 else (r2 - r1)
-            if margin >= 0.9 * float(sphere_offset):
-                continue
-            fixed_this += 1
-            deficit = 0.9 * float(sphere_offset) - margin
-            for (cc, center, sgn_over) in ((c1, idx1[a], ov1),
-                                           (c2, idx2[b], ov2)):
-                sgn = 1.0 if sgn_over else -1.0
-                nn = len(comps[cc])
-                for t in range(-halfwidth, halfwidth + 1):
-                    w = math.exp(-(t * t) / (0.5 * halfwidth ** 2))
-                    m_ = (center + t) % nn
-                    pt = comps[cc][m_]
-                    rr = np.linalg.norm(pt)
-                    if rr > 1.0e-9:
-                        comps[cc][m_] = pt * (
-                            1.0 + sgn * 0.55 * deficit * w / rr)
-        n_fixed += fixed_this
-        if fixed_this == 0:
-            break
-    if n_fixed:
-        messages.append("[fix] xyz crossing-order repair: re-enforced the "
-                        "DT over/under radial order at %d crossing(s)."
-                        % n_fixed)
-    # ---- evict gadget threaders: a strand that merely passes near a
-    # crossing it does not belong to must NOT run radially BETWEEN that
-    # crossing's over and under strands (that silently threads the
-    # crossing and changes the link).  Push such runs fully above or
-    # below the gadget, whichever side they already favor.
-    member_pts = {}
-    for k, pair in per_cross.items():
-        s = set()
-        for (cc, (aa, ii, jj), ov) in pair:
-            nn = len(comps[cc])
-            for t in range(ii - 2, jj + 3):
-                s.add((cc, t % nn))
-        member_pts[k] = s
-    n_evict = 0
-    core = 0.65 * float(ball_radius)
-    for k in range(ncross):
-        if k not in per_cross or len(per_cross[k]) != 2:
-            continue
-        Ra = float(np.linalg.norm(anchors[k]))
-        lo_r = Ra - float(sphere_offset)
-        hi_r = Ra + float(sphere_offset)
-        pad = 0.6 * float(sphere_offset)
-        for cc in range(len(comps)):
-            pts = comps[cc]
-            nn = len(pts)
-            d = np.linalg.norm(pts - anchors[k][None, :], axis=1)
-            inside = d < core
-            if not inside.any():
-                continue
-            # contiguous runs of inside points, skipping member points
-            i = 0
-            while i < nn:
-                if not inside[i] or (cc, i) in member_pts[k]:
-                    i += 1
-                    continue
-                j = i
-                while j + 1 < nn and inside[j + 1] and \
-                        (cc, j + 1) not in member_pts[k]:
-                    j += 1
-                idxs = list(range(i, j + 1))
-                rads = np.linalg.norm(pts[idxs], axis=1)
-                if np.all(rads > hi_r + 0.2 * pad) or \
-                        np.all(rads < lo_r - 0.2 * pad):
-                    i = j + 1
-                    continue
-                n_evict += 1
-                go_out = float(np.mean(rads)) >= Ra
-                target = (hi_r + pad) if go_out else (lo_r - pad)
-                w_edge = 4
-                for t_, m_ in enumerate(idxs):
-                    # smooth blend at the run edges
-                    wl = min(1.0, (t_ + 1) / float(w_edge))
-                    wr = min(1.0, (len(idxs) - t_) / float(w_edge))
-                    w = min(wl, wr)
-                    rr = np.linalg.norm(pts[m_])
-                    if rr > 1.0e-9:
-                        want_r = (1 - w) * rr + w * target
-                        if go_out:
-                            want_r = max(rr, want_r)
-                        else:
-                            want_r = min(rr, want_r)
-                        comps[cc][m_] = pts[m_] * (want_r / rr)
-                i = j + 1
-    if n_evict:
-        messages.append("[fix] xyz gadget-threading repair: pushed %d "
-                        "passing strand run(s) clear of foreign "
-                        "crossings." % n_evict)
-    return comps, n_fixed + n_evict
-
-
 def _run_xyz_repair_stage(xyz_components, clearance, stage, messages,
                           anchors=None, exclude_radius=0.0):
     comps, rep = _repair_xyz_clearance(xyz_components, clearance,
@@ -7190,6 +7046,8 @@ def build_spherical_xyz_components(
     xyz_final_smooth=True,
     xyz_smooth_window=10,
     xyz_smooth_passes=5,
+    xyz_smooth_method="gaussian",
+    xyz_even_spacing=True,
     surface_shape="ellipsoid",
     surface_auto_orient=True,
     surface_auto_aspect=True,
@@ -7205,6 +7063,7 @@ def build_spherical_xyz_components(
     sphere_refine=False,
     audit_dt=None,
     status_messages=None,
+    shells_out=None,
 ):
     """
     Return one Nx3 array per component for the spherical diagram.
@@ -7223,6 +7082,14 @@ def build_spherical_xyz_components(
     ``segments`` (one polyline per strand step between crossings), warped onto
     the same surface as the curve.  Kamada sphere layouts only.
 
+    ``shells_out``, when given a dict, is filled with a description of the
+    BASE surface the curve was built on -- ``kind`` (sphere, ellipsoid,
+    cylinder, torus, cube, or radial for raw-kk), ``radius``, the signed
+    ``offset`` and the shape ``params`` -- in the coordinates of the returned
+    curve, which it also holds as ``curve``.  ``write_surface_shells_glb``
+    turns it into the base surface plus its inner and outer offset shells and
+    reports how well the curve fits them.
+
     Parameter units:
       sphere_radius and crossing_offset are absolute XYZ coordinate distances.
       xyz_spacing is an absolute target adjacent-point separation in XYZ units.
@@ -7231,6 +7098,12 @@ def build_spherical_xyz_components(
       xyz_final_smooth is a final closed-curve smoothing pass on the written 3D
       polyline. xyz_smooth_window is a number of neighboring points, and
       xyz_smooth_passes is a small integer count of repeated smoothing passes.
+      xyz_smooth_method is 'gaussian' (the original smoothing) or
+      'crossing-pinned' (the same smoothing, with the core of every crossing
+      patch held exactly as built; see XYZ_SMOOTH_METHODS).
+      xyz_even_spacing (default on) re-spaces every finished component, as
+      the last step before the audit, so all its segments -- the closing one
+      included -- have the component's average length (_even_closed_polyline).
     """
     sphere_radius = float(sphere_radius)
     sphere_extent = float(sphere_extent)
@@ -7261,6 +7134,11 @@ def build_spherical_xyz_components(
     if xyz_smooth_passes < 0:
         raise ValueError("--xyz-smooth-passes must be non-negative.")
 
+    xyz_smooth_method = str(xyz_smooth_method or "gaussian").strip().lower()
+    if xyz_smooth_method not in XYZ_SMOOTH_METHODS:
+        raise ValueError("--xyz-smooth-method must be one of: %s."
+                         % ", ".join(XYZ_SMOOTH_METHODS))
+
     layout = str(sphere_layout or "spherical-kamada").strip().lower()
     if skeleton_out is None and layout in ("spherical-kamada", "shaped-kamada",
                                            "cubic-kamada", "raw-kk"):
@@ -7268,6 +7146,7 @@ def build_spherical_xyz_components(
                                    # (and, for cubic-kamada, cube orientation)
     _refine_rep = {}
     _radii_rep = {}
+    _stereo_pins = {}
     _stereo_safe = (layout == "stereo-safe")
     if _stereo_safe:
         # V5.4 correct-by-construction mode: lift the AUDITED planar layout
@@ -7289,6 +7168,7 @@ def build_spherical_xyz_components(
             sphere_offset=sphere_offset,
             sphere_bump_frac=sphere_bump_frac,
             xyz_spacing=(0.6 * xyz_spacing if _stereo_safe else xyz_spacing),
+            pins_out=_stereo_pins,
         )
     elif layout in ("spherical-kamada", "shaped-kamada", "cubic-kamada", "raw-kk"):
         # All three use the sphere-native construction; shaped-kamada warps the
@@ -7442,6 +7322,28 @@ def build_spherical_xyz_components(
             xyz_components, _clr, "raw build", _msgs,
             anchors=_anch, exclude_radius=_excl)
 
+    # V5.7 'crossing-pinned': hold the core of every crossing patch as built
+    # (kamada family: the gadget anchors and --sphere-crossing-angle;
+    # stereographic: the mapped 2D crossings and their bump widths).
+    _pins = None
+    if xyz_smooth_method == "crossing-pinned" and xyz_final_smooth \
+            and xyz_smooth_window > 0 and xyz_smooth_passes > 0:
+        if _stereo_pins.get("dirs") is not None and len(_stereo_pins["dirs"]):
+            _pins = _stereo_pins
+        elif skeleton_out is not None and len(skeleton_out.get("points", [])):
+            _pts_unit = _normalize_rows(np.asarray(skeleton_out["points"], float))
+            _pins = {"dirs": _pts_unit,
+                     "halfwidths": np.full(len(_pts_unit), sphere_crossing_angle)}
+        if _pins is not None:
+            _msgs.append(
+                "[smooth] crossing-pinned: the central %d%% of each of the %d "
+                "crossing patches keeps its built position, so every crossing "
+                "stays on the base surface with its over- and under-strand at "
+                "%+.3f / %+.3f; every other point is smoothed over at most its "
+                "distance to the nearest crossing core."
+                % (int(round(100 * CROSSING_PIN_CORE)), len(model["crossings"]),
+                   float(sphere_offset), -float(sphere_offset)))
+
     xyz_components = _apply_final_xyz_smoothing(
         xyz_components,
         sphere_radius=sphere_radius,
@@ -7449,6 +7351,7 @@ def build_spherical_xyz_components(
         enabled=bool(xyz_final_smooth),
         smooth_window=xyz_smooth_window,
         smooth_passes=xyz_smooth_passes,
+        pins=_pins,
     )
 
     if xyz_repair and _clr > 0.0:
@@ -7457,6 +7360,7 @@ def build_spherical_xyz_components(
             anchors=_anch, exclude_radius=_excl)
 
     _warp_pts = None
+    _surf_info = {}
     if layout == "shaped-kamada":
         xyz_components, _warp_pts = _warp_components_to_surface(
             xyz_components,
@@ -7470,6 +7374,7 @@ def build_spherical_xyz_components(
             surface_orient=surface_orient,
             surface_tilt=surface_tilt,
             return_warp=True,
+            surface_info=_surf_info,
         )
 
     if xyz_repair and _clr > 0.0 and layout == "shaped-kamada":
@@ -7534,6 +7439,49 @@ def build_spherical_xyz_components(
                 xyz_components, _clr, "post-cube-warp", _msgs,
                 anchors=_anch_w, exclude_radius=_excl)
 
+    # V5.7: even point spacing, as the LAST change to the curve -- the
+    # clearance repair moves points after the last resample, which is what
+    # leaves uneven segments (and short closing ones) -- and before the audit,
+    # so the written curve is the audited one.
+    if xyz_even_spacing:
+        if layout == "cubic-kamada" and _style == "angled":
+            _msgs.append(
+                "[spacing] even point spacing skipped for the angled cube "
+                "style: its points are its corners, and re-spacing them would "
+                "cut the 90-degree corners.")
+        else:
+            xyz_components, _sp = _even_space_components(xyz_components)
+            if _sp["count"] and _sp["exact"] == _sp["count"]:
+                _msgs.append(
+                    "[spacing] even point spacing: every segment of each "
+                    "component, the closing one included, now has that "
+                    "component's average length -- segments %.3f-%.3f before, "
+                    "%.3f-%.3f after." % (_sp["before"][0], _sp["before"][1],
+                                         _sp["after"][0], _sp["after"][1]))
+            elif _sp["count"]:
+                if layout == "cubic-kamada":
+                    _why = "where offset strands jump across a cube edge"
+                elif layout == "shaped-kamada" and _normalize_surface_shape(
+                        surface_shape) in ("cylinder", "torus"):
+                    _why = "where strands near the sphere's poles cut across the surface"
+                else:
+                    _why = "left by the clearance repair"
+                _rest = _sp["count"] - _sp["exact"]
+                _msgs.append(
+                    "[spacing] even point spacing: %d of %d components now "
+                    "have exactly equal segments, the closing one included.  "
+                    "%s more sharply than the point spacing (%s): equal "
+                    "chords there would cut the curve short, so %s points are "
+                    "spread evenly ALONG the curve instead (segments within "
+                    "%.1f%% of each other at worst).  Segments %.3f-%.3f "
+                    "before, %.3f-%.3f after."
+                    % (_sp["exact"], _sp["count"],
+                       "The other one turns" if _rest == 1
+                       else "The other %d turn" % _rest,
+                       _why, "its" if _rest == 1 else "their",
+                       100.0 * _sp["worst"], _sp["before"][0],
+                       _sp["before"][1], _sp["after"][0], _sp["after"][1]))
+
     if audit_dt:
         _res = audit_xyz_components(xyz_components, audit_dt)
         if _res["status"] == "ok":
@@ -7579,6 +7527,34 @@ def build_spherical_xyz_components(
         skeleton_out["surface_wires"] = _sk_wires
         skeleton_out["unit"] = False
 
+    # V5.7: describe the base surface for the optional surface-shell export.
+    # The shaped and cube warps leave the curve in the surface's own
+    # axis-aligned frame, so the shape parameters alone place the surface.
+    if shells_out is not None:
+        shells_out.clear()
+        shells_out.update({
+            "layout": str(sphere_layout or "spherical-kamada").strip().lower(),
+            "kind": "sphere",
+            "radius": float(sphere_radius),
+            "offset": float(sphere_offset),
+            "params": {},
+            # the finished curve, so the export can report how well it fits
+            "curve": xyz_components,
+            "smoothed": bool(xyz_final_smooth and xyz_smooth_window > 0
+                             and xyz_smooth_passes > 0),
+            "smooth_method": xyz_smooth_method,
+        })
+        if layout == "shaped-kamada" and _surf_info:
+            shells_out["kind"] = _surf_info["kind"]
+            shells_out["params"] = dict(_surf_info["resolved"])
+        elif layout == "cubic-kamada":
+            shells_out["kind"] = "cube"
+            shells_out["params"] = {"style": _style}
+        elif layout == "raw-kk" and _radii_rep.get("base_scales") is not None:
+            shells_out["kind"] = "radial"
+            shells_out["params"] = {"dirs": _radii_rep["base_dirs"],
+                                    "scales": _radii_rep["base_scales"]}
+
     return xyz_components
 
 
@@ -7601,6 +7577,8 @@ def write_spherical_xyz(
     xyz_final_smooth=True,
     xyz_smooth_window=10,
     xyz_smooth_passes=5,
+    xyz_smooth_method="gaussian",
+    xyz_even_spacing=True,
     surface_shape="ellipsoid",
     surface_auto_orient=True,
     surface_auto_aspect=True,
@@ -7614,6 +7592,7 @@ def write_spherical_xyz(
     sphere_refine=False,
     audit_dt=None,
     status_stream=None,
+    shells_out=None,
 ):
     """
     Write spherical component polylines as plain x y z coordinates.
@@ -7622,6 +7601,9 @@ def write_spherical_xyz(
     floating-point values, and a blank line separates components. By default the
     first point is NOT repeated at the end of each component block; use
     --xyz-close-components if your viewer wants explicit closure.
+
+    ``shells_out`` is passed to ``build_spherical_xyz_components``, so the
+    surface shells can be written from the SAME build as the XYZ file.
     """
     xyz_components = build_spherical_xyz_components(
         model,
@@ -7639,6 +7621,8 @@ def write_spherical_xyz(
         xyz_final_smooth=xyz_final_smooth,
         xyz_smooth_window=xyz_smooth_window,
         xyz_smooth_passes=xyz_smooth_passes,
+        xyz_smooth_method=xyz_smooth_method,
+        xyz_even_spacing=xyz_even_spacing,
         surface_shape=surface_shape,
         surface_auto_orient=surface_auto_orient,
         surface_auto_aspect=surface_auto_aspect,
@@ -7652,6 +7636,7 @@ def write_spherical_xyz(
         sphere_refine=sphere_refine,
         audit_dt=audit_dt,
         status_messages=(_v54_msgs := []),
+        shells_out=shells_out,
     )
     for _m in _v54_msgs:
         if status_stream is not None:
@@ -7673,6 +7658,717 @@ def write_spherical_xyz(
             if ci != len(xyz_components) - 1:
                 fh.write("\n")
     return n_written
+
+
+# --------------------------------------------------------------------------- #
+#  7a. The surface shells under the 3D curve, as binary glTF (V5.7)
+# --------------------------------------------------------------------------- #
+# Every sphere layout builds the curve on a BASE surface and lifts the strands
+# off it at the crossings by the crossing offset, along the surface normal, so
+# the curve rides three nested shells: the base surface and its offsets by
+# -|offset| (inner) and +|offset| (outer).  build_spherical_xyz_components
+# describes the base in ``shells_out``; surface_shell_meshes turns that into
+# three triangle meshes, and write_surface_shells_glb writes them as one binary
+# glTF 2.0 file in the XYZ file's own coordinates -- no recentring and no axis
+# swap -- so they overlay any model made from the same XYZ (a tube mesh, say)
+# without being moved.
+SHELL_MESH_SEGMENTS = 96          # facets around a shell; chord error ~5e-4 R
+SHELLS_AUTO = "auto"              # --shells-glb given without a path
+_SHELL_RADIAL_SAMPLES = 20000     # raw-kk base samples kept for interpolation;
+                                  # thinning blurs the base along the strands
+_SHELL_LAYERS = (
+    # node name, sign of the offset, linear RGBA.  Translucent and double-sided
+    # so the nested shells, and a curve inside them, stay visible.
+    ("inner_shell", -1.0, (0.37, 0.55, 0.85, 0.45)),
+    ("base_surface", 0.0, (0.62, 0.66, 0.70, 0.35)),
+    ("outer_shell", 1.0, (0.85, 0.55, 0.37, 0.25)),
+)
+
+
+def shells_glb_path(shells_glb, xyz_path):
+    """
+    Where the surface shells are written: the path given (with '.glb'
+    appended unless it already ends in it), or for ``SHELLS_AUTO``
+    '<xyz stem>_shells.glb' next to the XYZ file.
+    """
+    path = str(shells_glb or "").strip()
+    if not path or path == SHELLS_AUTO:
+        return os.path.splitext(str(xyz_path or "link_sphere.xyz"))[0] + "_shells.glb"
+    return path if path.lower().endswith(".glb") else path + ".glb"
+
+
+def _uv_sphere_grid(segments):
+    """
+    Unit directions and outward-wound triangles of a UV sphere: ``segments``
+    meridians, half as many latitude bands, one vertex at each pole and no
+    duplicated seam, so vertex normals are continuous everywhere.
+    """
+    nseg = max(8, int(segments))
+    theta = np.linspace(0.0, math.pi, max(4, nseg // 2) + 1)[1:-1]
+    phi = np.linspace(0.0, 2.0 * math.pi, nseg, endpoint=False)
+    ring = np.column_stack([
+        np.outer(np.sin(theta), np.cos(phi)).ravel(),
+        np.outer(np.sin(theta), np.sin(phi)).ravel(),
+        np.repeat(np.cos(theta), nseg),
+    ])
+    dirs = np.vstack([[0.0, 0.0, 1.0], ring, [0.0, 0.0, -1.0]])
+    col = np.arange(nseg)
+    nxt = (col + 1) % nseg
+    tris = [np.column_stack([np.zeros(nseg, int), 1 + col, 1 + nxt])]
+    for i in range(len(theta) - 1):
+        a, b = 1 + i * nseg + col, 1 + i * nseg + nxt
+        tris.append(np.column_stack([a, a + nseg, b]))
+        tris.append(np.column_stack([b, a + nseg, b + nseg]))
+    last = 1 + (len(theta) - 1) * nseg
+    tris.append(np.column_stack([np.full(nseg, len(dirs) - 1), last + nxt, last + col]))
+    return dirs, np.vstack(tris)
+
+
+def _grid_tris(nu, nv, wrap_v):
+    """
+    Triangles of an ``nv`` x ``nu`` vertex grid (vertex = row * nu + column),
+    periodic along each row and, if ``wrap_v``, from the last row back to the
+    first.  Wound so the front face is d/du x d/dv.
+    """
+    col = np.arange(nu)
+    nxt = (col + 1) % nu
+    tris = []
+    for r in range(nv if wrap_v else nv - 1):
+        r2 = (r + 1) % nv
+        a, b = r * nu + col, r * nu + nxt
+        c, d = r2 * nu + col, r2 * nu + nxt
+        tris.append(np.column_stack([a, b, c]))
+        tris.append(np.column_stack([b, d, c]))
+    return np.vstack(tris)
+
+
+def _interpolate_on_sphere(dirs, sample_dirs, sample_values, power=3.0):
+    """
+    Shepard (inverse-distance) interpolation over the unit sphere: the value at
+    each of ``dirs`` from values known at ``sample_dirs``, each sample weighted
+    by 1 / chord**power.  Exact at the samples and smooth between them.
+    """
+    S = np.asarray(sample_dirs, float)
+    v = np.asarray(sample_values, float)
+    Q = np.asarray(dirs, float)
+    out = np.empty(len(Q), float)
+    chunk = max(16, int(2.0e6 // max(1, len(S))))   # <= ~16 MB of weights
+    for s in range(0, len(Q), chunk):
+        d2 = np.maximum(2.0 - 2.0 * (Q[s:s + chunk] @ S.T), 1.0e-14)
+        w = d2 ** (-0.5 * float(power))
+        out[s:s + chunk] = (w @ v) / np.sum(w, axis=1)
+    return out
+
+
+def _mesh_vertex_normals(P, tris, fallback):
+    """Area-weighted vertex normals; ``fallback`` rows where a vertex has none."""
+    fn = np.cross(P[tris[:, 1]] - P[tris[:, 0]], P[tris[:, 2]] - P[tris[:, 0]])
+    vn = np.zeros_like(P)
+    for k in range(3):
+        np.add.at(vn, tris[:, k], fn)
+    nrm = np.linalg.norm(vn, axis=1)
+    ok = nrm > 1.0e-12
+    vn[ok] /= nrm[ok, None]
+    vn[~ok] = np.asarray(fallback, float)[~ok]
+    return vn
+
+
+def _folded_area_fraction(P, tris, outward):
+    """
+    Fraction of a shell's area whose triangles face AGAINST the base surface's
+    outward normal -- where the offset has turned the shell inside out.
+    """
+    fn = np.cross(P[tris[:, 1]] - P[tris[:, 0]], P[tris[:, 2]] - P[tris[:, 0]])
+    area = np.linalg.norm(fn, axis=1)
+    total = float(np.sum(area))
+    if total <= 1.0e-12:
+        return 1.0
+    ref = np.asarray(outward, float)[tris].sum(axis=1)
+    return float(np.sum(area[np.einsum("ij,ij->i", fn, ref) < 0.0]) / total)
+
+
+def _radial_shell_samples(params):
+    """raw-kk base samples (unit directions, radius scales), thinned evenly."""
+    sd = np.asarray(params["dirs"], float)
+    sv = np.asarray(params["scales"], float)
+    if len(sd) > _SHELL_RADIAL_SAMPLES:
+        keep = np.round(np.linspace(0, len(sd) - 1, _SHELL_RADIAL_SAMPLES)).astype(int)
+        sd, sv = sd[keep], sv[keep]
+    return _normalize_rows(sd), sv
+
+
+def _ellipsoid_signed_distance(pts, semi):
+    """
+    Signed distance (positive outside) from points to the centred, axis-aligned
+    ellipsoid with semi-axes ``semi``: the closest point is e2*y/(t+e2) for the
+    root t of sum((e*y/(t+e2))**2) = 1, found by bisection (the sum decreases
+    in t).  Exact wherever the closest point is unique, i.e. within the
+    smallest radius of curvature of the surface.
+    """
+    e = np.asarray(semi, float)
+    e2 = e * e
+    y = np.abs(np.asarray(pts, float))         # the ellipsoid is symmetric
+    inside = np.sum((y / e) ** 2, axis=1) < 1.0
+    lo = np.where(inside, -(1.0 - 1.0e-12) * float(e2.min()), 0.0)
+    hi = np.where(inside, 0.0, np.linalg.norm(y, axis=1) * float(e.max()))
+    for _ in range(100):
+        t = 0.5 * (lo + hi)
+        above = np.sum((e * y / (t[:, None] + e2)) ** 2, axis=1) > 1.0
+        lo = np.where(above, t, lo)
+        hi = np.where(above, hi, t)
+    t = 0.5 * (lo + hi)
+    dist = np.linalg.norm(y - e2 * y / (t[:, None] + e2), axis=1)
+    return np.where(inside, -dist, dist)
+
+
+def _shell_signed_offsets(shells, pts):
+    """
+    Each point's signed distance from the BASE surface, measured the way the
+    curve is built -- along the normal (radially for raw-kk) -- so a point on
+    the inner shell reads -|offset| and one on the outer shell +|offset|.
+    """
+    kind = str(shells.get("kind") or "sphere")
+    R = float(shells["radius"])
+    p = shells.get("params") or {}
+    P = np.asarray(pts, float)
+    if kind == "ellipsoid":
+        return _ellipsoid_signed_distance(P, R * np.asarray(p["axes"], float))
+    if kind == "cylinder":
+        return np.hypot(P[:, 0], P[:, 1]) - R * float(p.get("radius", 1.0))
+    if kind == "torus":
+        return (np.hypot(np.hypot(P[:, 0], P[:, 1]) - R, P[:, 2])
+                - R * float(p.get("tube", 0.35)))
+    if kind == "cube":
+        return np.max(np.abs(P), axis=1) - R
+    r = np.linalg.norm(P, axis=1)
+    if kind == "radial":
+        sd, sv = _radial_shell_samples(p)
+        return r - R * _interpolate_on_sphere(P / np.maximum(r, 1.0e-12)[:, None], sd, sv)
+    return r - R
+
+
+def surface_shell_meshes(shells, segments=SHELL_MESH_SEGMENTS):
+    """
+    The three nested shells of ``shells`` (the description that
+    build_spherical_xyz_components fills into ``shells_out``) as triangle
+    meshes: inner (the base offset by -|offset|), base, outer (+|offset|).
+
+    Each entry is a dict with ``name``, ``offset`` (signed distance from the
+    base), ``positions`` (Nx3), unit ``normals`` (Nx3), ``indices`` (Mx3, wound
+    so the front face points outward), ``rgba`` and ``folded``: the fraction of
+    the shell's area turned inside out, non-zero only when the offset passes
+    the surface's smallest radius of curvature (e.g. an inner torus shell
+    thinner than the offset, or an outer one that closes the hole).
+
+    The offsets follow the curve's own construction: along the surface normal
+    for the sphere, ellipsoid (true parallel surfaces), cylinder and torus;
+    concentric cubes for cubic-kamada (the angled style's three shells); and
+    RADIALLY for raw-kk, whose base is a star-shaped surface interpolating the
+    radius its strands' base follows (exact along the strands).
+    """
+    kind = str(shells.get("kind") or "sphere")
+    R = float(shells["radius"])
+    mag = abs(float(shells.get("offset", 0.0)))
+    params = shells.get("params") or {}
+    nseg = max(12, int(segments))
+    normals = None                  # analytic normals; None = from the mesh
+
+    if kind in ("sphere", "ellipsoid", "radial"):
+        dirs, tris = _uv_sphere_grid(nseg)
+        outward = shift = dirs
+        if kind == "ellipsoid":
+            axes = np.asarray(params.get("axes", (1.0, 1.0, 1.0)), float)
+            base = R * dirs * axes
+            outward = shift = normals = _normalize_rows(dirs / axes)
+        elif kind == "radial":
+            sd, sv = _radial_shell_samples(params)
+            base = (R * _interpolate_on_sphere(dirs, sd, sv))[:, None] * dirs
+        else:
+            base = R * dirs
+            normals = dirs
+    elif kind == "cylinder":
+        rad = R * float(params.get("radius", 1.0))
+        half = R * float(params.get("height", 1.0))
+        nv = max(2, int(round(nseg * half / (math.pi * rad)))) + 1
+        phi = np.linspace(0.0, 2.0 * math.pi, nseg, endpoint=False)
+        ring = np.column_stack([np.cos(phi), np.sin(phi), np.zeros(nseg)])
+        outward = shift = normals = np.tile(ring, (nv, 1))
+        base = rad * outward
+        base[:, 2] = np.repeat(np.linspace(-half, half, nv), nseg)
+        tris = _grid_tris(nseg, nv, wrap_v=False)
+    elif kind == "torus":
+        tube = R * float(params.get("tube", 0.35))
+        nv = max(24, nseg // 2)
+        u = np.linspace(0.0, 2.0 * math.pi, nseg, endpoint=False)
+        v = np.linspace(0.0, 2.0 * math.pi, nv, endpoint=False)
+        cu, su = np.tile(np.cos(u), nv), np.tile(np.sin(u), nv)
+        cv, sv = np.repeat(np.cos(v), nseg), np.repeat(np.sin(v), nseg)
+        outward = shift = normals = np.column_stack([cv * cu, cv * su, sv])
+        base = R * np.column_stack([cu, su, np.zeros_like(cu)]) + tube * outward
+        tris = _grid_tris(nseg, nv, wrap_v=True)
+    elif kind == "cube":
+        # (normal axis, sign, tangent axes b, c) with e_b x e_c = sign * e_axis
+        faces = ((0, 1.0, 1, 2), (0, -1.0, 2, 1), (1, 1.0, 2, 0),
+                 (1, -1.0, 0, 2), (2, 1.0, 0, 1), (2, -1.0, 1, 0))
+        unit, outward, tris = [], [], []
+        for f, (ax, sg, b, c) in enumerate(faces):
+            for p, q in ((-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)):
+                corner = np.zeros(3)
+                corner[ax], corner[b], corner[c] = sg, p, q
+                unit.append(corner)
+                nrm = np.zeros(3)
+                nrm[ax] = sg
+                outward.append(nrm)
+            tris += [(4 * f, 4 * f + 1, 4 * f + 2), (4 * f, 4 * f + 2, 4 * f + 3)]
+        unit = np.asarray(unit, float)
+        outward = normals = np.asarray(outward, float)
+        tris = np.asarray(tris, int)
+        base = R * unit
+        shift = unit                # concentric: (R + o) * unit
+    else:
+        raise ValueError("Unknown surface kind %r for the shell export." % kind)
+
+    meshes = []
+    for name, sign, rgba in _SHELL_LAYERS:
+        o = sign * mag
+        P = base + o * shift
+        N = normals if normals is not None else _mesh_vertex_normals(P, tris, outward)
+        meshes.append({
+            "name": name,
+            "offset": o,
+            "positions": P,
+            "normals": N,
+            "indices": tris,
+            "rgba": rgba,
+            "folded": _folded_area_fraction(P, tris, outward) if o else 0.0,
+        })
+    return meshes
+
+
+def _shells_glb_bytes(meshes, asset_extras=None):
+    """
+    A binary glTF 2.0 (.glb) holding one node, mesh and material per entry of
+    ``meshes``: float32 POSITION (with the min/max the spec requires) and
+    NORMAL, uint16 indices when they fit (else uint32), translucent
+    double-sided PBR materials, and every buffer view padded to 4 bytes.
+    """
+    blobs, views, accessors, gl_meshes, nodes, materials = [], [], [], [], [], []
+    nbytes = 0
+
+    def add_view(raw, target):
+        nonlocal nbytes
+        views.append({"buffer": 0, "byteOffset": nbytes,
+                      "byteLength": len(raw), "target": target})
+        pad = (-len(raw)) % 4
+        blobs.append(raw + b"\0" * pad)
+        nbytes += len(raw) + pad
+        return len(views) - 1
+
+    for i, m in enumerate(meshes):
+        pos = np.ascontiguousarray(m["positions"], dtype="<f4")
+        nrm = np.ascontiguousarray(m["normals"], dtype="<f4")
+        small = len(pos) < 65536
+        idx = np.ascontiguousarray(np.asarray(m["indices"]).reshape(-1),
+                                   dtype=("<u2" if small else "<u4"))
+        first = len(accessors)
+        accessors.append({
+            "bufferView": add_view(pos.tobytes(), 34962), "componentType": 5126,
+            "count": int(len(pos)), "type": "VEC3",
+            "min": [float(x) for x in pos.min(axis=0)],
+            "max": [float(x) for x in pos.max(axis=0)],
+        })
+        accessors.append({
+            "bufferView": add_view(nrm.tobytes(), 34962), "componentType": 5126,
+            "count": int(len(nrm)), "type": "VEC3",
+        })
+        accessors.append({
+            "bufferView": add_view(idx.tobytes(), 34963),
+            "componentType": 5123 if small else 5125,
+            "count": int(idx.size), "type": "SCALAR",
+        })
+        rgba = [float(c) for c in m["rgba"]]
+        materials.append({
+            "name": m["name"],
+            "pbrMetallicRoughness": {"baseColorFactor": rgba,
+                                     "metallicFactor": 0.0,
+                                     "roughnessFactor": 0.85},
+            "alphaMode": "BLEND" if rgba[3] < 1.0 else "OPAQUE",
+            "doubleSided": True,
+        })
+        gl_meshes.append({"name": m["name"], "primitives": [{
+            "attributes": {"POSITION": first, "NORMAL": first + 1},
+            "indices": first + 2, "material": i, "mode": 4}]})
+        node = {"name": m["name"], "mesh": i}
+        if m.get("extras"):
+            node["extras"] = m["extras"]
+        nodes.append(node)
+
+    try:
+        script_name = os.path.basename(os.path.abspath(__file__))
+    except Exception:
+        script_name = "draw_dt_original_labels.py"
+    asset = {"version": "2.0", "generator": "%s (%s)" % (script_name, SCRIPT_VERSION)}
+    if asset_extras:
+        asset["extras"] = asset_extras
+    gltf = {
+        "asset": asset,
+        "scene": 0,
+        "scenes": [{"name": "surface shells", "nodes": list(range(len(nodes)))}],
+        "nodes": nodes,
+        "meshes": gl_meshes,
+        "materials": materials,
+        "accessors": accessors,
+        "bufferViews": views,
+        "buffers": [{"byteLength": nbytes}],
+    }
+    js = json.dumps(gltf, separators=(",", ":")).encode("utf-8")
+    js += b" " * ((-len(js)) % 4)
+    binary = b"".join(blobs)
+    return (struct.pack("<4sII", b"glTF", 2, 28 + len(js) + len(binary))
+            + struct.pack("<II", len(js), 0x4E4F534A) + js
+            + struct.pack("<II", len(binary), 0x004E4942) + binary)
+
+
+ROD_SIDES = 24                    # facets around a rod
+ROD_MITER_LIMIT = 2.0             # largest stretch of a rod's ring at a corner
+
+
+def _srgb_to_linear(c):
+    """One sRGB colour component (0..1) in linear light, as glTF wants it."""
+    c = float(c)
+    return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+
+def _rod_mesh(points, diameter, sides=ROD_SIDES):
+    """
+    A closed, watertight tube of ``diameter`` along a closed polyline: one ring
+    of ``sides`` vertices per point.  The rings are framed by parallel
+    transport (no twist), with the rotation left over after one lap spread
+    evenly along the loop so the tube closes without a seam, and each ring is
+    stretched like a miter joint along its bend (up to ROD_MITER_LIMIT) so the
+    rod keeps its diameter through a corner.  Returns (positions, unit
+    normals, triangles wound outward).
+    """
+    P = np.asarray(points, float)
+    n = len(P)
+    r = 0.5 * float(diameter)
+    u_in = _normalize_rows(P - np.roll(P, 1, axis=0))
+    u_out = _normalize_rows(np.roll(P, -1, axis=0) - P)
+    T = u_in + u_out
+    tlen = np.linalg.norm(T, axis=1)
+    T = np.where(tlen[:, None] > 1.0e-9, T / np.maximum(tlen, 1.0e-12)[:, None], u_out)
+    def transport(nrm, i, j):
+        # rotation-minimising frame step i -> j by double reflection (Wang et
+        # al. 2008): exact for the large turns of a corner polyline, where
+        # simply projecting the normal can flip it.
+        v1 = P[j] - P[i]
+        c1 = float(v1 @ v1)
+        if c1 <= 1.0e-24:
+            rl, tl = nrm, T[i]
+        else:
+            rl = nrm - (2.0 / c1) * float(v1 @ nrm) * v1
+            tl = T[i] - (2.0 / c1) * float(v1 @ T[i]) * v1
+        v2 = T[j] - tl
+        c2 = float(v2 @ v2)
+        out = rl - (2.0 / c2) * float(v2 @ rl) * v2 if c2 > 1.0e-24 else rl
+        out = out - float(out @ T[j]) * T[j]
+        return _normalize_vector(out)
+
+    N = np.empty_like(P)
+    ref = np.array([1.0, 0.0, 0.0]) if abs(T[0][0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    N[0] = _normalize_vector(ref - (ref @ T[0]) * T[0])
+    for i in range(1, n):
+        N[i] = transport(N[i - 1], i - 1, i)
+    end = transport(N[n - 1], n - 1, 0)
+    holonomy = math.atan2(float(np.cross(end, N[0]) @ T[0]), float(end @ N[0]))
+    ang = holonomy * np.arange(n) / float(n)
+    N = np.cos(ang)[:, None] * N + np.sin(ang)[:, None] * np.cross(T, N)
+    N = _normalize_rows(N - np.sum(N * T, axis=1)[:, None] * T)
+    B = np.cross(T, N)
+    th = 2.0 * math.pi * np.arange(int(sides)) / float(int(sides))
+    radial = (np.cos(th)[None, :, None] * N[:, None, :]
+              + np.sin(th)[None, :, None] * B[:, None, :])
+    bend = u_out - u_in
+    blen = np.linalg.norm(bend, axis=1)
+    kdir = np.where(blen[:, None] > 1.0e-9, bend / np.maximum(blen, 1.0e-12)[:, None], 0.0)
+    stretch = np.minimum(1.0 / np.clip(0.5 * tlen, 1.0e-6, 1.0), ROD_MITER_LIMIT) - 1.0
+    along = np.einsum("nsj,nj->ns", radial, kdir)
+    ring = radial + (stretch[:, None] * along)[:, :, None] * kdir[:, None, :]
+    return ((P[:, None, :] + r * ring).reshape(-1, 3), radial.reshape(-1, 3),
+            _grid_tris(int(sides), n, wrap_v=True))
+
+
+def _rod_clearance(components, diameter):
+    """
+    How rods of ``diameter`` along ``components`` fit: the closest approach
+    between DIFFERENT strands, and the tightest bend radius of the curve.
+    Returns {"closest", "where": (component i, component j), "bend"}; rods
+    wider than "closest" overlap, and a bend radius under the rod radius folds
+    the rod's inner wall.
+
+    Two components are always different strands.  Within one component, a
+    pair of points counts only if it is a genuine close pass: more than half a
+    rod's circumference apart along the curve AND joined by a chord roughly
+    perpendicular to the curve at both ends (the 'doubly critical' pairs of
+    tube thickness).  Without that test the points just past any arc window
+    -- simply following each other along a smooth strand -- would always be
+    the closest pair and report the window size, not a near miss.
+    """
+    comps = [(k, np.asarray(c, float)) for k, c in enumerate(components) if len(c) >= 3]
+    if not comps:
+        return None
+    P = np.vstack([c for _, c in comps])
+    cid = np.concatenate([np.full(len(c), k) for k, c in comps])
+    local = np.concatenate([np.arange(len(c)) for _, c in comps])
+    arcs, lens, steps, tans, bend = [], [], [], [], np.inf
+    for _, c in comps:
+        seg = np.linalg.norm(np.roll(c, -1, axis=0) - c, axis=1)
+        arcs.append(np.concatenate(([0.0], np.cumsum(seg)[:-1])))
+        lens.append(np.full(len(c), float(np.sum(seg))))
+        steps.append(seg)
+        tans.append(_normalize_rows(np.roll(c, -1, axis=0) - np.roll(c, 1, axis=0)))
+        a = c - np.roll(c, 1, axis=0)
+        b = np.roll(c, -1, axis=0) - c
+        area2 = np.linalg.norm(np.cross(a, b), axis=1)
+        ok = area2 > 1.0e-12
+        if np.any(ok):
+            rad = (np.linalg.norm(a, axis=1) * np.linalg.norm(b, axis=1)
+                   * np.linalg.norm(a + b, axis=1))[ok] / (2.0 * area2[ok])
+            bend = min(bend, float(np.min(rad)))
+    S = np.concatenate(arcs)
+    L = np.concatenate(lens)
+    Tg = np.vstack(tans)
+    window = max(0.5 * math.pi * float(diameter), 3.0 * float(np.median(np.concatenate(steps))))
+    sq = np.sum(P * P, axis=1)
+    pt = np.sum(P * Tg, axis=1)
+    best, pair = np.inf, None
+    chunk = max(16, int(2.0e6 // len(P)))
+    for s0 in range(0, len(P), chunk):
+        s1 = min(len(P), s0 + chunk)
+        d2 = np.maximum(sq[s0:s1, None] + sq[None, :] - 2.0 * (P[s0:s1] @ P.T), 0.0)
+        darc = np.abs(S[s0:s1, None] - S[None, :])
+        darc = np.minimum(darc, L[s0:s1, None] - darc)
+        ui = (Tg[s0:s1] @ P.T) - pt[s0:s1, None]            # chord . tangent at i
+        uj = pt[None, :] - (P[s0:s1] @ Tg.T)                 # chord . tangent at j
+        lim = 0.25 * d2                                       # |cos| <= 0.5
+        along = (darc < window) | (ui * ui > lim) | (uj * uj > lim)
+        d2[(cid[s0:s1, None] == cid[None, :]) & along] = np.inf
+        k = int(np.argmin(d2))
+        i, j = divmod(k, len(P))
+        if d2[i, j] < best:
+            best, pair = float(d2[i, j]), (s0 + i, j)
+    if pair is None or not np.isfinite(best):
+        return {"closest": np.inf, "where": None, "bend": bend}
+    # refine on the segments either side of the two points, keeping to
+    # segment pairs that are themselves far apart along a shared component
+    by_comp = dict(comps)
+    s_of = {k: a for (k, _), a in zip(comps, arcs)}
+    loop_of = {k: float(np.sum(st)) for (k, _), st in zip(comps, steps)}
+    (ci, li), (cj, lj) = [(int(cid[g]), int(local[g])) for g in pair]
+    A, Bc = by_comp[ci], by_comp[cj]
+    closest = math.sqrt(best)
+    for da in (-2, -1, 0, 1):
+        for db in (-2, -1, 0, 1):
+            ia, ib = (li + da) % len(A), (lj + db) % len(Bc)
+            if ci == cj:
+                gap = abs(s_of[ci][ia] - s_of[ci][ib])
+                if min(gap, loop_of[ci] - gap) < window:
+                    continue
+            closest = min(closest, _seg_seg_distance(A[ia], A[(ia + 1) % len(A)],
+                                                     Bc[ib], Bc[(ib + 1) % len(Bc)]))
+    return {"closest": float(closest), "where": (ci, cj), "bend": bend}
+
+
+def _describe_surface_shells(shells):
+    """One sentence naming the base surface and its two offset shells."""
+    kind = shells["kind"]
+    R = float(shells["radius"])
+    o = abs(float(shells.get("offset", 0.0)))
+    p = shells.get("params") or {}
+    if kind == "ellipsoid":
+        ax = R * np.asarray(p["axes"], float)
+        return ("base ellipsoid with semi-axes %.3f x %.3f x %.3f; the inner / "
+                "outer shells are its parallel surfaces at -/+%.3f along the normal"
+                % (ax[0], ax[1], ax[2], o))
+    if kind == "cylinder":
+        rad, half = R * float(p["radius"]), R * float(p["height"])
+        return ("base open cylinder of radius %.3f about z, from z = %.3f to "
+                "%.3f; the inner / outer shells are coaxial cylinders of radius "
+                "%.3f / %.3f" % (rad, -half, half, rad - o, rad + o))
+    if kind == "torus":
+        tube = R * float(p["tube"])
+        return ("base torus about z with centre-line radius %.3f and tube radius "
+                "%.3f; the inner / outer shells have tube radius %.3f / %.3f"
+                % (R, tube, tube - o, tube + o))
+    if kind == "cube":
+        return ("base cube of half-side %.3f; the inner / outer shells are "
+                "concentric cubes of half-side %.3f / %.3f" % (R, R - o, R + o))
+    if kind == "radial":
+        sc = np.asarray(p["scales"], float)
+        return ("raw-kk has no single base sphere: the base shell follows the "
+                "radius the strands' base takes (%.3f-%.3f x %.3f), interpolated "
+                "between strands; the inner / outer shells sit -/+%.3f from it "
+                "radially" % (float(sc.min()), float(sc.max()), R, o))
+    return ("base sphere of radius %.3f; the inner / outer shells are spheres "
+            "of radius %.3f / %.3f" % (R, R - o, R + o))
+
+
+def write_surface_shells_glb(path, shells, segments=SHELL_MESH_SEGMENTS, extras=None,
+                             rod_diameter=0.0):
+    """
+    Write the base surface of a 3D build and its inner / outer offset shells to
+    ``path`` as one binary glTF 2.0 file, and return the status lines.
+
+    ``shells`` is the description that build_spherical_xyz_components fills
+    into ``shells_out``; ``extras`` (a JSON-serialisable dict, e.g. the DT code)
+    is stored in the file's asset metadata.  With ``rod_diameter`` > 0 the
+    curve itself goes into the same file as solid rods of that diameter, one
+    watertight mesh per component (component_1, ...), and the status lines say
+    how close the strands come.  Needs nothing beyond numpy.
+    """
+    if not shells or "kind" not in shells:
+        raise ValueError("No surface description: build the XYZ curve with "
+                         "shells_out first.")
+    meshes = surface_shell_meshes(shells, segments=segments)
+    kind = shells["kind"]
+    along = "radially" if kind == "radial" else "along its outward normal"
+    for m in meshes:
+        m["extras"] = {
+            "offset": float(m["offset"]),
+            "description": ("the base surface the curve is built on" if not m["offset"]
+                            else "the base surface offset by %+.6g %s" % (m["offset"], along)),
+        }
+    meta = {
+        "description": ("The surface a draw_dt 3D curve is built on and its "
+                        "inner / outer offsets by the crossing offset, in the "
+                        "coordinates and units of the XYZ file."),
+        "sphere_layout": shells.get("layout"),
+        "surface": kind,
+        "sphere_radius": float(shells["radius"]),
+        "crossing_offset": float(shells.get("offset", 0.0)),
+    }
+    params = shells.get("params") or {}
+    if kind in ("ellipsoid", "cylinder", "torus"):
+        meta["surface_params"] = {k: np.asarray(v, float).tolist() for k, v in params.items()}
+    elif kind == "cube":
+        meta["cube_style"] = params.get("style")
+    if extras:
+        meta.update(extras)
+    rod_diameter = float(rod_diameter or 0.0)
+    if rod_diameter < 0.0:
+        raise ValueError("--glb-rod-diameter must be zero (no rods) or positive.")
+    rods = []
+    if rod_diameter > 0.0:
+        for k, comp in enumerate(shells.get("curve") or []):
+            comp = np.asarray(comp, float)
+            if len(comp) < 3:
+                continue
+            V, Nrm, tris = _rod_mesh(comp, rod_diameter)
+            rgb = [_srgb_to_linear(c) for c in _default_color_of(k)[:3]]
+            rods.append({"name": "component_%d" % (k + 1), "positions": V,
+                         "normals": Nrm, "indices": tris, "rgba": rgb + [1.0],
+                         "extras": {"component": k + 1,
+                                    "rod_diameter": rod_diameter}})
+        meta["rod_diameter"] = rod_diameter
+    blob = _shells_glb_bytes(meshes + rods, meta)
+    ensure_parent_dir(path)
+    with open(path, "wb") as fh:
+        fh.write(blob)
+
+    msgs = [
+        "[ok] wrote %s (surface shells inner_shell / base_surface / outer_shell, "
+        "%d vertices and %d triangles each%s)"
+        % (path, len(meshes[0]["positions"]), len(meshes[0]["indices"]),
+           ("; plus %d rods of diameter %g" % (len(rods), rod_diameter)) if rods else ""),
+        "[shells] %s; same coordinates as the XYZ file." % _describe_surface_shells(shells),
+    ]
+    if rods:
+        fit = _rod_clearance(shells.get("curve") or [], rod_diameter)
+        msgs.append(
+            "[rods] %d watertight %d-sided rods of diameter %g, one per "
+            "component (component_1..component_%d), in the component colours."
+            % (len(rods), ROD_SIDES, rod_diameter, len(rods)))
+        if fit is not None and np.isfinite(fit["closest"]):
+            ci, cj = fit["where"]
+            msgs.append(
+                "[rods] the strands come within %.3f of each other (%s), so rods "
+                "up to %.3f across stay apart; the tightest bend has radius %.3f."
+                % (fit["closest"],
+                   "component %d against itself" % (ci + 1) if ci == cj
+                   else "components %d and %d" % (ci + 1, cj + 1),
+                   fit["closest"], fit["bend"]))
+            if rod_diameter > fit["closest"]:
+                msgs.append(
+                    "[warn] rods: diameter %g is more than the closest approach "
+                    "%.3f between strands, so neighbouring rods overlap there "
+                    "(and would fuse in a print); use --glb-rod-diameter %.3f or "
+                    "less." % (rod_diameter, fit["closest"],
+                               math.floor(fit["closest"] * 1000.0) / 1000.0))
+            if fit["bend"] < 0.5 * rod_diameter:
+                msgs.append(
+                    "[warn] rods: the curve bends with radius %.3f somewhere, "
+                    "under the rod radius %g, so the rod's inner wall folds over "
+                    "itself there." % (fit["bend"], 0.5 * rod_diameter))
+    mag = abs(float(shells.get("offset", 0.0)))
+    curve = [np.asarray(c, float) for c in (shells.get("curve") or []) if len(c)]
+    if curve:
+        # How well the finished curve rides the shells: every point should lie
+        # between the inner and outer shell, and the crossing visits on them.
+        s = _shell_signed_offsets(shells, np.vstack(curve))
+        tol = 0.05 * mag + 1.0e-6 * float(shells["radius"])
+        between = float(np.mean(np.abs(s) <= mag + tol))
+        on_layer = (", %.1f%% on the inner or outer shell itself"
+                    % (100.0 * float(np.mean(np.abs(np.abs(s) - mag) <= tol)))
+                    if mag > 0.0 else "")
+        msgs.append("[shells] fit: %.1f%% of the curve's %d points lie between the "
+                    "inner and outer shells%s (to within 5%% of the offset)."
+                    % (100.0 * between, len(s), on_layer))
+        if between < 0.995:
+            why = "the clearance repair or the smoothing moved them off the layers"
+            if kind == "cylinder":
+                why = ("the cylinder warp squeezes the sphere's poles onto its open "
+                       "ends, so strands passing near a pole run as straight chords "
+                       "near or across an end")
+            elif kind == "torus":
+                why = ("the torus warp squeezes the sphere's poles onto the inner "
+                       "ridge, so strands passing near a pole run as straight "
+                       "chords across the hole")
+            elif kind == "cube" and params.get("style") == "angled":
+                why = ("the angled style's 90-degree connectors run straight "
+                       "through the cube between crossings; only the crossing "
+                       "passes sit on the shells")
+            elif kind == "radial" and shells.get("smoothed"):
+                if shells.get("smooth_method") == "crossing-pinned":
+                    why = ("crossing-pinned smoothing keeps every crossing on its "
+                           "shell but smooths the radius along the connectors "
+                           "between shells; --no-xyz-final-smooth keeps the whole "
+                           "curve on them")
+                else:
+                    why = ("the final 3D smoothing rescales raw-kk's radial offsets; "
+                           "--xyz-smooth-method crossing-pinned keeps the crossings "
+                           "on their shells, --no-xyz-final-smooth the whole curve")
+            msgs.append("[note] %.1f%% of the curve leaves the shells, by up to %.3f -- %s."
+                        % (100.0 * (1.0 - between), float(np.max(np.abs(s))) - mag, why))
+    if mag == 0.0:
+        msgs.append("[note] the crossing offset is 0, so the inner and outer "
+                    "shells coincide with the base surface.")
+    elif kind == "cube" and params.get("style") != "angled":
+        msgs.append(
+            "[note] cubic-kamada smooth lifts each strand along its own FACE "
+            "normal, so within %.3f of a cube edge an inner-layer strand lies "
+            "outside the inner cube, between it and the base." % mag)
+    for m in meshes:
+        if m["folded"] > 1.0e-6:
+            msgs.append(
+                "[warn] shells: %s turns inside out over %.1f%% of its area -- "
+                "|crossing offset| %.3f passes the base surface's smallest radius "
+                "of curvature there, so strands on that layer can pass through "
+                "each other (check the topology audit).  Lower --crossing-offset%s."
+                % (m["name"], 100.0 * m["folded"], mag,
+                   (" or %s the torus tube ratio"
+                    % ("raise" if m["offset"] < 0.0 else "lower"))
+                   if kind == "torus" else ""))
+    return msgs
 
 
 
@@ -8814,7 +9510,16 @@ def run_pipeline(args, status_stream=None):
         )
         out.write("[ok] wrote %s\n" % args.table)
 
-    if getattr(args, "write_xyz", True) and args.xyz_output:
+    _write_xyz = bool(getattr(args, "write_xyz", True) and args.xyz_output)
+    if getattr(args, "shells_glb", None) and not _write_xyz:
+        out.write("[warn] --shells-glb is built from the XYZ curve, so it is "
+                  "ignored when no XYZ file is written (--no-xyz).\n")
+    if float(getattr(args, "glb_rod_diameter", 0.0) or 0.0) > 0.0 \
+            and not getattr(args, "shells_glb", None):
+        out.write("[warn] --glb-rod-diameter puts the rods into the "
+                  "--shells-glb file, so it is ignored without --shells-glb.\n")
+    if _write_xyz:
+        _shells = {} if getattr(args, "shells_glb", None) else None
         n_points = write_spherical_xyz(
             data["model"],
             data["P"],
@@ -8835,6 +9540,8 @@ def run_pipeline(args, status_stream=None):
             xyz_final_smooth=args.xyz_final_smooth,
             xyz_smooth_window=args.xyz_smooth_window,
             xyz_smooth_passes=args.xyz_smooth_passes,
+            xyz_smooth_method=getattr(args, "xyz_smooth_method", "gaussian"),
+            xyz_even_spacing=getattr(args, "xyz_even_spacing", True),
             surface_shape=getattr(args, "surface_shape", "ellipsoid"),
             surface_auto_orient=bool(getattr(args, "surface_auto_orient", True)),
             surface_auto_aspect=bool(getattr(args, "surface_auto_aspect", True)),
@@ -8847,8 +9554,15 @@ def run_pipeline(args, status_stream=None):
             xyz_clearance=(getattr(args, "xyz_clearance", 0.0) or None),
             audit_dt=getattr(args, "dt", None),
             status_stream=out,
+            shells_out=_shells,
         )
         out.write("[ok] wrote %s (%d xyz rows)\n" % (args.xyz_output, n_points))
+        if _shells is not None:
+            for _m in write_surface_shells_glb(
+                    shells_glb_path(args.shells_glb, args.xyz_output), _shells,
+                    extras={"dt": getattr(args, "dt", None)},
+                    rod_diameter=getattr(args, "glb_rod_diameter", 0.0)):
+                out.write(_m + "\n")
 
         if getattr(args, "save_projections", False):
             _skel = {}
@@ -8866,6 +9580,8 @@ def run_pipeline(args, status_stream=None):
                 xyz_final_smooth=args.xyz_final_smooth,
                 xyz_smooth_window=args.xyz_smooth_window,
                 xyz_smooth_passes=args.xyz_smooth_passes,
+                xyz_smooth_method=getattr(args, "xyz_smooth_method", "gaussian"),
+                xyz_even_spacing=getattr(args, "xyz_even_spacing", True),
                 surface_shape=getattr(args, "surface_shape", "ellipsoid"),
                 surface_auto_orient=bool(getattr(args, "surface_auto_orient", True)),
                 surface_auto_aspect=bool(getattr(args, "surface_auto_aspect", True)),
@@ -9579,6 +10295,27 @@ def build_arg_parser():
         ),
     )
     ap.add_argument(
+        "--xyz-even-spacing",
+        dest="xyz_even_spacing",
+        action="store_true",
+        default=True,
+        help=(
+            "V5.7 (default on): as the last step, re-space each component so "
+            "that ALL its segments, the closing one from the last point back "
+            "to the first included, have the same length -- the component's "
+            "average.  Same number of points, slid along the same curve.  "
+            "The clearance repair moves points after the last resample, which "
+            "otherwise leaves uneven segments and short closing ones.  Not "
+            "applied to the angled cube style (its points are its corners)."
+        ),
+    )
+    ap.add_argument(
+        "--no-xyz-even-spacing",
+        dest="xyz_even_spacing",
+        action="store_false",
+        help="Keep the point spacing as the build leaves it (no final re-spacing).",
+    )
+    ap.add_argument(
         "--xyz-final-smooth",
         dest="xyz_final_smooth",
         action="store_true",
@@ -9611,6 +10348,24 @@ def build_arg_parser():
         help=(
             "Number of repeated final XYZ smoothing passes. Default: 5. "
             "Use 0 or --no-xyz-final-smooth for no smoothing."
+        ),
+    )
+    ap.add_argument(
+        "--xyz-smooth-method",
+        choices=XYZ_SMOOTH_METHODS,
+        default="gaussian",
+        help=(
+            "V5.7: final-smoothing method. 'gaussian' (default) is the original "
+            "smoothing. 'crossing-pinned' applies the same Gaussian smoothing "
+            "but never moves the core of a crossing patch (its central 35%%): "
+            "each point is smoothed over at most its distance to the nearest "
+            "core, up to --xyz-smooth-window, so each crossing stays centred "
+            "on the base surface with its over- and under-strand at +/- the "
+            "crossing offset, while connectors are smoothed more the farther "
+            "they are from a crossing. Use it when the crossings matter: 'gaussian' "
+            "averages each crossing with its neighbouring connectors and can "
+            "shrink, grow or (on dense diagrams with small crossing angles) "
+            "invert the over/under gap."
         ),
     )
     ap.add_argument(
@@ -9663,6 +10418,37 @@ def build_arg_parser():
         dest="xyz_close_components",
         action="store_false",
         help=argparse.SUPPRESS,
+    )
+    ap.add_argument(
+        "--shells-glb",
+        nargs="?",
+        const=SHELLS_AUTO,
+        default=None,
+        metavar="PATH",
+        help=(
+            "V5.7: also write the surfaces the 3D curve is built on -- the base "
+            "surface (sphere, ellipsoid, cylinder, torus or cube; for raw-kk its "
+            "multi-radius shell) and its inner and outer offsets by "
+            "|--crossing-offset| -- as one binary glTF file with three meshes "
+            "(inner_shell, base_surface, outer_shell) in the XYZ file's own "
+            "coordinates.  Without PATH it is written next to the XYZ as "
+            "<xyz stem>_shells.glb."
+        ),
+    )
+    ap.add_argument(
+        "--glb-rod-diameter",
+        type=float,
+        default=0.0,
+        metavar="D",
+        help=(
+            "V5.7: with --shells-glb, also put the curve itself into the .glb "
+            "as solid rods of diameter D (in XYZ units): one watertight mesh "
+            "per component, named component_1, component_2, ..., in the "
+            "component colours.  0 (default) = no rods.  The status log "
+            "reports how close the strands come -- the widest rods that stay "
+            "apart -- and warns when D is wider than that or when the curve "
+            "bends more tightly than the rod radius."
+        ),
     )
     return ap
 
@@ -10043,13 +10829,18 @@ def run_gui(initial_args):
     sphere_angle_var = tk.StringVar(value=str(getattr(initial_args, "sphere_crossing_angle", 15.0)))
     sphere_refine_var = tk.BooleanVar(value=bool(getattr(initial_args, "sphere_refine", False)))
     xyz_spacing_var = tk.StringVar(value=str(initial_args.xyz_spacing))
+    xyz_even_spacing_var = tk.BooleanVar(value=bool(getattr(initial_args, "xyz_even_spacing", True)))
     xyz_final_smooth_var = tk.BooleanVar(value=bool(getattr(initial_args, "xyz_final_smooth", True)))
     xyz_smooth_window_var = tk.StringVar(value=str(getattr(initial_args, "xyz_smooth_window", 10)))
     xyz_smooth_passes_var = tk.StringVar(value=str(getattr(initial_args, "xyz_smooth_passes", 5)))
+    xyz_smooth_method_var = tk.StringVar(
+        value=str(getattr(initial_args, "xyz_smooth_method", "gaussian") or "gaussian"))
     xyz_clearance_var = tk.StringVar(value=str(getattr(initial_args, "xyz_clearance", 0.0)))
     xyz_repair_var = tk.BooleanVar(value=not bool(getattr(initial_args, "no_xyz_repair", False)))
     xyz_decimals_var = tk.StringVar(value=str(initial_args.xyz_decimals))
     xyz_close_var = tk.BooleanVar(value=bool(initial_args.xyz_close_components))
+    shells_glb_var = tk.BooleanVar(value=bool(getattr(initial_args, "shells_glb", None)))
+    glb_rod_diameter_var = tk.StringVar(value=str(getattr(initial_args, "glb_rod_diameter", 0.0)))
 
     show_ids_var = tk.BooleanVar(value=bool(initial_args.show_crossing_ids))
     color_ids_var = tk.BooleanVar(
@@ -10429,10 +11220,29 @@ def run_gui(initial_args):
     add_entry("XYZ point spacing", xyz_spacing_var, help_key="xyz_spacing")
     ttk.Checkbutton(
         settings,
+        text="even point spacing (equal segments)",
+        variable=xyz_even_spacing_var,
+    ).grid(row=row, column=0, columnspan=3, sticky="w", pady=2)
+    add_help_button(row, "xyz_even_spacing")
+    row += 1
+    ttk.Checkbutton(
+        settings,
         text="final smooth 3D curve",
         variable=xyz_final_smooth_var,
     ).grid(row=row, column=0, columnspan=3, sticky="w", pady=2)
     add_help_button(row, "xyz_final_smooth")
+    row += 1
+    _smooth_method_lbl = ttk.Label(settings, text="smoothing method")
+    _smooth_method_lbl.grid(row=row, column=0, sticky="w", pady=3)
+    _smooth_method_combo = ttk.Combobox(
+        settings, textvariable=xyz_smooth_method_var,
+        values=list(XYZ_SMOOTH_METHODS), width=18, state="readonly"
+    )
+    _smooth_method_combo.grid(row=row, column=1, sticky="w", pady=3)
+    add_help_button(row, "xyz_smooth_method")
+    dynamic_widgets.setdefault("xyz_smooth_method", []).extend(
+        [(_smooth_method_lbl, "label"), (_smooth_method_combo, "combo")]
+    )
     row += 1
     add_entry("smooth window", xyz_smooth_window_var, help_key="xyz_smooth_window")
     add_entry("smooth passes", xyz_smooth_passes_var, help_key="xyz_smooth_passes")
@@ -10455,6 +11265,15 @@ def run_gui(initial_args):
     ).grid(row=row, column=0, columnspan=3, sticky="w", pady=2)
     add_help_button(row, "xyz_close_components")
     row += 1
+    ttk.Checkbutton(
+        settings,
+        text="'Save XYZ' also writes surface shells (.glb)",
+        variable=shells_glb_var,
+    ).grid(row=row, column=0, columnspan=3, sticky="w", pady=2)
+    add_help_button(row, "shells_glb")
+    row += 1
+    add_entry("rod diameter (0 = none)", glb_rod_diameter_var,
+              help_key="glb_rod_diameter", key="glb_rod_diameter")
 
     # ------------------------------------------------------------------
     # V5.0 third tab: illustrative 2D projections of the 3D curve.
@@ -10781,6 +11600,12 @@ def run_gui(initial_args):
         _set_dynamic("sphere_bump", True)
         _set_dynamic("sphere_extent", sl in ("stereographic", "stereo-safe"))
         _set_dynamic("xyz_repair", sl != "stereo-safe")
+        # stereo-safe never smooths, so the smoothing method applies only
+        # when final smoothing is on and the layout smooths at all.
+        _set_dynamic("xyz_smooth_method",
+                     sl != "stereo-safe" and bool(xyz_final_smooth_var.get()))
+        # the rods go into the shells file, so they need it switched on
+        _set_dynamic("glb_rod_diameter", bool(shells_glb_var.get()))
         _set_dynamic(
             "xyz_clearance",
             sl != "stereo-safe" and bool(xyz_repair_var.get()),
@@ -10852,10 +11677,14 @@ def run_gui(initial_args):
             xyz_final_smooth=bool(xyz_final_smooth_var.get()),
             xyz_smooth_window=_int_value(xyz_smooth_window_var, "smooth window"),
             xyz_smooth_passes=_int_value(xyz_smooth_passes_var, "smooth passes"),
+            xyz_smooth_method=xyz_smooth_method_var.get(),
+            xyz_even_spacing=bool(xyz_even_spacing_var.get()),
             xyz_clearance=_float_value(xyz_clearance_var, "XYZ clearance"),
             no_xyz_repair=not bool(xyz_repair_var.get()),
             xyz_decimals=_int_value(xyz_decimals_var, "XYZ decimals"),
             xyz_close_components=bool(xyz_close_var.get()),
+            shells_glb=(SHELLS_AUTO if bool(shells_glb_var.get()) else None),
+            glb_rod_diameter=_float_value(glb_rod_diameter_var, "rod diameter"),
             surface_shape=surface_shape_var.get(),
             surface_auto_orient=bool(surface_auto_orient_var.get()),
             surface_auto_aspect=bool(surface_auto_aspect_var.get()),
@@ -11119,6 +11948,7 @@ def run_gui(initial_args):
             ns.xyz_output = _ask_xyz_path()
             buf = io.StringIO()
             state = _compute_gui_state(ns, status_stream=buf)
+            _shells = {} if getattr(ns, "shells_glb", None) else None
             n_points = write_spherical_xyz(
                 state["model"],
                 state["P"],
@@ -11139,6 +11969,8 @@ def run_gui(initial_args):
                 xyz_final_smooth=ns.xyz_final_smooth,
                 xyz_smooth_window=ns.xyz_smooth_window,
                 xyz_smooth_passes=ns.xyz_smooth_passes,
+                xyz_smooth_method=getattr(ns, "xyz_smooth_method", "gaussian"),
+                xyz_even_spacing=getattr(ns, "xyz_even_spacing", True),
                 surface_shape=ns.surface_shape,
                 surface_auto_orient=ns.surface_auto_orient,
                 surface_auto_aspect=ns.surface_auto_aspect,
@@ -11151,7 +11983,19 @@ def run_gui(initial_args):
                 xyz_clearance=(getattr(ns, 'xyz_clearance', 0.0) or None),
                 audit_dt=getattr(ns, 'dt', None),
                 status_stream=buf,
+                shells_out=_shells,
             )
+            shells_log, shells_file = "", None
+            if _shells is not None:
+                try:
+                    shells_file = shells_glb_path(ns.shells_glb, ns.xyz_output)
+                    shells_log = "".join(
+                        m + "\n" for m in write_surface_shells_glb(
+                            shells_file, _shells, extras={"dt": ns.dt},
+                            rod_diameter=getattr(ns, "glb_rod_diameter", 0.0)))
+                except Exception as sexc:
+                    shells_file = None
+                    shells_log = "[warn] surface shells failed: %s\n" % sexc
             extra = ""
             if bool(proj_save_with_xyz_var.get()):
                 try:
@@ -11159,99 +12003,13 @@ def run_gui(initial_args):
                     extra = "".join("[ok] wrote %s\n" % p for p in written)
                 except Exception as pexc:
                     extra = "[warn] projections failed: %s\n" % pexc
-            set_log(buf.getvalue() + "[ok] wrote %s (%d xyz rows)\n" % (ns.xyz_output, n_points) + extra)
-            messagebox.showinfo("Saved", "Wrote XYZ coordinates:\n%s%s" % (
+            set_log(buf.getvalue() + "[ok] wrote %s (%d xyz rows)\n" % (ns.xyz_output, n_points)
+                    + shells_log + extra)
+            messagebox.showinfo("Saved", "Wrote XYZ coordinates:\n%s%s%s" % (
                 ns.xyz_output,
+                ("\n\n+ surface shells:\n%s" % shells_file) if shells_file else "",
                 ("\n\n+ %d projection file(s)" % extra.count("[ok]")) if extra.startswith("[ok]") else "",
             ))
-        except Exception as exc:
-            msg = str(exc)
-            set_log("[error] %s\n" % msg)
-            messagebox.showerror("Error", msg)
-
-    def save_all():
-        try:
-            ns = collect_args()
-            ns.output = _ask_output_path()
-            ns.table = _ask_table_path()
-            ns.xyz_output = _ask_xyz_path()
-            buf = io.StringIO()
-            state = _compute_gui_state(ns, status_stream=buf)
-            label_coords, crossing_xy = draw(
-                state["model"],
-                state["P"],
-                state["centers"],
-                ns.output,
-                dpi=ns.dpi,
-                show_crossing_ids=ns.show_crossing_ids,
-                color_crossing_ids_by_overstrand=ns.color_crossing_ids_by_overstrand,
-                crossing_ids=state["crossing_ids"],
-                title=ns.title,
-                label_fontsize=ns.font_size,
-                crossing_id_fontsize=ns.crossing_id_font_size,
-                line_width=ns.line_width,
-                gap_frac=ns.gap_frac,
-                over_gap_factor=getattr(ns, "over_gap_factor", 2.0),
-                figsize=ns.figsize,
-                show_labels=not ns.hide_labels,
-                arrows=not ns.no_arrows,
-                match_view=_current_match_view(),
-                dt_code=ns.dt,
-                layout=ns.layout,
-                tutte_guides=state.get("tutte_guides"),
-                show_tutte_outline=bool(getattr(ns, "show_tutte_outline", False)),
-                show_tutte_pca=bool(getattr(ns, "show_tutte_pca", False)),
-            )
-            write_table(
-                state["model"],
-                label_coords,
-                crossing_xy,
-                ns.table,
-                crossing_ids=state["crossing_ids"],
-            )
-            n_points = write_spherical_xyz(
-                state["model"],
-                state["P"],
-                state["centers"],
-                ns.xyz_output,
-                G=state["graph"],
-                sphere_radius=ns.sphere_radius,
-                sphere_extent=ns.sphere_extent,
-                sphere_offset=ns.sphere_offset,
-                sphere_bump_frac=ns.sphere_bump_frac,
-                xyz_spacing=ns.xyz_spacing,
-                close_components=ns.xyz_close_components,
-                decimals=ns.xyz_decimals,
-                sphere_layout=ns.sphere_layout,
-                sphere_crossing_angle=ns.sphere_crossing_angle,
-                direct_connecting=ns.direct_connecting,
-                sphere_refine=bool(getattr(ns, "sphere_refine", False)),
-                xyz_final_smooth=ns.xyz_final_smooth,
-                xyz_smooth_window=ns.xyz_smooth_window,
-                xyz_smooth_passes=ns.xyz_smooth_passes,
-                surface_shape=ns.surface_shape,
-                surface_auto_orient=ns.surface_auto_orient,
-                surface_auto_aspect=ns.surface_auto_aspect,
-                surface_aspect=ns.surface_aspect,
-                surface_tube=ns.surface_tube,
-                surface_orient=ns.surface_orient,
-                surface_tilt=ns.surface_tilt,
-                cube_style=getattr(ns, "cube_style", "smooth"),
-                xyz_repair=not getattr(ns, 'no_xyz_repair', False),
-                xyz_clearance=(getattr(ns, 'xyz_clearance', 0.0) or None),
-                audit_dt=getattr(ns, 'dt', None),
-                status_stream=buf,
-            )
-            set_log(
-                buf.getvalue()
-                + "[ok] wrote %s\n[ok] wrote %s\n[ok] wrote %s (%d xyz rows)\n"
-                % (ns.output, ns.table, ns.xyz_output, n_points)
-            )
-            messagebox.showinfo(
-                "Saved",
-                "Wrote image:\n%s\n\nWrote CSV table:\n%s\n\nWrote XYZ coordinates:\n%s"
-                % (ns.output, ns.table, ns.xyz_output),
-            )
         except Exception as exc:
             msg = str(exc)
             set_log("[error] %s\n" % msg)
@@ -11293,6 +12051,8 @@ def run_gui(initial_args):
             xyz_final_smooth=ns.xyz_final_smooth,
             xyz_smooth_window=ns.xyz_smooth_window,
             xyz_smooth_passes=ns.xyz_smooth_passes,
+            xyz_smooth_method=getattr(ns, "xyz_smooth_method", "gaussian"),
+            xyz_even_spacing=getattr(ns, "xyz_even_spacing", True),
             surface_shape=ns.surface_shape,
             surface_auto_orient=ns.surface_auto_orient,
             surface_auto_aspect=ns.surface_auto_aspect,
@@ -11665,6 +12425,8 @@ def run_gui(initial_args):
                 xyz_final_smooth=ns.xyz_final_smooth,
                 xyz_smooth_window=ns.xyz_smooth_window,
                 xyz_smooth_passes=ns.xyz_smooth_passes,
+                xyz_smooth_method=getattr(ns, "xyz_smooth_method", "gaussian"),
+                xyz_even_spacing=getattr(ns, "xyz_even_spacing", True),
                 surface_shape=ns.surface_shape,
                 surface_auto_orient=ns.surface_auto_orient,
                 surface_auto_aspect=ns.surface_auto_aspect,
@@ -11714,6 +12476,8 @@ def run_gui(initial_args):
         "sphere_bump_frac": sphere_bump_var, "sphere_crossing_angle": sphere_angle_var,
         "xyz_spacing": xyz_spacing_var, "xyz_smooth_window": xyz_smooth_window_var,
         "xyz_smooth_passes": xyz_smooth_passes_var,
+        "xyz_smooth_method": xyz_smooth_method_var,
+        "glb_rod_diameter": glb_rod_diameter_var,
         "xyz_clearance": xyz_clearance_var, "xyz_decimals": xyz_decimals_var,
         "tutte_shape": tutte_shape_var, "tutte_aspect": tutte_aspect_var,
         "tutte_corner_radius": tutte_corner_var, "tutte_decompress": tutte_decompress_var,
@@ -11743,8 +12507,10 @@ def run_gui(initial_args):
         "direct_connecting": direct_connecting_var,
         "sphere_refine": sphere_refine_var,
         "xyz_final_smooth": xyz_final_smooth_var,
+        "xyz_even_spacing": xyz_even_spacing_var,
         "xyz_repair": xyz_repair_var,
         "xyz_close_components": xyz_close_var,
+        "shells_glb": shells_glb_var,
         "show_crossing_ids": show_ids_var,
         "color_crossing_ids_by_overstrand": color_ids_var,
         "hide_labels": hide_labels_var, "no_arrows": no_arrows_var,
@@ -11962,6 +12728,8 @@ def run_gui(initial_args):
         surface_auto_orient_var,
         surface_auto_aspect_var,
         xyz_repair_var,
+        xyz_final_smooth_var,
+        shells_glb_var,
     ):
         var.trace_add("write", lambda *_a: _apply_dynamic_states())
 

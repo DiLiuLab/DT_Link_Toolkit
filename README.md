@@ -339,6 +339,119 @@ curve reconstructing to writhe −5, `--crossing-offset=-5` one reconstructing t
 +5. Use the `=` form on the command line so the leading `-` is not parsed as a
 flag. Only the *magnitude* of the offset is bounded by `--sphere-radius`.
 
+V5.7 can also write the **surfaces the 3-D curve is built on** as a binary
+glTF file (`--shells-glb`; GUI `3D XYZ` tab, `'Save XYZ' also writes surface
+shells (.glb)`):
+
+```bash
+draw_dt_original_labelsV5_7.py --dt "DT: [(4,6,2)]" --xyz-output link.xyz --shells-glb
+```
+
+Every sphere layout lifts the strands off a base surface by the crossing
+offset at each crossing, so the curve rides three nested shells. The `.glb`
+(`link_shells.glb` here; `--shells-glb PATH` names it yourself) holds them as
+three meshes:
+
+| mesh | surface |
+|---|---|
+| `inner_shell` | the base offset by −\|offset\| (the under-strand layer for a positive offset) |
+| `base_surface` | the sphere; the `shaped-kamada` ellipsoid, cylinder or torus; or the `cubic-kamada` cube |
+| `outer_shell` | the base offset by +\|offset\| (the over-strand layer for a positive offset) |
+
+The offsets are taken the way the curve is built: along the surface normal
+(true parallel surfaces of the ellipsoid, coaxial cylinders, tori with a
+thinner and a fatter tube), as concentric cubes for `cubic-kamada`, and
+radially for `raw-kk`, whose base has no single radius — it follows the radius
+each strand was built on and is interpolated between strands. The meshes use
+the XYZ file's own coordinates and units, with no recentring or axis swap, so
+they overlay any model made from the same XYZ (a tube mesh, say) unmoved. They
+come from the same build as the XYZ file. The status log describes the surfaces
+and measures how well the curve fits them:
+
+```
+[ok] wrote link_shells.glb (surface shells inner_shell / base_surface / outer_shell, 4514 vertices and 9024 triangles each)
+[shells] base sphere of radius 50.000; the inner / outer shells are spheres of radius 45.000 / 55.000; same coordinates as the XYZ file.
+[shells] fit: 100.0% of the curve's 371 points lie between the inner and outer shells, 21.8% on the inner or outer shell itself (to within 5% of the offset).
+```
+
+Most points sit *between* the shells rather than on them because, with
+`direct connecting` on, every connector whose two ends cross on different
+layers climbs smoothly from one shell to the other.
+
+Add `--glb-rod-diameter D` (GUI: `rod diameter (0 = none)` under the shells
+checkbox) to put the curve itself into the same file as solid rods of
+diameter `D`: one watertight mesh per component, named `component_1`,
+`component_2`, … in the component colours, so the curve and its shells open
+together in any viewer. The status log says how close the strands come —
+the widest rods that still stay apart — and warns if `D` is wider than that
+(the rods would overlap, and fuse in a print) or if the curve bends more
+tightly than the rod radius:
+
+```
+[rods] the strands come within 7.407 of each other (components 1 and 3), so rods up to 7.407 across stay apart; the tightest bend has radius 13.190.
+```
+
+A `[note]` appears, naming the cause, when part of the curve leaves its shells:
+`shaped-kamada` cylinder and torus strands that pass the sphere's poles run as
+straight chords across the open ends or the hole; the angled cube's 90-degree
+connectors cut through the cube between crossings; `raw-kk`'s default final
+smoothing rescales its radii (`--no-xyz-final-smooth` keeps the curve on
+them); and on dense diagrams the clearance repair pushes strands into extra
+radial layers. A `[warn]` appears when an offset shell turns inside out
+because the offset exceeds the surface's smallest radius of curvature, e.g. a
+torus tube thinner than the offset.
+
+V5.7 also adds a **crossing-preserving final smoothing**,
+`--xyz-smooth-method crossing-pinned` (GUI `3D XYZ` tab, `smoothing method`).
+The original method, `gaussian`, stays the default and its output is
+unchanged.
+
+The original smoothing does not keep the crossings on their layers. Its kernel
+(window 10 × 5 passes, about 18 units of curve at the default spacing) is wider
+than a crossing patch (26 units at a 15° crossing angle, 14 at 8°), so each
+strand's radius *at* a crossing is averaged with the connectors on either side,
+and the rescale that follows restores only the global highest and lowest
+points. Measured at every crossing — the over- and under-strand radius where
+the two pass the same direction — with a designed gap of 2 × offset = 10:
+
+| diagram | layout | unsmoothed | `gaussian` | `crossing-pinned` |
+|---|---|---|---|---|
+| 4BL | spherical-kamada | 10.00 | 7.41–10.00 | 10.00–10.01 |
+| 4BL | raw-kk | 10.00 | 8.02–11.65 | 10.00–10.01 |
+| trefoil | raw-kk | 10.00 | 11.43 | 10.00 |
+| C5BL, 8° | spherical-kamada | 10.00, audit ok | 10 of 40 inverted, audit FAIL | 9.99–10.01, audit ok |
+| C5BL, 8° | raw-kk | 10.00, audit ok | 10 of 40 inverted, audit FAIL | 9.98–10.01, audit ok |
+
+`crossing-pinned` gives every point a smoothing window of its own: zero within
+the central 35% of each crossing patch, growing by one point per point of
+distance from it, up to `--xyz-smooth-window`. No averaging reaches into a
+crossing, so every crossing stays centred on the base surface (its own shell
+for `raw-kk`) with the over-strand at +offset and the under-strand at −offset
+— a negative offset's inverted layers included — while connectors are smoothed
+more the farther they are from a crossing. It is somewhat less smooth than
+`gaussian` next to a crossing: the largest turning angle on 4BL is 9.7°,
+against 7.8° for `gaussian` and 28° unsmoothed (on `raw-kk` 4BL it is the
+smoother of the two, 10.6° against 22.9°). On `stereographic` the crossings
+*are* the narrow radial bumps, so keeping them keeps their steep flanks.
+
+**Even point spacing** (`--xyz-even-spacing`, on by default; GUI `even point
+spacing (equal segments)`) re-spaces every component as the very last step —
+after smoothing, clearance repair and any surface warp — so that all of its
+segments, including the closing one from the last point back to the first,
+have the same length: the component's average. The number of points stays the
+same and the points only slide along the curve. The clearance repair moves
+points after the last resampling, which is what left uneven segments before:
+the saved 7BL square session had segments down to 0.63× the typical one and a
+short closing segment. With even spacing every component's segments are equal
+to the precision of the XYZ file, and crossings and topology-audit results are
+unchanged. The exception is a curve that itself turns more sharply than the
+point spacing (cube smooth, where offset strands jump across a cube edge;
+torus and cylinder pole chords): equal chords would cut it short, so such a
+component is spread evenly along the curve instead, and the `[spacing]` line
+says how many components that was. The angled cube style is left alone,
+since its points are its corners.
+`--no-xyz-even-spacing` reproduces the previous output exactly.
+
 Extra `holed-tutte` controls:
 
 - `flatten orthogonal components` (`--flatten-orthogonal` / GUI checkbox)
@@ -603,6 +716,7 @@ python3 dt_converter.py                       # no arguments -> graphical interf
 python3 dt_converter.py -i 8_19               # every notation for 8_19
 python3 dt_converter.py -i "DT: [(4,6,2)]" --to gauss-ou,pd-kt,braid
 python3 dt_converter.py -i "PD[X[1,4,2,5],X[3,6,4,1],X[5,2,6,3]]" --to dt
+python3 dt_converter.py -i 8_19 --to dt --polynomials   # plus its polynomials
 python3 dt_converter.py --list-formats
 python3 dt_converter.py --selftest
 ```
@@ -616,7 +730,9 @@ extended Gauss codes, PD codes (plain and KnotTheory `X[...]`), braid words
 (plain and `BR[n,{...}]`), and Rolfsen / Alexander-Briggs / Thistlethwaite /
 torus names. It also
 reports the exterior's isometry signature, SnapPy's census names, and the
-diagram's basic invariants. The input notation is detected automatically;
+diagram's basic invariants, and on request (`--polynomials`) the link's
+Alexander, Conway, Jones and HOMFLY-PT polynomials. The input notation is
+detected automatically;
 `--from` overrides the guess when a string is genuinely ambiguous.
 
 **Chirality is the thing to watch, and the tool is explicit about it.** For a
@@ -652,6 +768,15 @@ Nothing is ever silently mirrored or silently substituted. `--flips 110` states
 the chirality explicitly; `--mirror` asks for the other one; and PD codes, braid
 words, extended Gauss codes and the flip-carrying DT spellings all pin it down
 on the way in.
+
+`--mirror` mirrors exactly what a plain run reports, bare DT codes included:
+the chirality is resolved first and the result mirrored with its flip vector
+kept, and the `[chirality]` line ends in `then mirrored`. The order matters —
+mirroring a bare code before resolving it lets the normalisation choose again,
+which for a prime diagram is the *original* link. Until V1.1,
+`-i "DT: [(4,6,2)]" --mirror` printed the right-handed trefoil a second time;
+it now gives `DT: [(-4, -6, -2)], [0,0,1]`, the left-handed one (braid
+`[-1, -1, -1]`).
 
 Alexander-Briggs names a knot `C_I` and a **link** `C^K_I` — C crossings, K
 components, index I — with the K a superscript and the I a subscript in print.
@@ -714,6 +839,72 @@ leaving you to notice. The loudest is `dt-unsigned` on a non-alternating
 diagram: an unsigned DT code fixes only the shadow, so reading it back gives the
 *alternating* diagram with that shadow — a different link. 8_19's unsigned code,
 read back, is the knot 8_16.
+
+`--polynomials` (off by default; GUI `Polynomials`) also writes the link's four
+common polynomials, to the report, the `--out` file and the JSON:
+
+```bash
+python3 dt_converter.py -i "DT: [(4,6,2)]" --to dt --polynomials
+python3 dt_converter.py -i 4_1 --polynomials jones,homfly    # a subset
+```
+
+```text
+polynomial  value
+----------  --------------------------------------------------------
+alexander   t^(-1) - 1 + t
+conway      1 + z^2
+jones       t + t^3 - t^4
+homfly      2*v^2 - v^4 + v^2*z^2
+```
+
+Conventions differ between tables, which is the usual reason two of them
+disagree, so every run also prints the ones used. Each polynomial is 1 on the
+unknot, and the right-handed trefoil above pins down the chirality:
+
+| polynomial | convention |
+|---|---|
+| `alexander` | Δ(t) = ∇(t^½ − t^−½): Conway-normalised, symmetric, Δ(1) = 1 for a knot |
+| `conway` | ∇(L₊) − ∇(L₋) = z ∇(L₀) |
+| `jones` | t⁻¹ V(L₊) − t V(L₋) = (t^½ − t^−½) V(L₀) |
+| `homfly` | v⁻¹ P(L₊) − v P(L₋) = z P(L₀) (HOMFLY-PT), so V(t) = P(t, t^½ − t^−½) and ∇(z) = P(1, z) |
+
+The values are spelled so that Sage, SymPy and Mathematica read them as they
+stand (`t^(-1/2)`, `2*v^2`); the JSON adds the exact terms and how each value
+was computed. spherogram's own polynomial methods need Sage, so these are
+computed in plain Python from the DT code and its flip vector, by three
+independent algorithms that must agree wherever they overlap: the Kauffman
+bracket (Jones), the Wirtinger matrix (Alexander and Conway), and HOMFLY-PT by a
+skein tree or by the Hecke algebra of a braid. `--selftest` checks that
+agreement over its whole corpus, and also checks the Jones skein relation
+itself, the torus-knot closed forms up to T(2,63), and the Alexander
+polynomial of every small knot against its knot Floer homology.
+
+Jones and HOMFLY-PT are chiral, so the `[chirality]` line matters: when the
+input did not fix the mirror image, a `[warn]` line says whose polynomial it
+is. For a link, the Conway polynomial's *sign* is the delicate part — the
+usual anchor, the linking numbers, is no help when they are all 0, as they
+are for every Brunnian link — and it is fixed exactly through
+V(t^½ = i) = (−1)^(μ−1) ∇(2i), or through HOMFLY-PT at v = 1.
+
+On this project's diagrams:
+
+| diagram | crossings | Alexander, Conway | HOMFLY-PT |
+|---|---|---|---|
+| Borromean rings | 6 | ∇ = z⁴ | 3-strand braid, instant |
+| 4BL | 14 | 0 | 6-strand braid, 0.01 s |
+| Edw5BL | 30 | 0 | 5-strand braid, 0.01 s |
+| Brun5BL | 44 | 0 | 5-strand braid, 0.01 s |
+| lark 6BL | 36 | 0 | unavailable: 18 Seifert circles |
+| C6BL | 48 | 0 | unavailable: 20 Seifert circles |
+| Fishtail5 | 80 | 0 | unavailable: 37 Seifert circles |
+
+The Jones polynomial is found for every one of them (Fishtail5's in 1.7 s).
+The Alexander and Conway polynomials vanish for all of these Brunnian diagrams
+except the Borromean rings — a genuine value, not a failure, and the report
+says so. HOMFLY-PT is exponential: it is found by the Hecke-algebra route when
+the diagram has at most 8 Seifert circles (the strand count of spherogram's
+braid), or by the skein tree within a bound of about 2 s (usually 20–30
+crossings), and is reported unavailable, with the reason, beyond both.
 
 Extract a DT code from an image:
 
@@ -808,7 +999,7 @@ sage -python ./strand_passage_guiV4_2.py
   tune it.
 - A negative even DT label means the even visit is the over strand by default.
   Use `--negative-even under` for the opposite convention.
-- Generated outputs such as `*.xlsx`, `*_overview*.svg`, `*.xyz`,
+- Generated outputs such as `*.xlsx`, `*_overview*.svg`, `*.xyz`, `*.glb`,
   `link_diagram.*`, `chain*.jsonl`, `diagram_scores*`, `canonical_cache.json`,
   `results/`, and cascade PNGs are ignored by Git.
 - The `--nongui` overview SVG keeps labels and captions as editable text using

@@ -66,7 +66,17 @@ states which of these two situations you are in:
     [chirality] determined   -- carried through from the input, faithful
     [chirality] normalised   -- the input did not say; first crossing positive
 
-``--mirror`` asks for the other one.  Nothing is ever silently mirrored.
+``--mirror`` asks for the other one, and the line then ends in "then
+mirrored".  Nothing is ever silently mirrored.
+
+``--mirror`` is applied AFTER the chirality is resolved, and keeps the flip
+vector, so it mirrors exactly the diagram the plain run reports.  The order is
+the whole point.  Mirror a code that carries no chirality first and resolve it
+afterwards, and the normalisation chooses again -- first crossing positive --
+which for a prime diagram is the ORIGINAL link: until V1.1,
+``-i 'DT: [(4,6,2)]' --mirror`` printed the right-handed trefoil a second time,
+under a note calling it the mirror.  Now it prints ``DT: [(-4, -6, -2)]`` with
+the same flips, 001, whose crossings are all negative: the left-handed trefoil.
 
 Notations
 ---------
@@ -107,6 +117,49 @@ algebraic (arborescent) decomposition, which no library here provides; a table
 lookup would only cover the knots that are already named, and ``name`` already
 does that.  It is reported as unsupported rather than guessed at.
 
+Polynomials (--polynomials, off by default)
+-------------------------------------------
+``--polynomials`` adds the link's four common polynomials to the report,
+``--out`` and ``--json``; ``--polynomials jones,homfly`` asks for a subset.
+Conventions differ between tables, which is the usual reason two of them
+disagree, so every run prints the ones used here:
+
+    alexander   Delta(t) = conway(t^(1/2) - t^(-1/2)), Conway-normalised
+    conway      nabla(L+) - nabla(L-) = z nabla(L0)
+    jones       t^(-1) V(L+) - t V(L-) = (t^(1/2) - t^(-1/2)) V(L0)
+    homfly      v^(-1) P(L+) - v P(L-) = z P(L0)  (HOMFLY-PT), so that
+                V(t) = P(t, t^(1/2) - t^(-1/2)) and nabla(z) = P(1, z)
+
+Each is 1 on the unknot.  For the right-handed trefoil -- what DT: [(4,6,2)]
+resolves to -- they are t^(-1) - 1 + t, 1 + z^2, t + t^3 - t^4 and
+2*v^2 - v^4 + v^2*z^2, values the skein relations force by hand.
+
+spherogram's own polynomial methods all need Sage, so these are computed here,
+in plain Python, from the DT code and its flip vector, by three independent
+algorithms that check each other (section 5b): the Kauffman bracket contracted
+over planar matchings (Jones), a minor of the Wirtinger matrix (Alexander and
+Conway), and HOMFLY-PT by a skein tree or by the Hecke algebra of a braid.
+Jones and HOMFLY-PT are chiral, so everything above about chirality applies to
+them in full: when the input did not fix the mirror image, a [warn] line says
+whose polynomial this is.
+
+Two results worth knowing before reading the output:
+
+* The Wirtinger minor fixes the Conway polynomial only up to sign, and for a
+  LINK the usual anchor (the linking numbers) is useless whenever they are
+  all 0 -- every Brunnian link.  The sign is fixed exactly instead by
+  V(t^(1/2) = i) = (-1)^(mu-1) nabla(2i), or by HOMFLY-PT at v = 1.
+* The one-variable Alexander and Conway polynomials vanish for every split
+  link and for many others.  For all six of this project's 4-, 5- and
+  6-component Brunnian diagrams they are 0; only the Borromean rings' is not.
+
+Jones, Alexander and Conway are fast at the sizes this project uses (the
+80-crossing Fishtail5 takes about 2 s).  HOMFLY-PT is exponential: it is found
+by the braid route when the diagram has at most HECKE_STRAND_LIMIT Seifert
+circles, or by the skein tree within HOMFLY_SKEIN_LIMIT crossing-steps
+(usually 20-30 crossings), and is reported unavailable, with the reason,
+beyond both.
+
 Which conversions need what
 ---------------------------
 Pure combinatorics, always available:  DT <-> Gauss (plain and extended), DT
@@ -124,6 +177,11 @@ check that tells a realisable DT code from a merely well-formed one.
 
 Needs SnapPy as well:  ``isosig`` and ``identify``.
 
+The polynomials need the chirality resolved -- spherogram, or ``--flips`` --
+and nothing else, except that HOMFLY-PT's braid route borrows spherogram's
+braid word.  With ``--flips`` and no spherogram, the flip vector's
+realisability is checked by the ribbon graph's genus instead (pd_is_planar).
+
 Without spherogram the tool still runs and says plainly which targets it had to
 skip.
 
@@ -136,6 +194,7 @@ Usage
     python3 dt_converter.py -i "PD[X[1,4,2,5],X[3,6,4,1],X[5,2,6,3]]" --to dt
     python3 dt_converter.py -i "O1U2O3U1O2U3" --from gauss-ou --to dt,invariants
     python3 dt_converter.py -i 4_1 --to all --json fig8.json
+    python3 dt_converter.py -i 8_19 --to dt --polynomials
     python3 dt_converter.py --list-formats
     python3 dt_converter.py --selftest
 
@@ -197,7 +256,7 @@ import os
 import re
 import sys
 
-VERSION = "1.0"
+VERSION = "1.1"         # 1.1: --polynomials; --mirror mirrors bare DT codes
 
 # The project's own 4-component diagram, used as the GUI's default input.
 DEFAULT_INPUT = "DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]"
@@ -766,11 +825,43 @@ class Diagram(object):
 
     def mirror(self):
         """The mirror image, as a diagram.  Flipping every crossing's over/under
-        (negating every DT sign) is the mirror through the plane of the paper."""
+        (negating every DT sign) is the mirror through the plane of the paper.
+
+        The flip vector is KEPT, which makes the result the mirror of exactly
+        this realisation -- every crossing's sign flips -- and is why
+        prepare_diagram mirrors only AFTER the chirality is resolved.  Mirror a
+        code that carries no chirality and resolve it afterwards, and the
+        normalisation (first crossing positive) chooses again, which for a
+        prime diagram is the ORIGINAL link: until V1.1, --mirror on
+        'DT: [(4,6,2)]' handed back the right-handed trefoil.
+
+        The chirality's provenance survives (a normalised one, mirrored, is
+        still one the input did not fix), and ``_mirrored`` records the
+        mirror for the report."""
         comps = tuple(tuple(-x for x in c) for c in self.comps)
         out = Diagram(comps, self.flips, self.source, self.notes)
-        out.note("this is the MIRROR of the input diagram (every crossing "
-                 "switched); the DT signs are negated")
+        for attr in ("_resolved_from_normalisation", "_pieces"):
+            if hasattr(self, attr):
+                setattr(out, attr, getattr(self, attr))
+        out._mirrored = not getattr(self, "_mirrored", False)
+        if self.flips is None:
+            out.note("--mirror: every DT sign is negated, but the chirality is "
+                     "unresolved, so which mirror image either code is cannot "
+                     "be said")
+        elif getattr(self, "_resolved_from_normalisation", False):
+            writhe = sum(_crossing_signs(self.flips, dt_walk(self.comps)))
+            out.note("--mirror: this is the MIRROR of the realisation "
+                     "spherogram's normalisation chose -- every crossing "
+                     "switched, so every DT sign is negated and the flip vector "
+                     "kept%s. It is deliberately not the normalisation of the "
+                     "negated code, which for a prime diagram is the original "
+                     "link again"
+                     % (" (writhe %d instead of %d)" % (-writhe, writhe)
+                        if writhe else ""))
+        else:
+            out.note("--mirror: this is the MIRROR of the input diagram -- every "
+                     "crossing switched, so every DT sign is negated and the flip "
+                     "vector kept")
         return out
 
 
@@ -1639,6 +1730,17 @@ def compact_to_dt(text):
     return comps, flips
 
 
+def _crossing_signs(flips, walk):
+    """+-1 for each crossing in DT label order (crossing k is the one at the
+    k-th odd position), given the flip vector and a dt_walk() result.  The rule
+    is crossing_handedness's, kept in one place so the polynomials below and
+    gauss-ext cannot disagree about a crossing."""
+    _n, _cp, _pos_cross, over_at, pairs = walk
+    return [-1 if (bool(flips[k]) ^ bool(over_at[even_pos])
+                   ^ bool(even_pos < odd_pos)) else 1
+            for k, (odd_pos, even_pos) in enumerate(pairs)]
+
+
 def crossing_handedness(diagram):
     """Map Gauss crossing id (1..n, order of first encounter) -> +-1 handedness.
 
@@ -1653,7 +1755,8 @@ def crossing_handedness(diagram):
     diagrams -- every crossing of every one -- and the signs sum to
     ``Link.writhe()``; the self-test re-checks both whenever spherogram is
     present."""
-    n, comp_positions, pos_cross, over_at, pairs = dt_walk(diagram.comps)
+    walk = dt_walk(diagram.comps)
+    n, comp_positions, pos_cross, over_at, pairs = walk
     if diagram.flips is None:
         raise ConversionError(
             "the crossing handedness is the chirality, so it needs the flip "
@@ -1665,12 +1768,8 @@ def crossing_handedness(diagram):
             if k not in order:
                 seen += 1
                 order[k] = seen
-    out = {}
-    for k, (odd_pos, even_pos) in enumerate(pairs):
-        negative = (bool(diagram.flips[k]) ^ bool(over_at[even_pos])
-                    ^ bool(even_pos < odd_pos))
-        out[order[k]] = -1 if negative else 1
-    return out
+    signs = _crossing_signs(diagram.flips, walk)
+    return {order[k]: signs[k] for k in range(n)}
 
 
 def crossing_handedness_spherogram(diagram):
@@ -2321,6 +2420,1256 @@ PARSEABLE_IDS = tuple(f["id"] for f in FORMAT_TABLE if f["parse"] is not None)
 
 
 # --------------------------------------------------------------------------- #
+#  5b. Polynomial invariants (--polynomials; off by default)
+# --------------------------------------------------------------------------- #
+# spherogram's jones_polynomial(), alexander_polynomial(), linking_matrix() and
+# friends all raise SageNotAvailable outside Sage (measured: spherogram 2.3
+# under a plain python3), so the polynomials are computed here, in plain
+# Python, from the hub itself -- the DT code and its flip vector.  Only the
+# HOMFLY-PT braid route touches spherogram, to borrow its braid word.
+#
+# Three independent algorithms, so each can check the others:
+#   * Jones: the Kauffman bracket, contracted crossing by crossing over a
+#     frontier of planar matchings (exponential only in the frontier width);
+#   * Alexander / Conway: a minor of the Wirtinger matrix (polynomial time),
+#     whose overall sign is then fixed exactly -- see conway_polynomial();
+#   * HOMFLY-PT: a skein tree over descending diagrams, or the Hecke algebra
+#     of a braid -- both exponential, so both are bounded.
+# On every corpus diagram the Jones polynomial equals HOMFLY-PT at
+# (v, z) = (t, t^(1/2) - t^(-1/2)), the Conway polynomial equals HOMFLY-PT at
+# v = 1, and the two HOMFLY-PT routes agree; the self-test re-checks all three.
+#
+# A Laurent polynomial is a dict {exponent: coefficient}; HOMFLY-PT exponents
+# are (v, z) pairs.  The Jones and Alexander polynomials of a link with an EVEN
+# number of components have half-integer powers of t, so both are held in
+# s = t^(1/2), whose exponents are whole numbers.
+
+# Step counts that bound the three searches that are exponential in the worst
+# case.  Counts, not a clock, so a result is reproducible and a refusal says
+# what ran out.  Calibrated on this project's diagrams:
+#   * the bracket frontier: the 80-crossing Fishtail5 takes 161 140 state-steps
+#     (1.7 s, peak 12 492 states); everything else here takes under 5 000;
+#   * the skein tree, whose steps are each charged by the crossings they
+#     handle -- what a step's time grows with -- so the bound costs about
+#     2 s at any size: 4BL takes 123 steps (1 230 crossing-steps), random
+#     20-crossing links a few thousand, a random 31-crossing link 339 000
+#     (1.2 s), while the 30-crossing Edw5BL is unfinished past 300 000 steps;
+#   * the braid route works in the Hecke algebra of the braid's s strands,
+#     whose basis has s! elements: 120 for the 5-strand Edw5BL and Brun5BL
+#     (0.01 s), 40 320 at s = 8.  s is the diagram's Seifert-circle count,
+#     which Vogel's algorithm (spherogram's braid_word) preserves -- measured
+#     equal on every corpus diagram -- so it is known before the braid is.
+JONES_WORK_LIMIT = 2000000
+HOMFLY_SKEIN_LIMIT = 600000
+HECKE_STRAND_LIMIT = 8
+HECKE_WORK_LIMIT = 600000
+
+
+class _OutOfSteps(Exception):
+    """A bounded polynomial search ran out of steps.  Internal: reported as
+    'unavailable', never as an error in the user's code."""
+
+
+def _padd(p, q, scale=1):
+    """p + scale*q, for Laurent polynomials held as {exponent: coefficient}."""
+    out = dict(p)
+    for e, c in q.items():
+        v = out.get(e, 0) + scale * c
+        if v:
+            out[e] = v
+        else:
+            out.pop(e, None)
+    return out
+
+
+def _pmul(p, q):
+    """p*q.  Exponents are ints, or (v, z) tuples for HOMFLY-PT."""
+    out = {}
+    for e1, c1 in p.items():
+        for e2, c2 in q.items():
+            e = ((e1[0] + e2[0], e1[1] + e2[1]) if isinstance(e1, tuple)
+                 else e1 + e2)
+            out[e] = out.get(e, 0) + c1 * c2
+    return {e: c for e, c in out.items() if c}
+
+
+def _pshift(p, shift):
+    """p times a monomial: an int shift, or a (v, z) shift for HOMFLY-PT."""
+    if isinstance(shift, tuple):
+        return {(a + shift[0], b + shift[1]): c for (a, b), c in p.items()}
+    return {e + shift: c for e, c in p.items()}
+
+
+def _ppow(p, k, one):
+    out = one
+    for _ in range(k):
+        out = _pmul(out, p)
+    return out
+
+
+def _pdiv_exact(num, den):
+    """num / den for univariate Laurent polynomials that divide exactly.
+    Raises rather than return a truncated quotient, so a division that should
+    have been exact and was not shows up as a failure, not a wrong answer."""
+    num, quo = dict(num), {}
+    if not num:
+        return quo
+    top, lead = max(den), den[max(den)]
+    lowest = min(num) - min(den)
+    while num:
+        e = max(num)
+        k = e - top
+        if k < lowest or num[e] % lead:
+            raise ConversionError("internal: a polynomial division that must "
+                                  "be exact was not")
+        f = num[e] // lead
+        quo[k] = f
+        for de, dc in den.items():
+            v = num.get(de + k, 0) - f * dc
+            if v:
+                num[de + k] = v
+            else:
+                num.pop(de + k, None)
+    return quo
+
+
+# -- the diagram as oriented crossings ------------------------------------- #
+def oriented_pd(diagram):
+    """The diagram as oriented crossings (ui, uo, oi, oo, sign), DT label order.
+
+    Edge p is the arc that LEAVES walk position p, so the crossing visited
+    under at position p and over at position q has under-strand edges
+    prev(p) -> p and over-strand edges prev(q) -> q.  The sign is
+    crossing_handedness's rule, which is why this needs the flip vector: three
+    of the four polynomials are chiral, and the fourth's sign can be."""
+    if diagram.flips is None:
+        raise ConversionError(
+            "the polynomials are computed from the diagram WITH its chirality, "
+            "and this one's is unresolved; give --flips, or install spherogram "
+            "so it can be resolved")
+    walk = dt_walk(diagram.comps)
+    _n, comp_positions, _pos_cross, over_at, pairs = walk
+    prev = {}
+    for cp in comp_positions:
+        for i, p in enumerate(cp):
+            prev[p] = cp[i - 1]
+    signs = _crossing_signs(diagram.flips, walk)
+    out = []
+    for k, (odd_pos, even_pos) in enumerate(pairs):
+        over, under = ((even_pos, odd_pos) if over_at[even_pos]
+                       else (odd_pos, even_pos))
+        out.append((prev[under], under, prev[over], over, signs[k]))
+    return out
+
+
+def _pd_ccw(crossing):
+    """The KnotTheory PD tuple: the four edges anticlockwise from the incoming
+    under-strand.  A positive crossing's over-strand runs from the 4th slot to
+    the 2nd, a negative one's from the 2nd to the 4th."""
+    ui, uo, oi, oo, sign = crossing
+    return (ui, oo, uo, oi) if sign > 0 else (ui, oi, uo, oo)
+
+
+def pd_is_planar(pd):
+    """(planar?, faces, pieces) for the ribbon graph of an oriented PD.
+
+    A signed Gauss code -- which is what (DT code, flip vector) amounts to --
+    is realisable in the plane exactly when its ribbon graph has genus 0, i.e.
+    when each of its connected pieces has crossings + 2 faces.  Run before
+    every polynomial computation: without spherogram it is the only
+    realisability check a --flips vector gets, and with spherogram a failure
+    would mean this file built the PD wrong."""
+    tuples = [_pd_ccw(x) for x in pd]
+    ends = {}
+    for k, t in enumerate(tuples):
+        for slot, label in enumerate(t):
+            ends.setdefault(label, []).append((k, slot))
+    other = {}
+    for label, pair in ends.items():
+        if len(pair) != 2:
+            raise ConversionError("internal: PD edge %r has %d ends"
+                                  % (label, len(pair)))
+        other[pair[0]], other[pair[1]] = pair[1], pair[0]
+    seen, faces = set(), 0
+    for dart in other:
+        if dart in seen:
+            continue
+        faces += 1
+        while dart not in seen:
+            seen.add(dart)
+            k, slot = other[dart]
+            dart = (k, (slot + 1) % 4)
+    parent = list(range(len(tuples)))
+
+    def find(a):
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+    for (k1, _s1), (k2, _s2) in ends.values():
+        parent[find(k1)] = find(k2)
+    pieces = len({find(k) for k in range(len(tuples))})
+    return faces == len(tuples) + 2 * pieces, faces, pieces
+
+
+def seifert_circles(pd):
+    """The number of Seifert circles: smooth every crossing the oriented way,
+    which joins the incoming under-strand to the outgoing over-strand and the
+    incoming over-strand to the outgoing under-strand."""
+    nxt = {}
+    for ui, uo, oi, oo, _s in pd:
+        nxt[ui], nxt[oi] = oo, uo
+    seen, circles = set(), 0
+    for edge in nxt:
+        if edge in seen:
+            continue
+        circles += 1
+        while edge not in seen:
+            seen.add(edge)
+            edge = nxt[edge]
+    return circles
+
+
+# -- Jones, via the Kauffman bracket ---------------------------------------- #
+_BRACKET_LOOP = {2: -1, -2: -1}          # d = -A^2 - A^-2, one closed loop
+
+
+def _bracket_order(tuples):
+    """Crossing order for the bracket contraction: greedily the crossing that
+    leaves the fewest open edge ends.  Deterministic, so a run is repeatable."""
+    n = len(tuples)
+    done, open_ends, order = [False] * n, set(), []
+    for _ in range(n):
+        best = None
+        for k in range(n):
+            if done[k]:
+                continue
+            labels = tuples[k]
+            hits = sum(1 for lab in labels if lab in open_ends)
+            inner = sum(1 for lab in set(labels) if labels.count(lab) == 2)
+            key = (len(open_ends) + 4 - 2 * hits - 2 * inner, -hits, k)
+            if best is None or key < best:
+                best = key
+        k = best[2]
+        done[k] = True
+        order.append(k)
+        for lab in tuples[k]:
+            if lab in open_ends:
+                open_ends.discard(lab)
+            elif tuples[k].count(lab) == 1:
+                open_ends.add(lab)
+    return order
+
+
+def _join_arc(partner, p, q):
+    """Add a smoothing arc from edge end p to edge end q to the matching
+    ``partner`` (open end -> the open end at the other side of its arc).
+    Returns the number of closed loops this completes (0 or 1).
+
+    An end is OPEN when its edge's other end was processed earlier; joining it
+    continues that arc through the new crossing.  p == q is an edge both of
+    whose ends are at this crossing, joined to itself: a loop at once."""
+    if p == q:
+        return 1
+    pp, qq = partner.get(p), partner.get(q)
+    if pp is None and qq is None:
+        partner[p], partner[q] = q, p
+        return 0
+    if qq is None:
+        del partner[p]
+        partner[pp], partner[q] = q, pp
+        return 0
+    if pp is None:
+        del partner[q]
+        partner[qq], partner[p] = p, qq
+        return 0
+    del partner[p]
+    del partner[q]
+    if pp == q:
+        return 1
+    partner[pp], partner[qq] = qq, pp
+    return 0
+
+
+def kauffman_bracket(tuples, limit=JONES_WORK_LIMIT):
+    """The Kauffman bracket <D> as a Laurent polynomial in A, <unknot> = 1.
+
+    Contracted crossing by crossing: each state is a planar matching of the
+    open edge ends with a coefficient, and a crossing (a, b, c, d) splits it
+    into its A-smoothing, arcs a-b and c-d, weight A, and its B-smoothing,
+    arcs a-d and b-c, weight A^-1.  A closed loop costs d = -A^2 - A^-2; the
+    total is therefore d*<D>, and the one surplus factor is divided out
+    exactly at the end."""
+    states, work = {(): {0: 1}}, 0
+    for k in _bracket_order(tuples):
+        a, b, c, d = tuples[k]
+        merged = {}
+        for arcs, weight in ((((a, b), (c, d)), 1), (((a, d), (b, c)), -1)):
+            for key, coeff in states.items():
+                partner = {}
+                for u, w in key:
+                    partner[u], partner[w] = w, u
+                loops = 0
+                for p, q in arcs:
+                    loops += _join_arc(partner, p, q)
+                new_key = tuple(sorted((u, w) for u, w in partner.items()
+                                       if u < w))
+                term = _pshift(coeff, weight)
+                for _ in range(loops):
+                    term = _pmul(term, _BRACKET_LOOP)
+                merged[new_key] = _padd(merged.get(new_key, {}), term)
+        states = {key: v for key, v in merged.items() if v}
+        work += len(states)
+        if work > limit:
+            raise _OutOfSteps("the Kauffman-bracket frontier passed %d "
+                              "state-steps" % limit)
+    return _pdiv_exact(states.get((), {}), _BRACKET_LOOP)
+
+
+def jones_polynomial(pd):
+    """V(t), as {exponent of s = t^(1/2): coefficient}.
+
+    V = (-A^3)^(-writhe) <D>, read at A = t^(-1/4).  With the PD built by
+    oriented_pd, this gives the right-handed trefoil t + t^3 - t^4 -- the
+    value the skein relation t^-1 V(L+) - t V(L-) = (t^1/2 - t^-1/2) V(L0)
+    forces -- and the self-test re-derives it."""
+    bracket = kauffman_bracket([_pd_ccw(x) for x in pd])
+    writhe = sum(x[4] for x in pd)
+    sign = -1 if writhe % 2 else 1
+    out = {}
+    for e, c in bracket.items():
+        e -= 3 * writhe
+        if e % 2:
+            raise ConversionError("internal: the normalised bracket has an odd "
+                                  "power of A")
+        out[-e // 2] = sign * c
+    return out
+
+
+# -- Alexander and Conway, via the Wirtinger matrix ------------------------- #
+def _det_bareiss(rows):
+    """Exact integer determinant by fraction-free (Bareiss) elimination."""
+    m = [list(r) for r in rows]
+    n = len(m)
+    if n == 0:
+        return 1
+    sign, prev = 1, 1
+    for k in range(n - 1):
+        if m[k][k] == 0:
+            for i in range(k + 1, n):
+                if m[i][k]:
+                    m[k], m[i] = m[i], m[k]
+                    sign = -sign
+                    break
+            else:
+                return 0
+        pivot, row_k = m[k][k], m[k]
+        for i in range(k + 1, n):
+            row_i, lead = m[i], m[i][k]
+            if lead:
+                for j in range(k + 1, n):
+                    row_i[j] = (row_i[j] * pivot - lead * row_k[j]) // prev
+            else:
+                for j in range(k + 1, n):
+                    row_i[j] = row_i[j] * pivot // prev
+        prev = pivot
+    return sign * m[n - 1][n - 1]
+
+
+def _interpolate(xs, ys):
+    """The integer polynomial through (xs, ys), as {exponent: coefficient}."""
+    from fractions import Fraction
+    n = len(xs)
+    newton = [Fraction(y) for y in ys]
+    for j in range(1, n):
+        for i in range(n - 1, j - 1, -1):
+            newton[i] = (newton[i] - newton[i - 1]) / (xs[i] - xs[i - j])
+    poly = [Fraction(0)] * n
+    for i in range(n - 1, -1, -1):
+        shifted = [Fraction(0)] + poly[:-1]
+        poly = [shifted[k] - xs[i] * poly[k] for k in range(n)]
+        poly[0] += newton[i]
+    out = {}
+    for k, c in enumerate(poly):
+        if c.denominator != 1:
+            raise ConversionError("internal: the Alexander determinant did not "
+                                  "interpolate to an integer polynomial")
+        if c:
+            out[k] = int(c)
+    return out
+
+
+def alexander_minor(pd):
+    """A minor of the one-variable Wirtinger matrix: the Alexander polynomial
+    up to a unit +-t^k.
+
+    One row per crossing, one column per over-arc (the arcs run between
+    under-passes).  For over-arc k and under-arcs i -> j, the Fox derivatives
+    of the Wirtinger relation give (1 - t, t, -1) at (k, i, j) for a positive
+    crossing and (t - 1, 1, -t) for a negative one -- the latter times t.
+    The columns sum to zero and one relation is redundant, so deleting one row
+    and one column gives the polynomial up to a unit, for links as well as
+    knots.  The minor is a polynomial of degree < n, found exactly by
+    evaluating at n points and interpolating."""
+    parent = {}
+
+    def find(a):
+        parent.setdefault(a, a)
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+    for ui, uo, oi, oo, _s in pd:
+        find(ui)
+        find(uo)
+        parent[find(oi)] = find(oo)
+    arcs = sorted({find(x) for x in list(parent)})
+    n = len(pd)
+    if len(arcs) != n:
+        # A component that never passes under lies above everything else and
+        # lifts clean off: the link is split, and its Alexander polynomial 0.
+        return {}
+    col = {a: i for i, a in enumerate(arcs)}
+    rows = []
+    for ui, uo, oi, oo, sign in pd:
+        k, i, j = col[find(oi)], col[find(ui)], col[find(uo)]
+        if sign > 0:
+            entries = ((k, {0: 1, 1: -1}), (i, {1: 1}), (j, {0: -1}))
+        else:
+            entries = ((k, {1: 1, 0: -1}), (i, {0: 1}), (j, {1: -1}))
+        row = {}
+        for c, p in entries:
+            row[c] = _padd(row.get(c, {}), p)
+        rows.append(row)
+    size = n - 1
+    xs = list(range(-(size // 2), size - size // 2 + 1))
+    ys = []
+    for x in xs:
+        matrix = [[0] * size for _ in range(size)]
+        for r in range(size):
+            for c, p in rows[r].items():
+                if c < size:
+                    matrix[r][c] = sum(cf * x ** e for e, cf in p.items())
+        ys.append(_det_bareiss(matrix))
+    return _interpolate(xs, ys)
+
+
+def _conway_from_minor(minor):
+    """The Conway polynomial up to sign, from alexander_minor()'s output.
+
+    Centre the minor in s = t^(1/2), then peel it into powers of
+    z = s - 1/s from the top: the leading c*s^k is the leading term of
+    c*z^k.  The sign returned is positive-leading; conway_polynomial()
+    replaces it with the true one."""
+    if not minor:
+        return {}
+    lo, hi = min(minor), max(minor)
+    rem = {2 * e - (lo + hi): c for e, c in minor.items()}
+    if rem[max(rem)] < 0:
+        rem = {e: -c for e, c in rem.items()}
+    nabla = {}
+    while rem:
+        k = max(rem)
+        if k < 0:
+            raise ConversionError("internal: the Alexander minor is not "
+                                  "symmetric, so it is not a Conway polynomial")
+        nabla[k] = rem[k]
+        rem = _padd(rem, _pmul({0: rem[k]}, _ppow({1: 1, -1: -1}, k, {0: 1})),
+                    -1)
+    return nabla
+
+
+def _delta_from_conway(nabla):
+    """Delta(s) = nabla(s - 1/s), the Conway-normalised Alexander polynomial
+    in s = t^(1/2)."""
+    out = {}
+    for k, c in nabla.items():
+        out = _padd(out, _pmul({0: c}, _ppow({1: 1, -1: -1}, k, {0: 1})))
+    return out
+
+
+def _at_i(poly, scale=1):
+    """sum c * (scale*i)^e, exactly, as a (real, imaginary) pair of ints.
+    Negative exponents only with scale 1 (i^-1 = -i, which e % 4 handles)."""
+    re_part = im_part = 0
+    for e, c in poly.items():
+        v = c if scale == 1 else c * scale ** e
+        quarter = e % 4
+        if quarter == 0:
+            re_part += v
+        elif quarter == 1:
+            im_part += v
+        elif quarter == 2:
+            re_part -= v
+        else:
+            im_part -= v
+    return re_part, im_part
+
+
+def conway_polynomial(n_components, minor, jones=None, homfly=None):
+    """(nabla, how): the Conway polynomial with its sign fixed, and how.
+
+    The Wirtinger minor fixes nabla only up to sign.  For a knot nabla(0) =
+    Delta(1) = 1 settles it.  For a link it is the delicate part, because the
+    usual anchor -- the z^(mu-1) coefficient, set by the linking numbers -- is
+    0 whenever every linking number is, which is every Brunnian link this
+    project draws.  Two exact anchors that do not care:
+      * HOMFLY-PT, when it is known: nabla(z) = P(1, z);
+      * the Jones polynomial: V(t^(1/2) = i) = (-1)^(mu-1) nabla(2i), because
+        V(t) = P(t, t^(1/2) - t^(-1/2)), nabla(z) = P(1, z), and every term
+        v^a z^b of a mu-component P has a = mu - 1 (mod 2).  Both sides are
+        +-det(L), so this settles the sign whenever the determinant is not 0.
+    The two magnitudes must agree, which makes this a cross-check between two
+    independent computations as well; if they do not, that is reported as an
+    internal failure rather than printed.  When neither anchor applies the
+    sign is left unknown, and ``how`` says so."""
+    nabla = _conway_from_minor(minor)
+    if not nabla:
+        return {}, "the Wirtinger minor vanishes"
+    if n_components == 1:
+        if abs(nabla.get(0, 0)) != 1:
+            raise ConversionError("internal: a knot's Conway polynomial must "
+                                  "have constant term +-1")
+        if nabla[0] < 0:
+            nabla = {k: -c for k, c in nabla.items()}
+        return nabla, "sign fixed by nabla(0) = Delta(1) = 1"
+    flipped = {k: -c for k, c in nabla.items()}
+    if homfly is not None:
+        from_homfly = homfly_to_conway(homfly)
+        if from_homfly not in (nabla, flipped):
+            raise ConversionError("internal consistency check failed: "
+                                  "HOMFLY-PT at v = 1 is not the Wirtinger "
+                                  "Conway polynomial up to sign")
+        return from_homfly, "sign fixed by HOMFLY-PT at v = 1"
+    if jones is not None:
+        v_i = _at_i(jones)
+        n_2i = _at_i(nabla, 2)
+        parity = (-1) ** (n_components - 1)
+        if n_2i != (0, 0):
+            if v_i == (parity * n_2i[0], parity * n_2i[1]):
+                return nabla, "sign fixed by the Jones polynomial at t^(1/2) = i"
+            if v_i == (-parity * n_2i[0], -parity * n_2i[1]):
+                return flipped, ("sign fixed by the Jones polynomial at "
+                                 "t^(1/2) = i")
+            raise ConversionError(
+                "internal consistency check failed: the Jones polynomial at "
+                "t^(1/2) = i is %s, but the Wirtinger Conway polynomial at "
+                "z = 2i is +-%s" % (v_i, n_2i))
+        if v_i != (0, 0):
+            raise ConversionError(
+                "internal consistency check failed: the Jones polynomial at "
+                "t^(1/2) = i is %s, but the Wirtinger Conway polynomial "
+                "vanishes at z = 2i" % (v_i,))
+    return nabla, None
+
+
+# -- HOMFLY-PT -------------------------------------------------------------- #
+_HOMFLY_ONE = {(0, 0): 1}
+_HOMFLY_UNKNOT = {(-1, -1): 1, (1, -1): -1}   # (v^-1 - v)/z: a split unknot
+
+
+def homfly_to_jones(homfly):
+    """V(t) = P(t, t^(1/2) - t^(-1/2)), as {exponent of s = t^(1/2): coeff}.
+    A link's P has powers of z down to z^(1-mu), so clear them first and
+    divide them back out exactly."""
+    if not homfly:
+        return {}
+    low = min(0, min(ez for _ev, ez in homfly))
+    z = {1: 1, -1: -1}
+    out = {}
+    for (ev, ez), c in homfly.items():
+        out = _padd(out, _pmul({2 * ev: c}, _ppow(z, ez - low, {0: 1})))
+    for _ in range(-low):
+        out = _pdiv_exact(out, z)
+    return out
+
+
+def homfly_to_conway(homfly):
+    """nabla(z) = P(1, z)."""
+    out = {}
+    for (_ev, ez), c in homfly.items():
+        out[ez] = out.get(ez, 0) + c
+    return {k: c for k, c in out.items() if c}
+
+
+def homfly_mirror(homfly):
+    """The mirror image's HOMFLY-PT, P(v^-1, -z).  Mirroring swaps L+ and L-,
+    and v^-1 P(L-) - v P(L+) = z P(L0) is the defining relation with v -> v^-1
+    and z -> -z."""
+    return {(-ev, ez): (-c if ez % 2 else c) for (ev, ez), c in homfly.items()}
+
+
+def _rename_edge(crossings, old, new):
+    for key, x in crossings.items():
+        if old in x[:4]:
+            crossings[key] = tuple(new if y == old else y for y in x[:4]) + x[4:]
+
+
+def _drop_kinks(crossings):
+    """Remove every Reidemeister-I kink in place.  HOMFLY-PT is an invariant of
+    oriented links, so a kink costs no factor.  Returns the number of crossing-
+    less unknots left behind (a crossing both of whose edges are loops)."""
+    free = 0
+    changed = True
+    while changed:
+        changed = False
+        for key, (ui, uo, oi, oo, _s) in list(crossings.items()):
+            if uo == oi or oo == ui:
+                del crossings[key]
+                if uo == oi and oo == ui:
+                    free += 1
+                elif uo == oi:
+                    _rename_edge(crossings, oo, ui)
+                else:
+                    _rename_edge(crossings, uo, oi)
+                changed = True
+                break
+    return free
+
+
+def _shadow_pieces(crossings):
+    """The crossings grouped into the connected pieces of the shadow."""
+    parent = {key: key for key in crossings}
+
+    def find(a):
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+    ends = {}
+    for key, x in crossings.items():
+        for label in x[:4]:
+            ends.setdefault(label, []).append(key)
+    for keys in ends.values():
+        for other in keys[1:]:
+            parent[find(other)] = find(keys[0])
+    groups = {}
+    for key in crossings:
+        groups.setdefault(find(key), {})[key] = crossings[key]
+    return [groups[k] for k in sorted(groups)]
+
+
+def _descending_plan(crossings):
+    """(bad crossings in traversal order, components) for the traversal that
+    needs the fewest crossing switches to become descending -- or ascending,
+    whichever is cheaper; either is an unlink.
+
+    A traversal is a component order plus a base point on each component.
+    Each self-crossing's goodness depends only on its own component's base
+    point, which is chosen optimally by a sweep; each crossing between two
+    components depends only on which comes first, which is chosen greedily."""
+    head, tail_edge = {}, {}
+    for key, (ui, uo, oi, oo, _s) in crossings.items():
+        head[ui], head[oi] = (key, "u"), (key, "o")
+        tail_edge[(key, "u")], tail_edge[(key, "o")] = uo, oo
+    seen, comps = set(), []
+    for start in sorted(head):
+        if start in seen:
+            continue
+        comp, edge = [], start
+        while edge not in seen:
+            seen.add(edge)
+            comp.append(head[edge])
+            edge = tail_edge[head[edge]]
+        comps.append(comp)
+    comp_of = {visit: ci for ci, comp in enumerate(comps) for visit in comp}
+    best = None
+    for good in ("o", "u"):          # first visit over: descending; under: ascending
+        bad_kind = "u" if good == "o" else "o"
+        ahead = [[0] * len(comps) for _ in comps]   # ahead[a][b]: a first is good
+        for key in crossings:
+            cg, cb = comp_of[(key, good)], comp_of[(key, bad_kind)]
+            if cg != cb:
+                ahead[cg][cb] += 1
+        remaining, order = list(range(len(comps))), []
+        while remaining:
+            score = max((sum(ahead[a][b] - ahead[b][a] for b in remaining
+                             if b != a), -a) for a in remaining)
+            order.append(-score[1])
+            remaining.remove(-score[1])
+        rank = {ci: r for r, ci in enumerate(order)}
+        total, bases = 0, {}
+        for ci, comp in enumerate(comps):
+            length = len(comp)
+            where = {}
+            for i, (key, kind) in enumerate(comp):
+                if comp_of[(key, "u" if kind == "o" else "o")] == ci:
+                    where.setdefault(key, {})[kind] = i
+            # base point b makes self-crossing key bad iff its bad visit comes
+            # first after b: b in (good position, bad position], cyclically
+            diff = [0] * (length + 1)
+            for pos in where.values():
+                lo, hi = pos[good] + 1, pos[bad_kind]
+                if lo <= hi:
+                    diff[lo] += 1
+                    diff[hi + 1] -= 1
+                else:
+                    diff[lo] += 1
+                    diff[length] -= 1
+                    diff[0] += 1
+                    diff[hi + 1] -= 1
+            run, choice = 0, None
+            for b in range(length):
+                run += diff[b]
+                if choice is None or run < choice[0]:
+                    choice = (run, b)
+            total += choice[0]
+            bases[ci] = choice[1]
+        for key in crossings:
+            cg, cb = comp_of[(key, good)], comp_of[(key, bad_kind)]
+            if cg != cb and rank[cb] < rank[cg]:
+                total += 1
+        if best is None or total < best[0]:
+            best = (total, good, order, bases)
+    _total, good, order, bases = best
+    bads, met = [], set()
+    for ci in order:
+        comp, b = comps[ci], bases[ci]
+        for i in range(len(comp)):
+            key, kind = comp[(b + i) % len(comp)]
+            if key not in met:
+                met.add(key)
+                if kind != good:
+                    bads.append(key)
+    return bads, len(comps)
+
+
+def homfly_skein(pd, limit=HOMFLY_SKEIN_LIMIT):
+    """HOMFLY-PT by the skein tree over descending diagrams.  Pure Python;
+    exponential in the crossings, so bounded by ``limit`` crossing-steps."""
+    counter = [0, 0]
+    return _homfly_skein({k: tuple(x) for k, x in enumerate(pd)}, 0, counter,
+                         limit)
+
+
+def _homfly_skein(crossings, free, counter, limit):
+    """P(diagram + ``free`` split unknots), with v^-1 P(L+) - v P(L-) = z P(L0).
+
+    Walk a traversal that becomes descending (an unlink, P = delta^(mu-1))
+    once its bad crossings are switched.  Switching bad crossing c costs a
+    smoothing: P(L+) = v^2 P(L-) + v z P(L0) and P(L-) = v^-2 P(L+) -
+    v^-1 z P(L0).  The traversal is fixed for the whole chain of switches --
+    re-choosing it after each switch can switch a crossing straight back, and
+    did, without end -- so the chain takes at most one step per crossing,
+    and each smoothing has one crossing fewer.
+
+    ``counter`` is [steps, crossing-steps]; ``limit`` bounds the second."""
+    counter[0] += 1
+    counter[1] += len(crossings)
+    if counter[1] > limit:
+        raise _OutOfSteps("the HOMFLY-PT skein tree passed its bound of %d "
+                          "crossing-steps (%d steps)" % (limit, counter[0]))
+    crossings = dict(crossings)
+    free += _drop_kinks(crossings)
+    if not crossings:
+        return _ppow(_HOMFLY_UNKNOT, free - 1, _HOMFLY_ONE) if free else _HOMFLY_ONE
+    if free:
+        return _pmul(_ppow(_HOMFLY_UNKNOT, free, _HOMFLY_ONE),
+                     _homfly_skein(crossings, 0, counter, limit))
+    pieces = _shadow_pieces(crossings)
+    if len(pieces) > 1:
+        out = _ppow(_HOMFLY_UNKNOT, len(pieces) - 1, _HOMFLY_ONE)
+        for piece in pieces:
+            out = _pmul(out, _homfly_skein(piece, 0, counter, limit))
+        return out
+    bads, n_comps = _descending_plan(crossings)
+    total, scale, current = {}, _HOMFLY_ONE, dict(crossings)
+    for key in bads:
+        ui, uo, oi, oo, sign = current[key]
+        smoothed = dict(current)
+        del smoothed[key]
+        loops = 0
+        for into, out_of in ((ui, oo), (oi, uo)):  # oriented smoothing
+            if into == out_of:
+                loops += 1
+            else:
+                _rename_edge(smoothed, out_of, into)
+        p0 = _homfly_skein(smoothed, loops, counter, limit)
+        weight = {(1, 1): 1} if sign > 0 else {(-1, 1): -1}
+        total = _padd(total, _pmul(scale, _pmul(weight, p0)))
+        current[key] = (oi, oo, ui, uo, -sign)
+        scale = _pshift(scale, (2 * sign, 0))
+    return _padd(total, _pmul(scale, _ppow(_HOMFLY_UNKNOT, n_comps - 1,
+                                           _HOMFLY_ONE)))
+
+
+def _hecke_times(element, i):
+    """element * h_i in the Hecke algebra, on the basis {h_w : w in S_s}.
+
+    h_i = v^-1 sigma_i, so the skein relation v^-1 sigma - v sigma^-1 = z
+    reads h - h^-1 = z, i.e. h^2 = z h + 1.  Hence h_w h_i = h_(w s_i) when
+    that lengthens w (w(i) < w(i+1)), and z h_w + h_(w s_i) when it does not."""
+    out = {}
+    for w, c in element.items():
+        ws = list(w)
+        ws[i], ws[i + 1] = ws[i + 1], ws[i]
+        ws = tuple(ws)
+        out[ws] = _padd(out.get(ws, {}), c)
+        if w[i] > w[i + 1]:
+            out[w] = _padd(out.get(w, {}), _pshift(c, (0, 1)))
+    return {w: c for w, c in out.items() if c}
+
+
+def _hecke_trace(w, memo):
+    """P(closure of h_w), by the Markov property.
+
+    Write w = w' s_(s-2) ... s_j with w' in S_(s-1), where j is the position
+    of the top strand (w(j) = s-1).  If j is the last position the top strand
+    closes to a split unknot: delta * P(closure of h_w').  Otherwise, by
+    conjugation and the Markov move (closure of x sigma_(s-2) = closure of x,
+    and h = v^-1 sigma), P = v^-1 P(closure of h_w' h_(s-3) ... h_j), whose
+    product is expanded in S_(s-1) first."""
+    if w in memo:
+        return memo[w]
+    s = len(w)
+    if s == 1:
+        return _HOMFLY_ONE
+    j = w.index(s - 1)
+    rest = w[:j] + w[j + 1:]
+    if j == s - 1:
+        out = _pmul(_HOMFLY_UNKNOT, _hecke_trace(rest, memo))
+    else:
+        element = {rest: _HOMFLY_ONE}
+        for i in range(s - 3, j - 1, -1):
+            element = _hecke_times(element, i)
+        out = {}
+        for u, c in element.items():
+            out = _padd(out, _pmul(c, _hecke_trace(u, memo)))
+        out = _pshift(out, (-1, 0))
+    memo[w] = out
+    return out
+
+
+def homfly_hecke(word, strands, limit=HECKE_WORK_LIMIT):
+    """HOMFLY-PT of a braid closure, in the Hecke algebra of ``strands``
+    strands.  sigma_i -> v h_i and sigma_i^-1 -> v^-1 (h_i - z); then the
+    closure.  Exponential in the strand count only."""
+    element, work = {tuple(range(strands)): _HOMFLY_ONE}, 0
+    for gen in word:
+        i = abs(gen) - 1
+        times = _hecke_times(element, i)
+        if gen > 0:
+            element = {w: _pshift(c, (1, 0)) for w, c in times.items()}
+        else:
+            for w, c in element.items():
+                times[w] = _padd(times.get(w, {}), _pshift(c, (0, 1)), -1)
+            element = {w: _pshift(c, (-1, 0)) for w, c in times.items() if c}
+        work += len(element)
+        if work > limit:
+            raise _OutOfSteps("the Hecke-algebra product passed %d steps"
+                              % limit)
+    memo, out = {}, {}
+    for w, c in element.items():
+        out = _padd(out, _pmul(c, _hecke_trace(w, memo)))
+    return out
+
+
+def homfly_polynomial(diagram, pd, skein_limit=None):
+    """(P, how) for the diagram, by whichever route is affordable.
+
+    The braid route first when spherogram is there and the diagram has few
+    Seifert circles (the braid's strand count): it is fast however many
+    crossings there are.  Otherwise the skein tree, for at most
+    ``skein_limit`` steps (default HOMFLY_SKEIN_LIMIT).  Raises
+    ConversionError saying what ran out when neither finishes."""
+    if skein_limit is None:
+        skein_limit = HOMFLY_SKEIN_LIMIT
+    circles = seifert_circles(pd)
+    tried = []
+    if spherogram_mod() is not None and circles <= HECKE_STRAND_LIMIT:
+        try:
+            word = dt_to_braid(diagram.comps, diagram.flips)
+            strands = max(abs(x) for x in word) + 1 if word else 1
+            if strands == circles:
+                return (homfly_hecke(word, strands),
+                        "Hecke algebra of spherogram's %d-strand braid "
+                        "(%d letters)" % (strands, len(word)))
+            tried.append("the braid had %d strands, not the %d Seifert "
+                         "circles expected" % (strands, circles))
+        except _OutOfSteps as exc:
+            tried.append(str(exc))
+        except ConversionError as exc:
+            tried.append(str(exc).split(" (")[0])
+    try:
+        steps = [0, 0]
+        out = _homfly_skein({k: tuple(x) for k, x in enumerate(pd)}, 0, steps,
+                            skein_limit)
+        return out, "skein tree, %d step%s" % (steps[0],
+                                               "" if steps[0] == 1 else "s")
+    except _OutOfSteps as exc:
+        tried.append(str(exc))
+    if circles > HECKE_STRAND_LIMIT:
+        tried.append("the braid route needs at least %d strands (this "
+                     "diagram's Seifert circles), past its limit of %d"
+                     % (circles, HECKE_STRAND_LIMIT))
+    elif spherogram_mod() is None:
+        tried.append("the braid route needs spherogram")
+    raise ConversionError(
+        "HOMFLY-PT is exponential to compute, and this %d-crossing diagram is "
+        "past both routes here: %s. The Jones, Alexander and Conway "
+        "polynomials do not have this limit"
+        % (len(pd), "; ".join(tried)))
+
+
+# -- formatting -------------------------------------------------------------- #
+def _power(var, num, den=1):
+    """var^(num/den) in the copy-pasteable spelling: t, t^2, t^(-1), t^(1/2)."""
+    if num % den == 0:
+        e = num // den
+        if e == 0:
+            return ""
+        if e == 1:
+            return var
+        return "%s^%d" % (var, e) if e > 0 else "%s^(%d)" % (var, e)
+    return "%s^(%d/%d)" % (var, num, den)
+
+
+def _fmt_terms(terms):
+    """[(coefficient, monomial)] -> '2*t^2 - t + 3', in the order given."""
+    out = ""
+    for i, (c, mono) in enumerate(terms):
+        size = abs(c)
+        body = (mono if size == 1 and mono
+                else str(size) if not mono else "%d*%s" % (size, mono))
+        if i == 0:
+            out = ("-" if c < 0 else "") + body
+        else:
+            out += " %s %s" % ("-" if c < 0 else "+", body)
+    return out or "0"
+
+
+def fmt_poly(poly, var, halves=False):
+    """A univariate Laurent polynomial, lowest power first.  With halves=True
+    the exponents are of var^(1/2), as the Jones and Alexander ones are."""
+    den = 2 if halves else 1
+    return _fmt_terms([(poly[e], _power(var, e, den)) for e in sorted(poly)])
+
+
+def fmt_homfly(poly):
+    """HOMFLY-PT, ordered by the power of z and then of v, lowest first."""
+    terms = []
+    for ev, ez in sorted(poly, key=lambda e: (e[1], e[0])):
+        mono = "*".join(m for m in (_power("v", ev), _power("z", ez)) if m)
+        terms.append((poly[(ev, ez)], mono))
+    return _fmt_terms(terms)
+
+
+def _half(e):
+    """An exponent stored in halves, for the JSON: 3 -> 1.5, 4 -> 2."""
+    return e // 2 if e % 2 == 0 else e / 2.0
+
+
+# -- the registry ------------------------------------------------------------ #
+def _poly_pd(d, cache):
+    if "pd" not in cache:
+        pd = oriented_pd(d)
+        planar, faces, pieces = pd_is_planar(pd)
+        if not planar:
+            raise ConversionError(
+                "the DT code with flips %s does not describe a planar diagram "
+                "(%d faces where a planar one has %d), so it has no "
+                "polynomials. Without spherogram a --flips vector is checked "
+                "only here; drop it to let the chirality be resolved"
+                % (_flip_str(d.flips), faces, len(pd) + 2 * pieces))
+        cache["pd"] = pd
+    return cache["pd"]
+
+
+def _poly_cached(cache, key, compute):
+    """Compute once per run, and remember a failure as well as a value."""
+    if key not in cache:
+        try:
+            cache[key] = (compute(), None)
+        except _OutOfSteps as exc:
+            cache[key] = (None, ConversionError(
+                "%s; the polynomial is exponential to compute in the worst "
+                "case, and this diagram is past the bound" % exc))
+        except ConversionError as exc:
+            cache[key] = (None, exc)
+    value, failure = cache[key]
+    if failure is not None:
+        raise failure
+    return value
+
+
+def _poly_jones(d, cache):
+    return _poly_cached(cache, "jones",
+                        lambda: jones_polynomial(_poly_pd(d, cache)))
+
+
+def _poly_homfly(d, cache):
+    def compute():
+        value, how = homfly_polynomial(d, _poly_pd(d, cache))
+        cache["homfly_how"] = how
+        return value
+    return _poly_cached(cache, "homfly", compute)
+
+
+def _poly_conway(d, cache):
+    def compute():
+        pd = _poly_pd(d, cache)
+        minor = alexander_minor(pd)
+        try:
+            jones = _poly_jones(d, cache)
+        except ConversionError:
+            jones = None
+        homfly = None
+        if "homfly" in cache and cache["homfly"][0] is not None:
+            homfly = cache["homfly"][0]
+        nabla, how = conway_polynomial(d.n_components, minor, jones, homfly)
+        if how is None:
+            # determinant 0 and no HOMFLY-PT yet: the last exact anchor
+            try:
+                nabla, how = conway_polynomial(d.n_components, minor, jones,
+                                               _poly_homfly(d, cache))
+            except ConversionError:
+                how = None
+        cache["conway_how"] = how
+        return nabla
+    return _poly_cached(cache, "conway", compute)
+
+
+def _emit_poly_alexander(d, cache):
+    return fmt_poly(_delta_from_conway(_poly_conway(d, cache)), "t",
+                    halves=True)
+
+
+def _emit_poly_conway(d, cache):
+    return fmt_poly(_poly_conway(d, cache), "z")
+
+
+def _emit_poly_jones(d, cache):
+    return fmt_poly(_poly_jones(d, cache), "t", halves=True)
+
+
+def _emit_poly_homfly(d, cache):
+    return fmt_homfly(_poly_homfly(d, cache))
+
+
+POLY_TABLE = (
+    dict(id="alexander", title="Alexander polynomial, Conway-normalised",
+         variables=("t",), emit=_emit_poly_alexander, example="t^(-1) - 1 + t",
+         convention="Delta(t) = conway(t^(1/2) - t^(-1/2)): symmetric, and "
+                    "Delta(1) = 1 for a knot"),
+    dict(id="conway", title="Conway polynomial",
+         variables=("z",), emit=_emit_poly_conway, example="1 + z^2",
+         convention="nabla(L+) - nabla(L-) = z nabla(L0)"),
+    dict(id="jones", title="Jones polynomial",
+         variables=("t",), emit=_emit_poly_jones, example="t + t^3 - t^4",
+         convention="t^(-1) V(L+) - t V(L-) = (t^(1/2) - t^(-1/2)) V(L0)"),
+    dict(id="homfly", title="HOMFLY-PT polynomial",
+         variables=("v", "z"), emit=_emit_poly_homfly,
+         example="2*v^2 - v^4 + v^2*z^2",
+         convention="v^(-1) P(L+) - v P(L-) = z P(L0), so V(t) = "
+                    "P(t, t^(1/2) - t^(-1/2)) and nabla(z) = P(1, z)"),
+)
+POLYNOMIALS = {p["id"]: p for p in POLY_TABLE}
+POLY_IDS = tuple(p["id"] for p in POLY_TABLE)
+
+
+def resolve_polynomials(spec):
+    """A --polynomials spec -> polynomial ids, in table order.  None or ''
+    means none (the default); 'all' or a bare --polynomials means all four."""
+    if spec is None:
+        return []
+    tokens = [t.strip().lower() for t in re.split(r"[,\s]+", str(spec))
+              if t.strip()]
+    if not tokens:
+        return []
+    wanted = set()
+    for token in tokens:
+        if token == "all":
+            wanted.update(POLY_IDS)
+        elif token in POLYNOMIALS:
+            wanted.add(token)
+        elif token in ("homfly-pt", "homflypt", "homfly_pt"):
+            wanted.add("homfly")
+        else:
+            raise ConversionError(
+                "unknown polynomial %r; --polynomials takes all, or a comma "
+                "list of %s" % (token, ", ".join(POLY_IDS)))
+    return [pid for pid in POLY_IDS if pid in wanted]
+
+
+def _poly_caveat(d, pid, cache):
+    """What the value does NOT say about the link, or None."""
+    if pid in ("alexander", "conway"):
+        if cache.get("conway", (None, None))[0] == {}:
+            return ("0 is the value here, not a failure: the one-variable "
+                    "Alexander and Conway polynomials vanish for every split "
+                    "link and for many others, boundary links among them. "
+                    "The Jones and HOMFLY-PT polynomials never vanish.")
+        if cache.get("conway_how") is None and d.n_components > 1:
+            return ("THE OVERALL SIGN IS NOT DETERMINED: this link's "
+                    "determinant is 0, so the Jones polynomial cannot fix it, "
+                    "and HOMFLY-PT was out of reach. The value may be the "
+                    "negative of the true one.")
+    if not getattr(d, "_resolved_from_normalisation", False):
+        return None             # the input fixed the realisation
+    pieces = getattr(d, "_pieces", None)
+    if pieces and pieces > 1:
+        if pid in ("jones", "homfly"):
+            return ("THIS CODE ADMITS %d REALISATIONS (it is a connected sum / "
+                    "split union of %d independently reflectable pieces), and "
+                    "this is the polynomial of the one built here. Theirs can "
+                    "differ: the granny and square knots share a DT code but "
+                    "not a Jones polynomial. Supply --flips to say which you "
+                    "mean." % (2 ** pieces, pieces))
+        return ("this code admits %d realisations; for a knot they all share "
+                "this polynomial (it is multiplicative under connected sum "
+                "and blind to mirror images), but for a link they can differ "
+                "in sign" % 2 ** pieces)
+    # A prime diagram: the code fixes it up to mirror image.  Say so only when
+    # the mirror image's value actually differs -- the figure-eight knot, the
+    # Borromean rings and 4BL have the same polynomials as their mirrors.
+    if getattr(d, "_mirrored", False):
+        chosen = ("the input did not fix the mirror image: spherogram's "
+                  "normalisation (first crossing positive) chose one and "
+                  "--mirror took the other, so this is the polynomial of that "
+                  "other one")
+        other = "the normalisation's own"
+    else:
+        chosen = ("the input did not fix the mirror image, so this is the "
+                  "polynomial of the one spherogram's normalisation (first "
+                  "crossing positive) chose")
+        other = "the mirror image's"
+    if pid == "jones":
+        jones = cache["jones"][0]
+        if {-e: c for e, c in jones.items()} != jones:
+            return chosen + ". %s%s is V(t^(-1))." % (other[0].upper(),
+                                                       other[1:])
+    elif pid == "homfly":
+        homfly = cache["homfly"][0]
+        if homfly_mirror(homfly) != homfly:
+            return chosen + ". %s%s is P(v^(-1), -z)." % (other[0].upper(),
+                                                           other[1:])
+    elif d.n_components % 2 == 0:
+        return (chosen + ". This link has an even number of components, so "
+                "%s polynomial is this one negated." % other)
+    return None
+
+
+def compute_polynomials(diagram, ids):
+    """Rows like convert()'s -- id, title, convention, value, error, caveat --
+    plus the exact terms and how each was computed, for the JSON.
+
+    After computing, the polynomials that overlap are checked against each
+    other: Jones against HOMFLY-PT at (t, t^(1/2) - t^(-1/2)), Conway against
+    HOMFLY-PT at v = 1.  A mismatch blanks the rows involved and says so; it
+    has never happened on the corpus, and printing a wrong polynomial would
+    be worse than printing none."""
+    cache, rows = {}, []
+    for pid in ids:
+        entry = POLYNOMIALS[pid]
+        row = {"id": pid, "title": entry["title"],
+               "convention": entry["convention"],
+               "variables": list(entry["variables"]),
+               "value": None, "error": None, "caveat": None, "terms": None,
+               "method": None}
+        try:
+            row["value"] = entry["emit"](diagram, cache)
+        except ConversionError as exc:
+            row["error"] = str(exc)
+        except Exception as exc:                                 # noqa: BLE001
+            row["error"] = "%s: %s" % (type(exc).__name__, str(exc)[:200])
+        rows.append(row)
+    homfly = cache.get("homfly", (None, None))[0]
+    if homfly is not None:
+        # Asked for on its own, HOMFLY-PT would go unchecked; the two it is
+        # checked against are cheap next to it, so make sure they are there.
+        for fill in (_poly_jones, _poly_conway):
+            try:
+                fill(diagram, cache)
+            except ConversionError:
+                pass
+    jones = cache.get("jones", (None, None))[0]
+    conway = cache.get("conway", (None, None))[0]
+    broken = set()
+    if jones is not None and homfly is not None \
+            and homfly_to_jones(homfly) != jones:
+        broken.update(("jones", "homfly"))
+    if conway is not None and homfly is not None \
+            and homfly_to_conway(homfly) != conway:
+        broken.update(("alexander", "conway", "homfly"))
+    for row in rows:
+        pid = row["id"]
+        if pid in broken:
+            row["value"] = None
+            row["error"] = ("internal consistency check failed: the Jones, "
+                            "Conway and HOMFLY-PT polynomials of this diagram "
+                            "disagree, so none of them is printed. Please "
+                            "report the diagram.")
+            continue
+        if row["error"] is not None:
+            continue
+        sign_how = ("Wirtinger matrix minor; %s"
+                    % (cache.get("conway_how") or "sign NOT determined"))
+        if pid == "alexander":
+            delta = _delta_from_conway(conway)
+            row["terms"] = [[_half(e), delta[e]] for e in sorted(delta)]
+            row["method"] = sign_how
+        elif pid == "conway":
+            row["terms"] = [[e, conway[e]] for e in sorted(conway)]
+            row["method"] = sign_how
+        elif pid == "jones":
+            row["terms"] = [[_half(e), jones[e]] for e in sorted(jones)]
+            row["method"] = "Kauffman bracket, contracted over planar matchings"
+        elif pid == "homfly":
+            row["terms"] = [[ev, ez, homfly[(ev, ez)]]
+                            for ev, ez in sorted(homfly, key=lambda e: (e[1], e[0]))]
+            row["method"] = cache.get("homfly_how")
+        row["caveat"] = _poly_caveat(diagram, pid, cache)
+    return rows
+
+
+def report_polynomials(rows, diagram, log=print):
+    """The --polynomials block of a run's report: the values, the conventions
+    they are written in, how the non-obvious ones were obtained, and what each
+    value does not say.  The conventions are printed every time because they
+    are the usual reason two tables disagree."""
+    width = max([len("polynomial")] + [len(r["id"]) for r in rows])
+    log("%-*s  %s" % (width, "polynomial", "value"))
+    log("%-*s  %s" % (width, "-" * width, "-" * 56))
+    for r in rows:
+        if r["error"] is None:
+            log("%-*s  %s" % (width, r["id"], r["value"]))
+        else:
+            log("%-*s  (unavailable: %s)" % (width, r["id"], r["error"]))
+    log("")
+    log("[polys]      conventions -- each is 1 on the unknot, and 'trefoil' is "
+        "the right-handed one (DT: [(4,6,2)] here):")
+    for r in rows:
+        log("             %-*s  %s; trefoil %s"
+            % (width, r["id"], r["convention"], POLYNOMIALS[r["id"]]["example"]))
+    # How HOMFLY-PT was reached, and -- for a link, where it is the delicate
+    # part -- what fixed the Alexander/Conway sign.  The rest is in the JSON.
+    signed = False
+    for r in rows:
+        if r["error"] is not None or not r["method"]:
+            continue
+        if r["id"] == "homfly":
+            log("[polys]      homfly by the %s" % r["method"])
+        elif r["id"] in ("alexander", "conway") and not signed \
+                and diagram.n_components > 1 and r["value"] != "0":
+            signed = True
+            log("[polys]      %s" % r["method"].split("; ", 1)[-1])
+    # one [warn] per distinct caveat, naming every polynomial it applies to
+    grouped = []
+    for r in rows:
+        if r["error"] is None and r["caveat"]:
+            for entry in grouped:
+                if entry[1] == r["caveat"]:
+                    entry[0].append(r["id"])
+                    break
+            else:
+                grouped.append(([r["id"]], r["caveat"]))
+    for ids, caveat in grouped:
+        for i, line in enumerate(_wrap("%s: %s" % (", ".join(ids), caveat), 66)):
+            log("%s %s" % ("[warn]      " if i == 0 else "            ", line))
+    log("")
+
+
+# --------------------------------------------------------------------------- #
 #  6. Input format detection
 # --------------------------------------------------------------------------- #
 _NAME_RE = re.compile(r"""^\s*(?:
@@ -2624,9 +3973,6 @@ def prepare_diagram(args):
                     "resolved, then read a legal vector off the dt-flips output."
                     % "".join("1" if f else "0" for f in flips_arg))
 
-    if getattr(args, "mirror", False):
-        diagram = diagram.mirror()
-
     validate = not getattr(args, "no_validate", False)
     planar = None
     if spherogram_mod() is not None:
@@ -2642,6 +3988,14 @@ def prepare_diagram(args):
         if validate:
             diagram.link()          # raises for an unrealisable DT code
             planar = True
+    # --mirror LAST, once the chirality is resolved, so that it mirrors exactly
+    # the realisation the plain run reports (Diagram.mirror keeps the flips).
+    # Mirroring first left a code with no chirality of its own to be resolved
+    # afterwards, and the normalisation then chose the original link again.
+    if getattr(args, "mirror", False):
+        diagram = diagram.mirror()
+        if planar:
+            diagram.link()          # same shadow, so this always builds
     return diagram, fmt_id, why, text, validate, planar
 
 
@@ -2654,6 +4008,9 @@ def run_pipeline(args, log=print):
     if getattr(args, "selftest", False):
         set_embed_timeout(getattr(args, "timeout", DEFAULT_EMBED_TIMEOUT))
         return run_selftest(log, verbose=not getattr(args, "quiet", False))
+
+    # before the input is read, so a misspelt name fails at once
+    poly_ids = resolve_polynomials(getattr(args, "polynomials", None))
 
     diagram, fmt_id, why, text, validate, planar = prepare_diagram(args)
 
@@ -2683,11 +4040,13 @@ def run_pipeline(args, log=print):
                     diagram.flips is None
                     or getattr(diagram, "_resolved_from_normalisation", False))
                 pieces = getattr(diagram, "_pieces", None)
+                mirrored = getattr(diagram, "_mirrored", False)
                 comps, flips = link_to_dt(link)
                 diagram = Diagram(comps, flips, diagram.source, notes)
                 if was_normalised:
                     diagram._resolved_from_normalisation = True
                 diagram._pieces = pieces
+                diagram._mirrored = mirrored
                 if after < before:
                     diagram.note(
                         "--simplify reduced the diagram from %d crossings to "
@@ -2710,6 +4069,7 @@ def run_pipeline(args, log=print):
 
     targets = resolve_targets(getattr(args, "to", "all"))
     results = convert(resolved, targets)
+    polys = compute_polynomials(resolved, poly_ids) if poly_ids else []
 
     # ---- report ---- #
     log("[input]      %s  (detected: %s)" % (fmt_id, why))
@@ -2722,15 +4082,28 @@ def run_pipeline(args, log=print):
             "see the note below")
     elif getattr(resolved, "_resolved_from_normalisation", False):
         pieces = getattr(resolved, "_pieces", None)
+        mirrored = getattr(resolved, "_mirrored", False)
         if pieces and pieces > 1:
-            log("[chirality]  AMBIGUOUS -- this code admits %d realisations "
+            log("[chirality]  AMBIGUOUS%s -- this code admits %d realisations "
                 "(%d diagrams up to mirror image), because it is a connected "
                 "sum / split union of %d independently reflectable pieces. "
-                "spherogram's rule (first crossing positive) picked one"
-                % (2 ** pieces, 2 ** (pieces - 1), pieces))
+                "spherogram's rule (first crossing positive) picked one%s"
+                % (", then mirrored" if mirrored else "", 2 ** pieces,
+                   2 ** (pieces - 1), pieces,
+                   ", and --mirror gives its mirror image (flips %s)"
+                   % _flip_str(resolved.flips) if mirrored else ""))
+        elif mirrored:
+            log("[chirality]  normalised, then mirrored -- the input did not "
+                "say which mirror image; spherogram's rule (first crossing "
+                "positive) picked one, and --mirror gives the other (flips %s)"
+                % _flip_str(resolved.flips))
         else:
             log("[chirality]  normalised -- the input did not say which mirror "
                 "image; spherogram's rule (first crossing positive) was used")
+    elif getattr(resolved, "_mirrored", False):
+        log("[chirality]  determined, then mirrored -- the input's chirality, "
+            "and --mirror gives its mirror image (flips %s)"
+            % _flip_str(resolved.flips))
     else:
         log("[chirality]  determined -- carried through from the input "
             "(flips %s)" % _flip_str(resolved.flips))
@@ -2775,7 +4148,12 @@ def run_pipeline(args, log=print):
             log("%s %s" % ("[warn]      " if i == 0 else "            ", line))
     if caveats:
         log("")
-    log("[done]       %d of %d format(s) produced" % (ok, len(results)))
+    done = "%d of %d format(s)" % (ok, len(results))
+    if polys:
+        report_polynomials(polys, resolved, log)
+        done += " and %d of %d polynomial(s)" % (
+            sum(1 for r in polys if r["error"] is None), len(polys))
+    log("[done]       %s produced" % done)
 
     payload = {
         "tool": "dt_converter.py", "version": VERSION,
@@ -2796,10 +4174,17 @@ def run_pipeline(args, log=print):
                                                "caveat")}
                         for r in results],
     }
+    # Only when asked for, so a default run's JSON is unchanged.
+    if polys:
+        payload["polynomials"] = [
+            {k: r.get(k) for k in ("id", "title", "convention", "variables",
+                                   "value", "terms", "method", "error",
+                                   "caveat")}
+            for r in polys]
     out_path = getattr(args, "out", None)
     if out_path:
         with open(out_path, "w", encoding="utf-8") as fh:
-            for r in results:
+            for r in results + polys:
                 if r["error"] is None:
                     fh.write("%s\t%s\n" % (r["id"], r["value"]))
         log("[write]      %s" % out_path)
@@ -2852,6 +4237,20 @@ def print_formats(log=print):
     log("Not supported: Conway notation.  Computing it from a diagram means")
     log("finding an algebraic decomposition, which nothing here provides, and a")
     log("table lookup would only cover links the 'name' format already finds.")
+    log("")
+    log("Polynomials -- invariants of the link, not notations, so written only")
+    log("with --polynomials (off by default).  The examples are the same")
+    log("diagram's, the right-handed trefoil:")
+    log("")
+    for p in POLY_TABLE:
+        log("%-12s %-40s %s" % (p["id"], p["title"], p["example"]))
+        for line in _wrap(p["convention"], 68):
+            log("             %s" % line)
+    log("")
+    log("Each is 1 on the unknot.  'homfly' is reached by a braid route (up to")
+    log("%d Seifert circles) or a skein tree (usually up to 20-30 crossings);"
+        % HECKE_STRAND_LIMIT)
+    log("past both it is reported unavailable rather than left running.")
 
 
 def _wrap(text, width):
@@ -2935,6 +4334,53 @@ SELFTEST_BAD = (
 
 # Formats whose round trip must return the IDENTICAL DT code and flip vector.
 LOSSLESS_DT_SPELLINGS = ("dt-flips", "dt-alpha", "dt-hex", "dt-compact")
+
+# The project's 6-component "lark" Brunnian link: 36 crossings but 18 Seifert
+# circles, so past both HOMFLY-PT routes -- the case the bounds exist for.
+SELFTEST_WIDE_LINK = ("DT: [(64,24,2,-22,-6,-68), (4,36,14,-34,-18,-8), "
+                      "(16,48,26,-46,-30,-20), (28,60,38,-58,-42,-32), "
+                      "(40,72,50,-70,-54,-44), (52,12,62,-10,-66,-56)]")
+
+
+def _hfk_alexander(diagram):
+    """A knot's Alexander polynomial as the graded Euler characteristic of its
+    knot Floer homology -- Szabo's program, through spherogram, which needs no
+    Sage.  An oracle independent of the Wirtinger minor, sign included.
+    {exponent of s = t^(1/2): coefficient}, or None if it cannot run."""
+    try:
+        ranks = diagram.link().knot_floer_homology()["ranks"]
+    except Exception:                                            # noqa: BLE001
+        return None
+    out = {}
+    for (alexander, maslov), rank in ranks.items():
+        out[2 * alexander] = (out.get(2 * alexander, 0)
+                              + (-rank if maslov % 2 else rank))
+    return {e: c for e, c in out.items() if c}
+
+
+def _skein_triple(pd):
+    """(L+, L-, L0) at the first crossing that is not a kink, or None."""
+    for k, (ui, uo, oi, oo, sign) in enumerate(pd):
+        if oo == ui or uo == oi or len(pd) < 2:
+            continue
+        switched = list(pd)
+        switched[k] = (oi, oo, ui, uo, -sign)
+        rename = {oo: ui, uo: oi}           # the oriented smoothing
+        zero = [tuple(rename.get(y, y) for y in x[:4]) + (x[4],)
+                for j, x in enumerate(pd) if j != k]
+        return (pd, switched, zero) if sign > 0 else (switched, pd, zero)
+    return None
+
+
+def _torus_knot_polynomials(p, q):
+    """(Jones, Alexander) of the positive (p, q) torus knot from the closed
+    forms, both as {exponent of s = t^(1/2): coefficient}."""
+    jones = _pdiv_exact({0: 1, p + 1: -1, q + 1: -1, p + q: 1}, {0: 1, 2: -1})
+    jones = {2 * e + (p - 1) * (q - 1): c for e, c in jones.items()}
+    delta = _pdiv_exact(_pmul({p * q: 1, 0: -1}, {1: 1, 0: -1}),
+                        _pmul({p: 1, 0: -1}, {q: 1, 0: -1}))
+    delta = {2 * e - (p - 1) * (q - 1): c for e, c in delta.items()}
+    return jones, delta
 
 
 def _selftest_corpus(log):
@@ -3074,9 +4520,12 @@ def run_selftest(log=print, verbose=True):
         w = d.link().writhe()
         pieces = d.reflectable_pieces()
         prime = (pieces == 1)
-        check("%s: mirror() negates the writhe" % label,
-              d.mirror().link().writhe() == -w,
-              "%s vs %s" % (d.mirror().link().writhe(), w))
+        try:
+            wm = d.mirror().link().writhe()
+        except ConversionError as exc:      # a mirror() that broke the flips
+            wm = "unbuildable (%s)" % str(exc)[:60]
+        check("%s: mirror() negates the writhe" % label, wm == -w,
+              "%s vs %s" % (wm, w))
 
         n_cross = d.n
         if n_cross <= 9:
@@ -3123,6 +4572,77 @@ def run_selftest(log=print, verbose=True):
             check("%s: non-prime resolution records the piece count" % label,
                   getattr(bare, "_pieces", None) == pieces,
                   "%s vs %s" % (getattr(bare, "_pieces", None), pieces))
+
+    # 2b. --mirror through the real pipeline.  It must mirror what the plain
+    # run reports -- also when the input carries no chirality of its own.
+    # Mirroring such a code BEFORE resolving it let the normalisation (first
+    # crossing positive) choose again, and for a prime diagram that is the
+    # ORIGINAL link: until V1.1, -i "DT: [(4,6,2)]" --mirror printed the
+    # right-handed trefoil a second time.
+    clock = ["--timeout", "%g" % (_EMBED_TIMEOUT or 0)]
+
+    def pipeline(*argv):
+        return prepare_diagram(build_parser().parse_args(list(argv) + clock))[0]
+
+    def report(*argv):
+        """The [chirality] line and the set of crossing handedness marks."""
+        lines = []
+        run_pipeline(build_parser().parse_args(
+            list(argv) + ["--to", "gauss-ext"] + clock), log=lines.append)
+        chirality = [ln for ln in lines if ln.startswith("[chirality]")][0]
+        ext = [ln.split()[-1] for ln in lines if ln.startswith("gauss-ext")][0]
+        return chirality, set(re.findall(r"[OU]\d+([+-])", ext))
+
+    for label, code in SELFTEST_CODES + (
+            ("3_1, by name", "3_1"), ("trefoil, as a braid", "BR[2,{1,1,1}]"),
+            ("trefoil, with its flips", "DT: [(4,6,2)], [0,0,1]")):
+        try:
+            plain = pipeline("-i", code)
+            mirrored = pipeline("-i", code, "--mirror")
+            w, wm = plain.link().writhe(), mirrored.link().writhe()
+        except ConversionError as exc:
+            check("%s: --mirror runs through the pipeline" % label, False,
+                  str(exc)[:120])
+            continue
+        check("%s: --mirror negates the plain run's writhe" % label, wm == -w,
+              "%s vs %s" % (wm, w))
+        check("%s: --mirror keeps the plain run's flip vector" % label,
+              mirrored.flips == plain.flips,
+              "%s vs %s" % (mirrored.flips, plain.flips))
+        check("%s: --mirror keeps the chirality's provenance" % label,
+              (getattr(mirrored, "_resolved_from_normalisation", False),
+               getattr(mirrored, "_pieces", None))
+              == (getattr(plain, "_resolved_from_normalisation", False),
+                  getattr(plain, "_pieces", None))
+              and getattr(mirrored, "_mirrored", False))
+    # ... in the report, and through a --simplify rebuild: the closure of
+    # s1^3 s2^2 s2^-1 is a 6-crossing diagram of the trefoil, given here bare.
+    stretched = fmt_dt(braid_to_dt([1, 1, 1, 2, 2, -2])[0])
+    for label, argv in (("the bare trefoil", ["-i", "DT: [(4,6,2)]"]),
+                        ("a bare 6-crossing trefoil, simplified",
+                         ["-i", stretched, "--simplify"])):
+        try:
+            line, hands = report(*argv)
+            mline, mhands = report(*(argv + ["--mirror"]))
+        except ConversionError as exc:
+            check("%s: --mirror runs through the report" % label, False,
+                  str(exc)[:120])
+            continue
+        check("%s: --mirror reverses every crossing's handedness" % label,
+              len(hands) == len(mhands) == 1 and hands != mhands,
+              "%s vs %s" % (hands, mhands))
+        check("%s: the [chirality] line says it was mirrored" % label,
+              "then mirrored" in mline and "mirrored" not in line, mline)
+    try:
+        rows = compute_polynomials(
+            pipeline("-i", "DT: [(4,6,2)]", "--mirror"), ["jones"])
+    except ConversionError as exc:
+        rows = [{"value": None, "caveat": str(exc)}]
+    check("the bare trefoil's --mirror has the left-handed Jones polynomial",
+          rows[0]["value"] == "-t^(-4) + t^(-3) + t^(-1)", str(rows[0]["value"]))
+    check("... and its [warn] says --mirror took the other mirror image",
+          "--mirror took the other" in (rows[0]["caveat"] or ""),
+          str(rows[0]["caveat"]))
 
     # 3. the spherogram-backed notations
     for label, comps, flips in corpus:
@@ -3335,6 +4855,174 @@ def run_selftest(log=print, verbose=True):
         else:
             failed.append("4BL -> %s: %s" % (row["id"], row["error"]))
             log("  FAIL  4BL -> %s: %s" % (row["id"], row["error"]))
+    for row in compute_polynomials(d, list(POLY_IDS)):
+        check("4BL -> %s polynomial" % row["id"], row["error"] is None,
+              str(row["error"])[:120])
+
+    # 9. the polynomials.  Three independent algorithms -- the Kauffman-
+    # bracket frontier (Jones), the Wirtinger minor (Alexander, Conway) and
+    # HOMFLY-PT by two routes -- must agree wherever they overlap, and the
+    # conventions are pinned by what the skein relations force, re-derived
+    # here rather than looked up.  The internal consistency checks inside the
+    # polynomial code raise; here that is a failed check, not a crash.
+    def cross_checks(label, comps, flips):
+        nonlocal skipped
+        d = Diagram(comps, flips)
+        pd = oriented_pd(d)
+        mu = d.n_components
+        planar, faces, pieces = pd_is_planar(pd)
+        check("%s: polynomial PD is planar" % label, planar,
+              "%d faces, %d pieces, %d crossings" % (faces, pieces, d.n))
+        check("%s: polynomial PD signs sum to the writhe" % label,
+              sum(x[4] for x in pd) == d.link().writhe(),
+              "%s vs %s" % (sum(x[4] for x in pd), d.link().writhe()))
+        jones = jones_polynomial(pd)
+        check("%s: V(1) = (-2)^(components - 1)" % label,
+              sum(jones.values()) == (-2) ** (mu - 1),
+              "V(1) = %s" % sum(jones.values()))
+        mirror_pd = oriented_pd(d.mirror())
+        check("%s: the mirror's Jones polynomial is V(t^-1)" % label,
+              jones_polynomial(mirror_pd) == {-e: c for e, c in jones.items()})
+        nabla, how = conway_polynomial(mu, alexander_minor(pd), jones)
+        skein = hecke = None
+        if d.n <= 16:
+            try:
+                skein = homfly_skein(pd)
+            except _OutOfSteps:
+                pass
+        circles = seifert_circles(pd)
+        if circles <= 6:
+            try:
+                word = dt_to_braid(comps, flips)
+            except ConversionError:
+                word = None     # spherogram's braid_word fails on split diagrams
+            if word:
+                strands = max(abs(x) for x in word) + 1
+                check("%s: braid strands = Seifert circles" % label,
+                      strands == circles, "%d vs %d" % (strands, circles))
+                if strands == circles:
+                    hecke = homfly_hecke(word, strands)
+        if skein is not None and hecke is not None:
+            check("%s: HOMFLY-PT by skein tree = by Hecke algebra" % label,
+                  skein == hecke, "%s vs %s" % (fmt_homfly(skein)[:60],
+                                                fmt_homfly(hecke)[:60]))
+        homfly = hecke if hecke is not None else skein
+        if homfly is None:
+            skipped += 1
+            return
+        check("%s: HOMFLY-PT at (t, t^1/2 - t^-1/2) is the bracket's Jones"
+              % label, homfly_to_jones(homfly) == jones)
+        from_homfly = homfly_to_conway(homfly)
+        if how is not None:
+            check("%s: HOMFLY-PT at v = 1 is the Wirtinger Conway, sign and "
+                  "all (%s)" % (label, how), from_homfly == nabla,
+                  "%s vs %s" % (from_homfly, nabla))
+        else:
+            check("%s: HOMFLY-PT at v = 1 is the Wirtinger Conway up to sign"
+                  % label, from_homfly in (nabla, {k: -c for k, c in
+                                                   nabla.items()}))
+        if d.n <= 16:
+            check("%s: the mirror's HOMFLY-PT is P(v^-1, -z)" % label,
+                  homfly_skein(mirror_pd) == homfly_mirror(homfly))
+        if mu == 1 and d.n <= 16:
+            hfk = _hfk_alexander(d)
+            if hfk is None:
+                skipped += 1
+            else:
+                check("%s: Alexander = Euler characteristic of knot Floer "
+                      "homology" % label, hfk == _delta_from_conway(nabla),
+                      "HFK %s vs %s" % (hfk, _delta_from_conway(nabla)))
+
+    # 9b. the conventions.  The Jones skein relation itself, on one crossing of
+    # each small diagram: whichever chirality convention the bracket had, a
+    # wrong one would fail this on every chiral diagram.
+    def skein_relation(label, comps, flips):
+        nonlocal skipped
+        if sum(len(c) for c in comps) > 12:
+            return
+        triple = _skein_triple(oriented_pd(Diagram(comps, flips)))
+        if triple is None:
+            skipped += 1
+            return
+        plus, minus, zero = (jones_polynomial(x) for x in triple)
+        lhs = _padd(_pshift(plus, -2), _pshift(minus, 2), -1)
+        rhs = _pmul({1: 1, -1: -1}, zero)
+        check("%s: t^-1 V(L+) - t V(L-) = (t^1/2 - t^-1/2) V(L0)" % label,
+              lhs == rhs)
+
+    for checks in (cross_checks, skein_relation):
+        for label, comps, flips in corpus:
+            try:
+                checks(label, comps, flips)
+            except (ConversionError, _OutOfSteps) as exc:
+                check("%s: the polynomial %s checks run" % (
+                    label, checks.__name__.replace("_", "-")), False,
+                    str(exc)[:120])
+    # ... and values that do not depend on a table: the right-handed trefoil,
+    # derived by hand from the skein relations, is POLY_TABLE's examples, and
+    # the figure-eight knot and Borromean rings are their own mirror images.
+    ex = parse_input(EXAMPLE_DIAGRAM)[0].with_flips_resolved()
+    for row in compute_polynomials(ex, list(POLY_IDS)):
+        check("documented example for the %s polynomial is current" % row["id"],
+              row["value"] == POLYNOMIALS[row["id"]]["example"],
+              "emits %r, table says %r" % (row["value"],
+                                           POLYNOMIALS[row["id"]]["example"]))
+    for code, want_jones, want_conway in (
+            ("DT: [(4,6,8,2)]", "t^(-2) - t^(-1) + 1 - t + t^2", "1 - z^2"),
+            ("DT: [(-12,-10),(-4,-2),(-8,-6)]",
+             "-t^(-3) + 3*t^(-2) - 2*t^(-1) + 4 - 2*t + 3*t^2 - t^3", "z^4")):
+        rows = {r["id"]: r["value"] for r in compute_polynomials(
+            parse_input(code)[0].with_flips_resolved(), ["conway", "jones"])}
+        check("%s has Jones %s" % (code, want_jones),
+              rows["jones"] == want_jones, "got %s" % rows["jones"])
+        check("%s has Conway %s" % (code, want_conway),
+              rows["conway"] == want_conway, "got %s" % rows["conway"])
+    # ... and the closed forms for positive torus knots, which reach past the
+    # skein tree's size: Jones' V = t^((p-1)(q-1)/2) (1 - t^(p+1) - t^(q+1)
+    # + t^(p+q)) / (1 - t^2), and Delta = (t^pq - 1)(t - 1) / ((t^p - 1)
+    # (t^q - 1)), centred.
+    for label, comps, flips in corpus:
+        m = re.match(r"^T\((\d+),(\d+)\)$", label)
+        if not m:
+            continue
+        p, q = int(m.group(1)), int(m.group(2))
+        pd = oriented_pd(Diagram(comps, flips))
+        if any(x[4] < 0 for x in pd):
+            skipped += 1        # not the positive torus knot
+            continue
+        want_v, want_delta = _torus_knot_polynomials(p, q)
+        try:
+            check("%s: Jones polynomial is the torus-knot formula" % label,
+                  jones_polynomial(pd) == want_v)
+            nabla, _how = conway_polynomial(1, alexander_minor(pd))
+            check("%s: Alexander polynomial is the torus-knot formula" % label,
+                  _delta_from_conway(nabla) == want_delta)
+            if seifert_circles(pd) <= HECKE_STRAND_LIMIT:
+                word = dt_to_braid(comps, flips)
+                hecke = homfly_hecke(word, max(abs(x) for x in word) + 1)
+                check("%s: HOMFLY-PT specialises to the torus-knot Jones"
+                      % label, homfly_to_jones(hecke) == want_v)
+        except (ConversionError, _OutOfSteps) as exc:
+            check("%s: the torus-knot polynomial checks run" % label, False,
+                  str(exc)[:120])
+    # ... and the bounds must refuse, not hang: the project's lark 6BL is past
+    # both HOMFLY-PT routes.  (A short skein budget: the refusal is what is
+    # tested, not the default budget's 2 s.)
+    lark = parse_input(SELFTEST_WIDE_LINK)[0].with_flips_resolved()
+    rows = {r["id"]: r for r in compute_polynomials(
+        lark, ["alexander", "conway", "jones"])}
+    check("the 36-crossing lark 6BL gets its Jones, Alexander and Conway "
+          "polynomials", all(r["error"] is None for r in rows.values()),
+          "; ".join(str(r["error"])[:60] for r in rows.values()))
+    try:
+        homfly_polynomial(lark, oriented_pd(lark), skein_limit=2000)
+    except ConversionError as exc:
+        check("the lark 6BL's HOMFLY-PT is refused, with the reason",
+              "Seifert circles" in str(exc) and "skein tree" in str(exc),
+              str(exc)[:120])
+    else:
+        failed.append("the lark 6BL's HOMFLY-PT was not refused")
+        log("  FAIL  the lark 6BL's HOMFLY-PT was not refused")
 
     log("")
     log("[selftest]   %d passed, %d failed, %d skipped"
@@ -3427,7 +5115,12 @@ HELP = {
                "crossing switched, i.e. every DT sign negated. This is the same "
                "operation as _mirror_dt in score_diagram*.py, so the result "
                "matches the up-to-mirror convention used elsewhere in the "
-               "project."),
+               "project.\n\nIt mirrors exactly what an unticked run reports. "
+               "When the input does not say which mirror image it is (a bare "
+               "DT code), the chirality is chosen first — spherogram's "
+               "normalisation — and then mirrored, keeping the flip vector, so "
+               "you really get the other one; the [chirality] line then ends "
+               "in 'then mirrored'."),
     "simplify": ("Simplify first",
                  "Run spherogram's global simplification before converting, so "
                  "the output describes a smaller diagram of the same link. Use "
@@ -3442,6 +5135,24 @@ HELP = {
                     "converting one would give nonsense.\n\nTick this to skip "
                     "the check (faster, and it lets a broken code through to the "
                     "conversions that do not need an embedding)."),
+    "polynomials": ("Polynomials",
+                    "Also write the link's four common polynomials — Alexander "
+                    "(Conway-normalised), Conway, Jones and HOMFLY-PT — to the "
+                    "report, the text file and the JSON. Off by default.\n\n"
+                    "Each is printed with its skein convention, because "
+                    "conventions are the usual reason two tables disagree. "
+                    "For the right-handed trefoil (the DT: [(4,6,2)] example) "
+                    "they are t^(-1) - 1 + t, 1 + z^2, t + t^3 - t^4 and "
+                    "2*v^2 - v^4 + v^2*z^2.\n\nJones and HOMFLY-PT are chiral, "
+                    "so the [chirality] line matters: if the input did not fix "
+                    "the mirror image, a [warn] line says which one these "
+                    "belong to.\n\nAll four are computed here, in plain Python "
+                    "(spherogram's own need Sage). Jones, Alexander and Conway "
+                    "are fast at any size this project uses — 80 crossings "
+                    "take about 2 s. HOMFLY-PT is exponential: it is found by "
+                    "a braid route when the diagram has at most 8 Seifert "
+                    "circles, or by a skein tree, which usually manages 20-30 "
+                    "crossings, and is reported unavailable beyond both."),
     "check_toolkit": ("Cross-check with draw_dt",
                       "Also feed the DT code to parse_dt() in the newest "
                       "draw_dt_original_labels*.py next to this script, to "
@@ -3593,7 +5304,8 @@ def launch_gui(defaults=None):
     for key, text in (("mirror", "Mirror"),
                       ("simplify", "Simplify first"),
                       ("no_validate", "Skip validation"),
-                      ("check_toolkit", "Cross-check draw_dt")):
+                      ("check_toolkit", "Cross-check draw_dt"),
+                      ("polynomials", "Polynomials")):
         bv = tk.BooleanVar(value=bool(getattr(defaults, key, False))
                            if defaults else False)
         flags[key] = bv
@@ -3670,7 +5382,8 @@ def launch_gui(defaults=None):
             for key, flag in (("mirror", "--mirror"),
                               ("simplify", "--simplify"),
                               ("no_validate", "--no-validate"),
-                              ("check_toolkit", "--check-toolkit")):
+                              ("check_toolkit", "--check-toolkit"),
+                              ("polynomials", "--polynomials")):
                 if flags[key].get():
                     argv.append(flag)
         timeout = vars_["timeout"].get().strip()
@@ -3772,6 +5485,8 @@ examples:
   dt_converter.py -i "PD[X[1,4,2,5],X[3,6,4,1],X[5,2,6,3]]" --to dt
   dt_converter.py -i "O1U2O3U1O2U3" --from gauss-ou --to dt,invariants
   dt_converter.py -i 4_1 --to all --json fig8.json
+  dt_converter.py -i 8_19 --to dt --polynomials     plus its four polynomials
+  dt_converter.py -i 4_1 --polynomials jones,homfly
   dt_converter.py --list-formats
   dt_converter.py --selftest
 
@@ -3805,8 +5520,9 @@ def build_parser():
                          "is used, or spherogram's normalisation if the input "
                          "carried none")
     ap.add_argument("--mirror", action="store_true",
-                    help="convert the mirror image instead (every crossing "
-                         "switched, i.e. every DT sign negated)")
+                    help="convert the mirror image of what a plain run reports "
+                         "instead (every crossing switched: every DT sign "
+                         "negated, the flip vector kept)")
     ap.add_argument("--simplify", action="store_true",
                     help="run spherogram's global simplification first, so the "
                          "output describes a smaller diagram of the same link "
@@ -3831,6 +5547,14 @@ def build_parser():
                     help="write 'format<TAB>code' lines to this file")
     ap.add_argument("--json", default=None, metavar="PATH",
                     help="write the full result, notes included, as JSON")
+    ap.add_argument("--polynomials", nargs="?", const="all", default=None,
+                    metavar="LIST",
+                    help="also write the link's polynomials (off by default): "
+                         "alexander, conway, jones and homfly (HOMFLY-PT), or "
+                         "a comma list of them. They go into the report, "
+                         "--out and --json, each with its skein convention. "
+                         "Computed in plain Python; HOMFLY-PT is exponential "
+                         "and is refused past its step bounds")
     ap.add_argument("--list-formats", action="store_true",
                     help="print every notation with an example and exit")
     ap.add_argument("--selftest", action="store_true",

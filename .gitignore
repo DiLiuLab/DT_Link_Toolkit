@@ -18,6 +18,7 @@ strand_passage_chain*.png
 chain*.png
 chain*.jsonl
 *.xyz
+*.glb
 link_diagram.*
 diagram_scores*.svg
 diagram_scores*.png
