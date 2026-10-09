@@ -124,6 +124,7 @@ Usage
 """
 
 import argparse
+from fractions import Fraction
 import importlib.util
 import json
 import math
@@ -1430,12 +1431,59 @@ def check_sampled(classes, queries):
 # --------------------------------------------------------------------------- #
 #  3. Score + rank
 # --------------------------------------------------------------------------- #
+def _jones_terms_headless(dt):
+    """Jones polynomial of a DT code WITHOUT Sage, via dt_converter.py (the
+    Kauffman bracket contracted over planar matchings; Invariant 13 of
+    CLAUDE.md).  Returns (string, terms) where terms is a tuple of
+    (exponent, coefficient) pairs with half-integer exponents as Fractions.
+
+    A signed DT code fixes a prime diagram only up to its mirror image
+    (dt_converter resolves the ambiguity by normalising the first crossing to
+    positive), so two representatives of one link may legitimately come back
+    with mirror-image polynomials, t <-> 1/t.  _jones_mirror_key folds that.
+    """
+    import importlib.util
+    here = os.path.dirname(os.path.abspath(__file__))
+    spec = importlib.util.spec_from_file_location("dt_converter",
+                                                  os.path.join(here, "dt_converter.py"))
+    C = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(C)
+    d, _fmt, _why = C.parse_input(dt)
+    r = d.with_flips_resolved()
+    rows = C.compute_polynomials(r, ["jones"])
+    row = rows[0]
+    if row["value"] is None:
+        raise ValueError(row["error"] or "no Jones polynomial")
+    terms = tuple((Fraction(e), int(c)) for e, c in row["terms"])
+    return str(row["value"]), terms
+
+
+def _jones_mirror_key(terms):
+    """The polynomial and its mirror image t -> 1/t, whichever sorts first."""
+    a = tuple(sorted(terms))
+    b = tuple(sorted((-e, c) for e, c in terms))
+    return min(a, b)
+
+
 def _jones(dt):
+    """Jones polynomial as text: SnapPy under Sage, else dt_converter headless."""
     try:
         import snappy
         return str(snappy.Link(dt).jones_polynomial())
     except Exception:
-        return "n/a (needs Sage)"
+        pass
+    try:
+        return _jones_terms_headless(dt)[0]
+    except Exception as exc:                       # noqa: BLE001
+        return "n/a (%s)" % str(exc)[:60]
+
+
+def _jones_key(dt):
+    """Up-to-mirror fingerprint of the Jones polynomial, or None if unavailable."""
+    try:
+        return _jones_mirror_key(_jones_terms_headless(dt)[1])
+    except Exception:                               # noqa: BLE001
+        return None
 
 
 def _linking_matrix(L):
@@ -1660,6 +1708,7 @@ def score_representatives(classes):
         m = score_diagram(cdt)            # m["dt"] == up-to-mirror canonical form
         m["_class"] = c
         m["jones"] = _jones(cdt)
+        m["jones_key"] = _jones_key(cdt)
         m["linking_fp"] = _linking_fp(cdt)
         scored.append(m)
     scored.sort(key=lambda m: m["composite"], reverse=True)
@@ -1755,7 +1804,7 @@ def _cols():
         ("q: sphere energy", g("quality", "sphere_energy")),
         ("COMPOSITE", lambda m: m["composite"]),
         ("Linking numbers (sorted)", lambda m: str(m.get("linking_fp"))),
-        ("Jones (Sage only)", lambda m: m["jones"]),
+        ("Jones polynomial", lambda m: m["jones"]),
     ]
 
 
@@ -1823,7 +1872,7 @@ def write_excel(scored, path, run_info):
         # into the 19-wide default.
         if header == "Canonical DT code":
             ws.column_dimensions[letter].width = 42
-        elif header in ("Jones (Sage only)", "Strand lengths", "Clasp structure",
+        elif header in ("Jones polynomial", "Strand lengths", "Clasp structure",
                         "Linking numbers (sorted)"):
             ws.column_dimensions[letter].width = 22
         else:
@@ -1912,7 +1961,7 @@ _METRIC_LEGEND = [
     ("q: sphere energy", "higher = better", "0-1 quality for even, relaxed 3-D layout."),
     ("COMPOSITE", "higher = better", "Overall 0-1 score; higher = better synthesis blueprint."),
     ("Linking numbers (sorted)", "descriptive", "Pairwise linking fingerprint (same for all: the link is fixed)."),
-    ("Jones (Sage only)", "descriptive", "Link invariant; identical for all (same link). Populates under Sage."),
+    ("Jones polynomial", "descriptive", "Link invariant: identical for all representatives up to the mirror image t <-> 1/t (a DT code fixes a prime diagram only up to mirror). From SnapPy under Sage, otherwise computed headless by dt_converter.py (Kauffman bracket)."),
 ]
 
 
@@ -3383,6 +3432,13 @@ def run_pipeline(args, log=None):
         print("  same-link check: %d distinct linking-number fingerprint(s) among "
               "representatives%s (expected 1: all are the same link by construction)"
               % (len(fps), "" if len(fps) == 1 else "  <-- MISMATCH"), flush=True)
+    jks = set(m.get("jones_key") for m in scored if m.get("jones_key") is not None)
+    if not jks:
+        print("  same-link check (Jones): SKIPPED (no Jones polynomial available)")
+    else:
+        print("  same-link check (Jones): %d distinct Jones polynomial(s) up to mirror among "
+              "representatives (expected 1: all are the same link by construction)%s"
+              % (len(jks), "" if len(jks) == 1 else "   <-- MISMATCH"))
 
     # Raw-grouping figure: built AFTER scoring so its groups appear in the SAME order
     # (by composite rank) as the ranked figure, and are labelled with rank + name.
@@ -3411,7 +3467,9 @@ def run_pipeline(args, log=None):
         "total_DT_codes": len(chain),
         "distinct_representatives": len(classes),
         "distinct_linking_fingerprints": len(fps),
-        "jones_polynomial": "populated only under Sage (SnapPy standalone cannot compute it)",
+        "jones_polynomial": "SnapPy under Sage, else dt_converter.py headless (Kauffman bracket); "
+                            "compared up to the mirror image t <-> 1/t",
+        "distinct_jones_up_to_mirror": len(jks),
         "scored_on": "canonical DT of each class (labeling-independent, reproducible)",
         "dedup_equivalence": "signed diagram isomorphism (rotation/reflection/relabel/"
                              "cyclic-permutation/component-reorder; over-under preserved). "
@@ -3436,6 +3494,7 @@ def run_pipeline(args, log=None):
                     "multiplicity": m["_class"]["multiplicity"],
                     "first_round": m["_class"]["rep_round"],
                     "jones": m["jones"],
+                    "jones_key_up_to_mirror": [[str(e), c] for e, c in m["jones_key"]] if m.get("jones_key") else None,
                     "linking_fingerprint": list(m["linking_fp"]) if m["linking_fp"] else None,
                     "composite": m["composite"],
                     "quality": m["quality"],

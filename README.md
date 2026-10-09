@@ -19,8 +19,11 @@ same component can be followed across a branching exploration.
 - **Demo mode (`--demo`):** render a headless before/after cascade image.
 - **SnapPy/Sage path:** use SnapPy simplification, Jones polynomials, linking
   invariants, and component-colour recovery.
-- **Continuity fallback:** the scripts still run without Sage/SnapPy, but Jones
-  polynomials and SnapPy-based colour matching are unavailable.
+- **Continuity fallback:** the scripts still run without Sage/SnapPy, but
+  SnapPy-based colour matching is unavailable.  Jones polynomials no longer
+  need Sage: `dt_converter.py` computes them headless, and
+  `score_diagramV2_5.py` fills its "Jones polynomial" column that way (and
+  uses it, folded with its mirror image, as a second same-link check).
 
 Development notes and version history are in [DEVELOPMENT_LOG.md](DEVELOPMENT_LOG.md).
 

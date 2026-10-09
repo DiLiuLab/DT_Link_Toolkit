@@ -4,6 +4,26 @@ DT Link Toolkit Development Log
 This file records version-specific development notes and implementation history.
 For installation and everyday usage, see README.md.
 
+score_diagramV2_5: the Jones column is filled headless, and checked (2026-10-09)
+-------------------------------------------------------------------------------
+* `_jones` falls back to `dt_converter.py` (Kauffman bracket, Invariant 13) when
+  SnapPy's `jones_polynomial()` raises without Sage, so the workbook column --
+  renamed "Jones polynomial" from "Jones (Sage only)" -- is populated on this
+  machine.  `_jones_key` folds the polynomial with its mirror image t <-> 1/t,
+  because a signed DT code fixes a prime diagram only up to mirror and the
+  converter resolves the ambiguity by normalising the first crossing positive.
+* A second same-link check: `same-link check (Jones)` counts the distinct
+  mirror-folded polynomials among the representatives (expected 1), next to the
+  linking-number fingerprint.  Why: for a Brunnian link every pairwise linking
+  number is 0, so the fingerprint (0, 0, 0, 0, 0, 0) is also an unlink's and
+  could never have caught a wrong representative of 4BL.  `run_info` records
+  `distinct_jones_up_to_mirror` and the JSON carries `jones_key_up_to_mirror`.
+* Measured: 4BL's four representatives share one polynomial
+  (-t^(-11/2) + 4 t^(-9/2) - ... - t^(11/2)); Borromean -t^-3 + 3t^-2 - 2t^-1
+  + 4 - 2t + 3t^2 - t^3; the four 4BL composites are unchanged
+  (0.8976 / 0.7478 / 0.7209 / 0.5573).  Made for the third edition of the
+  reports in project.topo/results_score_10X_V3.
+
 draw_dt_original_labels V5.5 (2026-07-12)
 -----------------------------------------
 * 3D projection window navigation is now a free screen-axis TRACKBALL (Blender /
