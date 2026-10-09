@@ -455,6 +455,29 @@ says how many components that was. The angled cube style is left alone,
 since its points are its corners.
 `--no-xyz-even-spacing` reproduces the previous output exactly.
 
+`--layout spread-tutte` (GUI: layout `spread-tutte`, field `spread rounds`)
+is for diagrams whose crossings are mostly trivial -- the kinks and bigons
+left by random Reidemeister moves, e.g. a diagram after a `backtrack` round.
+Every Tutte-family solve crushes such a kink to a point, and the
+force-directed layouts spread it but create false crossings.  `spread-tutte`
+first makes every crossing square a face of the embedding (networkx's
+default embedding puts kink loops inside their own crossing), then spreads
+strictly planar starts -- a Tutte drawing with every face stellated and
+exact integer-grid drawings -- with forces under which each node moves at
+most a third of its distance to any strand piece it does not touch, so the
+straight-line drawing can never acquire a crossing; the start that ends with
+the most room is kept.  Strands are pulled straight through their crossings
+and kinks are drawn as teardrop loops.  On 72 backtrack diagrams of 12 links
+(24-61 crossings, not used while tuning) it drew 69 with no false crossing
+(the others 2-4 each), against none for `tutte` and `shaped-tutte` (median
+37) -- counted with the exact false-crossing audit, which is not committed
+yet; the committed audit misses contacts near true crossings and reports
+all of these drawings clean.  `--spread-rounds` (default 400, at least 1)
+sets the rounds per start: about 2 s at 25 crossings, 5-10 s at 40-60, 40 s
+at 100.  The puncture face is honoured and is never a crossing square; a
+kink or bigon puncture is flagged in the log, because the whole diagram then
+sits inside it.  `--tutte-decompress` and `--tutte-com-expand` do not apply.
+
 Extra `holed-tutte` controls:
 
 - `flatten orthogonal components` (`--flatten-orthogonal` / GUI checkbox)

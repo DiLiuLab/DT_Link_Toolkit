@@ -9,6 +9,38 @@ Draw a smooth planar oriented link diagram from a signed Dowker-Thistlethwaite
 
 V5.7 changes
 ------------
+* 2-D: new layout 'spread-tutte' (2026-10-09, at the user's request, for the
+  intermediate diagrams of a backtrack round: 25-60 crossings, most of them
+  kinks and bigons).  Every Tutte-family solve crushes such a face to a point
+  (a kink's loop node is the midpoint of two ADJACENT corners, so it lands on
+  that gadget edge), and the force-directed layouts create false crossings.
+  (1) `crossing_face_embedding`: networkx's embedding of the gadget graph
+  puts a kink loop INSIDE its own crossing square for practically every kink
+  of such a diagram -- not a picture of the diagram at all; each square is
+  made a wheel (hub + subdivided sides) before the planarity test, which
+  forces every square to be a face.  (2) Strictly planar starts on that
+  embedding, with the puncture (never a crossing square) outside:
+  `stellated_tutte_start` (rejected below SPREAD_START_MIN clearance -- the
+  Tutte map's resolution falls exponentially with nesting depth) and
+  `grid_planar_start` (Chrobak-Payne integer grid on three base edges,
+  checked exactly by `_int_proper_crossings`).  (3) `spread_planar_layout`:
+  springs, node and singular node-edge repulsion, crossings pulled toward
+  squares, each strand pulled straight through its crossing, a kink's loop
+  node toward an apex on its own side; every node moves at most 0.95 x its
+  PrEd safe radius (`_spread_safe_radii`), so the straight-line drawing
+  cannot acquire a crossing.  (4) The result with the largest final
+  node-edge clearance is kept; if none, the unspread grid drawing.
+  (5) Kinks are drawn as teardrop loops (`_round_kink_loops`, through
+  `_component_dense`, so render and audit agree; flag model["round_kinks"]).
+  Measured with the exact audit of the development copy (not yet committed;
+  the committed audit misses contacts near true crossings and reports even
+  plain tutte clean on these diagrams): 58/60 clean on a review corpus of
+  backtrack diagrams (60/60 with --min-sep 0.02), 69/72 on a held-out one
+  (worst 4 false crossings), against 0/72 for tutte and shaped-tutte (median
+  37); the two figure diagrams clean.  Deterministic under PYTHONHASHSEED.
+  About 2 s at 25 crossings, 5-10 s at 40-60, 12 s at T(2,61), 41 s at
+  T(2,101).  Every other layout byte-identical.  CLI --spread-rounds (400,
+  >= 1), GUI 'spread rounds'.
 * 3D: --crossing-offset may now be NEGATIVE, which inverts the over/under
   layering at every crossing (the over-strand runs INSIDE the base surface and
   the under-strand outside).  The exported curve is then the MIRROR of the
@@ -832,9 +864,9 @@ GUI_HELP_TEXT = {
     "table": "Optional CSV table listing each crossing, original odd/even DT labels, components, over/under label, and 2D coordinates.",
     "xyz": "Path for the spherical x y z coordinate file. The file is plain three-column coordinates. Blank lines separate link components.",
     "negative_even": "DT sign convention. Default: a negative even DT label means the even-labeled visit is over, matching the common Sage/KnotTheory convention. Choose 'under' for the opposite convention.",
-    "layout": "2D preview/image layout. tutte is usually smooth and clean; shaped-tutte pins the Tutte boundary to a chosen shape (see tutte shape); holed-tutte pins two faces (outer + auto-picked central hole) to the outer/inner outlines of a holed shape (ring/annulus) so the diagram wraps around a central hole; sphere-stereo lays the diagram out on the unit sphere (3D Kamada-Kawai, as the 3D XYZ pipeline) and stereographically projects it from the pole farthest from all strands -- the method of choice for links whose rings lie in near-orthogonal planes (e.g. Edwards-Venn AM5), which collapse in boundary-pinned layouts (the pole's face becomes the outer region; combine with relax passes / min separation); planar is safest; spring and kamada are aesthetic force-directed alternatives that are audited for false crossings.",
+    "layout": "2D preview/image layout. tutte is usually smooth and clean; shaped-tutte pins the Tutte boundary to a chosen shape (see tutte shape); holed-tutte pins two faces (outer + auto-picked central hole) to the outer/inner outlines of a holed shape (ring/annulus) so the diagram wraps around a central hole; spread-tutte is the layout for diagrams with many TRIVIAL crossings -- kinks and bigons from Reidemeister moves, which every Tutte solve crushes to points: it makes every crossing square a face of the embedding, starts from strictly planar Tutte and grid drawings, and spreads them with forces under which the straight-line drawing cannot acquire a crossing (the smoothed curves are audited as usual; see spread rounds); sphere-stereo lays the diagram out on the unit sphere (3D Kamada-Kawai, as the 3D XYZ pipeline) and stereographically projects it from the pole farthest from all strands -- the method of choice for links whose rings lie in near-orthogonal planes (e.g. Edwards-Venn AM5), which collapse in boundary-pinned layouts (the pole's face becomes the outer region; combine with relax passes / min separation); planar is safest; spring and kamada are aesthetic force-directed alternatives that are audited for false crossings.",
     "tutte_shape": "Boundary shape for the shaped-tutte and holed-tutte layouts: circle, ellipse, rectangle, or rounded-rectangle. All shapes are convex, so the Tutte solve stays valid. For holed-tutte this is the shape of both the outer and inner ring outlines.",
-    "puncture_face": "Tutte-family layouts (tutte / shaped-tutte / holed-tutte) must send one planar face to the OUTER (unbounded) region -- geometrically the sphere is 'punctured' at that face and the diagram is laid flat around it. The largest face is used by default; when several faces tie for the largest boundary the pick is otherwise arbitrary (it depends on the internal face-traversal order), so the drawing could jump between runs. Enter the crossing IDs on the boundary of the face you want punctured, e.g. c1,c3,c5 -- the note below and the preview log list the tie faces to choose from. Blank or 'auto' keeps the canonical largest face; a non-tied face's signature is also accepted to pin it explicitly. (On holed-tutte's kamada wreath path a selection is applied only when the chosen face is one of the ring's encircling faces.)",
+    "puncture_face": "Tutte-family layouts (tutte / shaped-tutte / holed-tutte / spread-tutte) must send one planar face to the OUTER (unbounded) region -- geometrically the sphere is 'punctured' at that face and the diagram is laid flat around it. The largest face is used by default; when several faces tie for the largest boundary the pick is otherwise arbitrary (it depends on the internal face-traversal order), so the drawing could jump between runs. Enter the crossing IDs on the boundary of the face you want punctured, e.g. c1,c3,c5 -- the note below and the preview log list the tie faces to choose from. Blank or 'auto' keeps the canonical largest face; a non-tied face's signature is also accepted to pin it explicitly. (On holed-tutte's kamada wreath path a selection is applied only when the chosen face is one of the ring's encircling faces.)",
     "hole_ratio": "Holed-tutte inner (hole) outline size as a fraction of the outer outline, in (0,1). Smaller values give a bigger hole/thinner ring wall; larger values give a small hole. Only used when layout is holed-tutte. Default: 0.4.",
     "hole_swap": "Holed-tutte: swap which of the two chosen boundary FACES is pinned to the OUTER outline and which to the INNER (hole) outline, then re-solve. This is a structural change (a different face ends up on the rim), NOT a simple inside-out flip -- for that, use 'invert ring'. Only used when layout is holed-tutte.",
     "invert_ring": "Holed-tutte: turn the ring inside-out (invert inner/outer outlines).  It reflects every crossing's radius about the ring's mid-line, so whatever is currently near the inner hole ends up on the outside and vice versa -- the same diagram, flipped radially (the mid-line curve is unchanged).  Unlike 'swap inner/outer face' (which re-solves with the two boundary faces exchanged), this keeps the layout and just flips it. Only used when layout is holed-tutte.",
@@ -874,6 +906,7 @@ GUI_HELP_TEXT = {
     "redraw_projection": "Recompute and topology-audit the 3D Sphere-XYZ curve with the CURRENT '3D XYZ' tab parameters, then redraw the projection window. The audit result appears in both the main status log and the projection window. Quick-view buttons only re-project the audited cached curve and are instant.",
     "tutte_aspect": "Dimensionless ratio (long axis / short axis) of the shaped-tutte ellipse or rectangle boundary. Suggested range 1.0-4.0 (1.0 = round/square). Used only when layout is shaped-tutte, the shape is not a circle, and auto aspect is off. Default: 1.8.",
     "tutte_corner_radius": "Dimensionless ratio 0.0-1.0 giving the rounded-rectangle corner radius as a fraction of the short half-extent. 0 = sharp rectangle, 1 = fully rounded (stadium). Only used for the rounded-rectangle shape. Default: 0.25.",
+    "spread_rounds": "spread-tutte only: number of force-directed rounds for each start (at least 1).  The layout first re-embeds the diagram so that every crossing square is a face (networkx's default embedding puts kink loops inside their own crossing), then spreads a stellated Tutte drawing and exact integer-grid drawings on three base edges, and keeps the one that ends with the largest gap between any node and any strand piece not touching it.  Every node moves at most a third of its distance to any non-incident edge per round, so the straight-line drawing stays planar whatever the count; strands are pulled straight through their crossings and kinks are drawn as teardrop loops.  The smoothed curves are audited as usual.  400 rounds take about 2 s at 25 crossings, 5-10 s at 40-60 and 40 s at 100; lower it for big diagrams.  The puncture face is honoured (a crossing square is never used); a kink or bigon face puts the whole diagram inside a one- or two-arc outer boundary and the curves along it cut through -- pin a larger face.  tutte decompress / COM expand do not apply.  Deterministic.  CLI: --spread-rounds.",
     "tutte_decompress": "Dimensionless internal decompression strength for tutte and shaped-tutte, measured RELATIVE TO THE BOUNDARY (not a geometric shape-center push). 0 reproduces the classic Tutte layout; suggested range 0.0-1.0 (values much above ~1 can push interior nodes far enough out to create flagged false crossings). It applies boundary-depth edge weights (graph distance from the outer face) that push deep interior structure outward toward the boundary. It does not target where crossings are crowded -- for that, use 'tutte COM expand'. Default: 0.0.",
     "tutte_com_expand": "Dimensionless strength of a SEPARATE radial expansion about the crossing center of mass, for tutte and shaped-tutte. 0 = off. Unlike 'tutte decompress' (which references the boundary), this expands interior structure outward from the density-weighted crowded-crossing centroid, tapering to zero at the pinned boundary, so crowded crossings get more room and sit near the center. It is layered on top of 'tutte decompress'. Suggested range 0.0-1.0; larger values can create flagged false crossings. Default: 0.0.",
     "tutte_auto_aspect": "Shaped-tutte auto aspect. When on, the boundary long/short ratio is measured from the diagram's own elongation (the PCA spread ratio of a circular Tutte solve) so a naturally long-thin knot gets a long-thin boundary. It does NOT equalize strand lengths. When off, the manual tutte aspect is used. Independent of orientation.",
@@ -3171,6 +3204,556 @@ def relax_planar_layout(P, G, passes=0, strength=0.5, pinned=None):
     return {n: coords[n] for n in nodes}
 
 
+SPREAD_ROUNDS_DEFAULT = 400
+SPREAD_START_MIN = 1e-6     # reject a start whose closest node-edge gap is below this x its span
+SPREAD_GRID_ROTATIONS = (0.0, 1.0 / 3.0, 2.0 / 3.0)   # base edges tried for the grid start
+SPREAD_PORT_PULL = 1.0      # strand node outside a crossing corner -> onto that strand's diagonal
+SPREAD_SMOOTH_PULL = 0.8    # strand node -> midpoint of its two neighbours
+_GADGET_ROLES = ("in_o", "in_e", "out_o", "out_e")
+
+
+def _gadget_cycles(G):
+    """{crossing k: [its four corner nodes in the cyclic order in_o, in_e, out_o, out_e]}."""
+    found = {}
+    for v in G.nodes():
+        if isinstance(v, tuple) and len(v) == 2 and v[0] != "seg" and v[1] in _GADGET_ROLES:
+            found.setdefault(v[0], {})[v[1]] = v
+    return {k: [g[r] for r in _GADGET_ROLES] for k, g in found.items() if len(g) == 4}
+
+
+def _is_face_of(emb, cyc):
+    """True when the cycle `cyc` (consecutive nodes adjacent) bounds a face of `emb`."""
+    want = set(cyc)
+    for a, b in ((cyc[0], cyc[1]), (cyc[1], cyc[0])):
+        f = emb.traverse_face(a, b)
+        if len(f) == len(cyc) and set(f) == want:
+            return True
+    return False
+
+
+def crossing_face_embedding(G):
+    """
+    A planar embedding of the gadget graph in which EVERY crossing's 4-cycle is
+    a face, or None if there is none.
+
+    nx.check_planarity returns some embedding, and the gadget graph is not
+    3-connected: a kink's loop (a segment node joined to two ADJACENT corners
+    of one crossing) or anything else hanging off two corners of a crossing
+    may be placed INSIDE that crossing's 4-cycle.  That is not a picture of
+    the diagram at all -- the strands are drawn through the crossing centre,
+    straight through whatever sits inside -- and on backtrack intermediates
+    nx does it for practically every kink.  Here each 4-cycle is first turned
+    into a wheel (a hub joined to the four corners and to a node subdividing
+    each side).  No face of that wheel touches two corners, so a piece
+    attached at two corners can only lie outside it: every planar embedding of
+    the augmented graph has the crossing squares as faces.  Contracting the
+    subdivisions and deleting the hubs gives the embedding of G.  Any such
+    embedding realises the code's Gauss word, so it is a drawing of the same
+    DT code (pieces hanging off two-point cuts may come out reflected, which
+    the code does not record anyway).
+    """
+    cycles = _gadget_cycles(G)
+    H = nx.Graph(G)
+    for k, cyc in cycles.items():
+        hub = ("_hub", k)
+        for i in range(4):
+            a, b = cyc[i], cyc[(i + 1) % 4]
+            mid = ("_mid", k, i)
+            if H.has_edge(a, b):
+                H.remove_edge(a, b)
+            H.add_edge(a, mid)
+            H.add_edge(mid, b)
+            H.add_edge(hub, a)
+            H.add_edge(hub, mid)
+    ok, emb_h = nx.check_planarity(H)
+    if not ok:
+        return None
+
+    def _aux(u, tag):
+        return isinstance(u, tuple) and len(u) >= 2 and u[0] == tag
+
+    data = emb_h.get_data()
+    rot = {}
+    for v in G.nodes():
+        lst = []
+        for u in data[v]:
+            if _aux(u, "_hub"):
+                continue
+            if _aux(u, "_mid"):
+                u = next(w for w in data[u] if w != v and not _aux(w, "_hub"))
+            lst.append(u)
+        rot[v] = lst
+    emb = nx.PlanarEmbedding()
+    emb.set_data(rot)
+    emb.check_structure()
+    if not all(_is_face_of(emb, cyc) for cyc in cycles.values()):
+        return None
+    return emb
+
+
+def _spread_safe_radii(X, e_u, e_v, inc_mask):
+    """PrEd-style safe move radius per node for a straight-line planar drawing.
+
+    Returns (r, D): D[i, j] is the distance from node i to edge j (inf where
+    the edge is incident to the node), and r[i] is a third of the smallest
+    distance from node i to an edge not incident to it AND of the smallest
+    distance from any node not on an edge incident to i to that edge (the
+    isotropic form of Bertault's PrEd rule).  If every node moves less than
+    r, a node and a non-incident edge at distance d each move less than d/3,
+    so along the linear step the node stays more than d/3 from the edge: no
+    endpoint ever touches a non-incident edge, no two edges can start to
+    cross, and the cyclic order at every node -- the embedding -- is kept."""
+    A = X[e_u]; B = X[e_v]
+    AB = B - A
+    L2 = np.maximum(np.einsum("ij,ij->i", AB, AB), 1e-300)
+    # projection parameter of every node onto every edge, clipped to the segment
+    t = ((X[:, None, 0] - A[None, :, 0]) * AB[None, :, 0] + (X[:, None, 1] - A[None, :, 1]) * AB[None, :, 1]) / L2[None, :]
+    t = np.clip(t, 0.0, 1.0)
+    cx = A[None, :, 0] + t * AB[None, :, 0]
+    cy = A[None, :, 1] + t * AB[None, :, 1]
+    D = np.hypot(X[:, None, 0] - cx, X[:, None, 1] - cy)
+    D = np.where(inc_mask, np.inf, D)
+    r_node = D.min(axis=1) / 3.0                      # vs every non-incident edge
+    r_edge = D.min(axis=0) / 3.0                      # every node not on this edge vs this edge
+    r = r_node.copy()
+    np.minimum.at(r, e_u, r_edge)
+    np.minimum.at(r, e_v, r_edge)
+    return r, D
+
+
+def _straight_line_crossings(X, e_u, e_v):
+    """Number of proper crossings between non-adjacent straight edges, by
+    floating-point orientation tests.  A touch does not count, and neither
+    does an orientation within 1e-12 of the two segments' lengths' product
+    (collinear segments would otherwise count after rescaling); integer
+    drawings are checked exactly by `_int_proper_crossings`."""
+    ii, jj = np.triu_indices(len(e_u), k=1)
+    share = ((e_u[ii] == e_u[jj]) | (e_u[ii] == e_v[jj]) | (e_v[ii] == e_u[jj]) | (e_v[ii] == e_v[jj]))
+    ii, jj = ii[~share], jj[~share]
+    p, q, r, s = X[e_u[ii]], X[e_v[ii]], X[e_u[jj]], X[e_v[jj]]
+    def _c(a, b):
+        return a[:, 0] * b[:, 1] - a[:, 1] * b[:, 0]
+    d1 = _c(q - p, r - p); d2 = _c(q - p, s - p); d3 = _c(s - r, p - r); d4 = _c(s - r, q - r)
+    tol = 1e-12 * np.hypot(*(q - p).T) * np.hypot(*(s - r).T)
+    big = (np.abs(d1) > tol) & (np.abs(d2) > tol) & (np.abs(d3) > tol) & (np.abs(d4) > tol)
+    return int(np.count_nonzero(big & (d1 * d2 < 0.0) & (d3 * d4 < 0.0)))
+
+
+def _int_proper_crossings(X, e_u, e_v):
+    """Exact count of proper crossings between non-adjacent edges of a drawing
+    with INTEGER coordinates (int64 orientation tests; coordinates below 2^20
+    keep every product exact)."""
+    X = np.asarray(X, np.int64)
+    ii, jj = np.triu_indices(len(e_u), k=1)
+    share = ((e_u[ii] == e_u[jj]) | (e_u[ii] == e_v[jj]) | (e_v[ii] == e_u[jj]) | (e_v[ii] == e_v[jj]))
+    ii, jj = ii[~share], jj[~share]
+    p, q, r, s = X[e_u[ii]], X[e_v[ii]], X[e_u[jj]], X[e_v[jj]]
+    def _c(a, b):
+        return a[:, 0] * b[:, 1] - a[:, 1] * b[:, 0]
+    d1 = np.sign(_c(q - p, r - p)); d2 = np.sign(_c(q - p, s - p)); d3 = np.sign(_c(s - r, p - r)); d4 = np.sign(_c(s - r, q - r))
+    return int(np.count_nonzero((d1 * d2 < 0) & (d3 * d4 < 0)))
+
+
+def _drawing_arrays(P, G):
+    nodes = list(P.keys())
+    idx = {v: i for i, v in enumerate(nodes)}
+    X = np.array([np.asarray(P[v], float) for v in nodes])
+    pairs = [(idx[u], idx[v]) for u, v in G.edges() if u != v]
+    e_u = np.array([p[0] for p in pairs], int); e_v = np.array([p[1] for p in pairs], int)
+    inc_mask = np.zeros((len(nodes), len(pairs)), bool)
+    inc_mask[e_u, np.arange(len(pairs))] = True
+    inc_mask[e_v, np.arange(len(pairs))] = True
+    return nodes, idx, X, e_u, e_v, inc_mask
+
+
+def straight_line_clearance(P, G):
+    """(straight-line crossings, smallest node-to-non-incident-edge distance as
+    a fraction of the drawing's span) of a straight-line drawing of G."""
+    nodes, idx, X, e_u, e_v, inc_mask = _drawing_arrays(P, G)
+    if len(e_u) < 2:
+        return 0, 1.0
+    span = float(np.ptp(X, axis=0).max() or 1.0)
+    _r, D = _spread_safe_radii(X, e_u, e_v, inc_mask)
+    dmin = float(D.min()) if np.isfinite(D).any() else span
+    return _straight_line_crossings(X, e_u, e_v), dmin / span
+
+
+def _unit_disc(P):
+    X = np.array([np.asarray(p, float) for p in P.values()])
+    c = X.mean(axis=0)
+    rad = float(np.hypot(*(X - c).T).max() or 1.0)
+    return {v: (np.asarray(p, float) - c) / rad for v, p in P.items()}
+
+
+def stellated_tutte_start(G, emb, outer):
+    """
+    Tutte start for spread_planar_layout: `outer` (a face of `emb`, as a node
+    list) on the unit circle, and a centre node added in every OTHER face, so
+    the graph is a near-triangulation with a convex boundary and the
+    barycentric map is one-to-one with every face of positive area (Tutte;
+    Floater 2003).  A plain Tutte solve of the gadget graph is degenerate
+    wherever there is a kink -- the loop node is the midpoint of two adjacent
+    corners, so it lands ON that gadget edge.  In exact arithmetic the result
+    is strictly planar; in floating point the barycentric map's resolution
+    falls exponentially with nesting depth, so the caller checks it
+    (`straight_line_clearance`) and falls back to `grid_planar_start`.
+    """
+    faces = planar_faces(emb)
+    skip = next((i for i, f in enumerate(faces) if f is outer), None)
+    if skip is None:
+        skip = next((i for i, f in enumerate(faces) if list(f) == list(outer)), None)
+    H = G.copy()
+    for i, f in enumerate(faces):
+        if i == skip:
+            continue
+        c = ("_face", i)
+        for v in dict.fromkeys(f):
+            H.add_edge(c, v)
+    nodes = list(H.nodes())
+    idx = {n: i for i, n in enumerate(nodes)}
+    N = len(nodes)
+    A = np.zeros((N, N)); bx = np.zeros(N); by = np.zeros(N)
+    outer_set = set(outer)
+    m = len(outer)
+    for j, v in enumerate(outer):
+        a = 2.0 * math.pi * j / m
+        bx[idx[v]], by[idx[v]] = math.cos(a), math.sin(a)
+    for n in nodes:
+        i = idx[n]
+        if n in outer_set:
+            A[i, i] = 1.0
+        else:
+            nbrs = list(H[n])
+            A[i, i] = float(len(nbrs))
+            for nb in nbrs:
+                A[i, idx[nb]] -= 1.0
+    X = np.linalg.solve(A, bx); Y = np.linalg.solve(A, by)
+    return {n: np.array([X[idx[n]], Y[idx[n]]]) for n in G.nodes()}
+
+
+def grid_planar_start(G, emb, outer, rotation=0.0):
+    """
+    Integer-grid straight-line drawing of `emb` with the face `outer` as the
+    outer face (Chrobak-Payne, networkx's implementation; it normally picks
+    the largest face, so the triangulation step is done here with OUR outer
+    face).  Polynomial resolution -- a node is at least ~1/(grid size) from
+    every non-incident edge -- where the Tutte start's is exponential.
+    ``rotation`` (a fraction of the outer face's length) picks which outer
+    edge is the grid's base; different bases give different drawings, and
+    the spread from some of them ends better than from others.
+    Returns (positions in the unit disc, exact straight-line crossings of the
+    integer drawing), or (None, None) if networkx cannot be driven this way.
+    The integer drawing is checked exactly, so no clearance threshold applies
+    to it: on a grid of side g its clearance is ~1/g^2 of the span (6e-7 at
+    155 crossings), which is small but exact.
+    """
+    try:
+        import networkx.algorithms.planar_drawing as _pd
+        from unittest import mock
+        # integer labels: networkx's canonical ordering pops nodes from a set,
+        # and the set order of tuple labels holding strings changes with
+        # PYTHONHASHSEED (measured: a different drawing under seed 3)
+        order = list(G.nodes())
+        lab = {v: i for i, v in enumerate(order)}
+        E = nx.PlanarEmbedding()
+        E.set_data({lab[v]: [lab[u] for u in emb.neighbors_cw_order(v)] for v in order})
+        outer = [lab[v] for v in outer]
+        faces, seen = [], set()
+        for v in list(E.nodes()):
+            for w in list(E.neighbors_cw_order(v)):
+                f = _pd.make_bi_connected(E, v, w, seen)
+                if f:
+                    faces.append(f)
+        want = set(outer)
+        of = next((f for f in faces if len(f) == len(outer) and set(f) == want), None)
+        if of is None:
+            return None
+        for f in faces:
+            if f is not of:
+                _pd.triangulate_face(E, f[0], f[1])
+        r0 = int(round(float(rotation) * len(of))) % len(of)
+        of = list(of[r0:]) + list(of[:r0])
+        with mock.patch.object(_pd, "triangulate_embedding", lambda e, fully_triangulate=False: (E, of)):
+            pos = _pd.combinatorial_embedding_to_pos(E, fully_triangulate=False)
+        Xi = np.array([pos[lab[v]] for v in order], np.int64)
+        e_u = np.array([lab[u] for u, v in G.edges() if u != v], int)
+        e_v = np.array([lab[v] for u, v in G.edges() if u != v], int)
+        crossings = _int_proper_crossings(Xi, e_u, e_v) if len(e_u) > 1 else 0
+        return _unit_disc({v: pos[lab[v]] for v in order}), crossings
+    except Exception:
+        return None, None
+
+
+def spread_planar_layout(P, G, rounds=SPREAD_ROUNDS_DEFAULT, stats_out=None):
+    """
+    Planarity-guarded force-directed spreading of a strictly planar
+    straight-line drawing (the 'spread-tutte' layout).
+
+    Why: a barycentric (Tutte) solve places every interior node at the average
+    of its neighbours, so a face hanging off the diagram by a short cycle -- a
+    kink (monogon) or a bigon from a Reidemeister move -- collapses to a point.
+    The intermediate diagrams of a backtrack round carry dozens of them.
+    Force-directed layouts spread them but create false crossings.  This
+    routine spreads WITHOUT changing the embedding: every node moves at most
+    0.95 x its PrEd safe radius (`_spread_safe_radii`), so the straight-line
+    drawing can never acquire a crossing.  The rendered curves are splines
+    through these points and are audited as usual; this guards the
+    straight-line skeleton only.  The embedding must have every crossing
+    square as a face (`crossing_face_embedding`): with a kink loop inside its
+    own square the guard pins the loop against the gadget edge and the
+    surrounding structure collapses toward it (measured before that fix: the
+    clearance fell from 1e-9 to 1e-17 of the span over 400 rounds).
+
+    Forces (k = sqrt(pi / n), Fruchterman-Reingold's ideal length for the unit
+    disc): a spring toward k on every edge, 3x stiffer on the four sides of a
+    crossing gadget; springs toward k sqrt(2) on the gadget's two diagonals
+    (the strand chords), which pull every crossing toward a square with the
+    strands at a right angle; repulsion k^2/d between nodes closer than 3k;
+    singular repulsion k^2/d between a node and every non-incident edge closer
+    than k (shared back onto the edge's ends); a pull of every ordinary
+    segment node toward the midpoint of its neighbours; a pull of a kink's
+    loop node toward the apex of a triangle of side k on its own side of the
+    gadget edge (the tip of the teardrop the renderer draws there); a pull of the strand node outside each corner onto the ray
+    from the gadget centre through that corner, so every strand runs straight
+    through its crossing (reaction on the corner).  The largest move is cooled linearly from 0.65k to 0.05k.
+    The input must be strictly planar.  The result is checked exactly for
+    straight-line crossings (None is returned if one ever slipped through),
+    re-centred and scaled to the unit disc.  Deterministic.
+    ``stats_out`` (a dict) receives k and the clearance before and after
+    (smallest node-to-non-incident-edge distance, as fractions of k).
+    """
+    nodes, idx, X, e_u, e_v, inc_mask = _drawing_arrays(P, G)
+    n = len(nodes)
+    m = len(e_u)
+    if n < 3 or m < 2 or rounds <= 0:
+        return dict(P)
+    X = (X - X.mean(axis=0)) / float(np.hypot(*(X - X.mean(axis=0)).T).max() or 1.0)
+    # gadget sides are stiffer than strand edges, so a crossing keeps its shape
+    # against the pull of its four strands
+    stiff = np.array([3.0 if (isinstance(u, tuple) and isinstance(v, tuple) and u[0] != "seg" and v[0] != "seg" and u[0] == v[0]) else 1.0
+                      for u, v in G.edges() if u != v])
+    cycles = _gadget_cycles(G)
+    gad = np.array([[idx[c] for c in cyc] for cyc in cycles.values()], int).reshape(-1, 4)
+    # the gadget's two diagonals (in_o-out_o and in_e-out_e: the strand chords)
+    diag = np.array([[g[0], g[2]] for g in gad] + [[g[1], g[3]] for g in gad], int).reshape(-1, 2)
+    corner_gadget = {c: k for k, cyc in cycles.items() for c in cyc}
+    seg_mid = []        # ordinary segment nodes: pulled to the midpoint of their neighbours
+    seg_kink = []       # a kink's loop node: its neighbours are two corners of ONE gadget
+    for v in nodes:
+        if isinstance(v, tuple) and len(v) == 2 and v[0] == "seg":
+            nb = list(G[v])
+            if len(nb) == 2:
+                ka, kb = corner_gadget.get(nb[0]), corner_gadget.get(nb[1])
+                if ka is not None and ka == kb and G.has_edge(nb[0], nb[1]):
+                    seg_kink.append((idx[v], idx[nb[0]], idx[nb[1]]))
+                else:
+                    seg_mid.append((idx[v], idx[nb[0]], idx[nb[1]]))
+    seg_mid = np.array(seg_mid, int).reshape(-1, 3)
+    seg_kink = np.array(seg_kink, int).reshape(-1, 3)
+    # ports: (corner, its gadget's four corners, the strand node outside it)
+    ports = []
+    for k_, cyc in cycles.items():
+        for c in cyc:
+            out = [u for u in G[c] if u not in cyc]
+            if len(out) == 1:
+                ports.append((idx[c], idx[out[0]], [idx[x] for x in cyc]))
+    port_c = np.array([p[0] for p in ports], int)
+    port_s = np.array([p[1] for p in ports], int)
+    port_g = np.array([p[2] for p in ports], int).reshape(-1, 4)
+
+    k = math.sqrt(math.pi / n)                        # FR's ideal length for the unit disc
+    rep_cut = 3.0 * k
+    _r0, D0 = _spread_safe_radii(X, e_u, e_v, inc_mask)
+    for it in range(int(rounds)):
+        T = k * (0.6 * (1.0 - it / float(rounds)) + 0.05)   # cooling: largest move this round
+        F = np.zeros_like(X)
+        # springs
+        d = X[e_v] - X[e_u]; L = np.hypot(d[:, 0], d[:, 1]); L_safe = np.maximum(L, 1e-12)
+        f = (stiff * (L - k))[:, None] * d / L_safe[:, None]
+        np.add.at(F, e_u, f); np.add.at(F, e_v, -f)
+        # node-node repulsion
+        diff = X[:, None, :] - X[None, :, :]
+        dist = np.hypot(diff[..., 0], diff[..., 1]); np.fill_diagonal(dist, np.inf)
+        w = np.where(dist < rep_cut, k * k / np.maximum(dist, 1e-12) ** 2, 0.0)
+        F += (diff * w[..., None]).sum(axis=1)
+        # safe radii (also gives the node-edge distances)
+        r_safe, D = _spread_safe_radii(X, e_u, e_v, inc_mask)
+        # node-edge repulsion inside k: node away from the closest point, ends the other way
+        close = np.argwhere(D < k)
+        if len(close):
+            i_n, j_e = close[:, 0], close[:, 1]
+            A = X[e_u[j_e]]; AB = X[e_v[j_e]] - A
+            L2 = np.maximum(np.einsum("ij,ij->i", AB, AB), 1e-300)
+            t = np.clip(np.einsum("ij,ij->i", X[i_n] - A, AB) / L2, 0.0, 1.0)
+            C = A + t[:, None] * AB
+            away = X[i_n] - C; dd = np.maximum(np.hypot(away[:, 0], away[:, 1]), 1e-300)
+            # singular like the node repulsion: near a non-incident edge this term
+            # dominates every bounded force; the step cap makes the size harmless
+            push = (k * k / np.maximum(dd, 1e-6 * k))[:, None] * away / dd[:, None]
+            np.add.at(F, i_n, push)
+            np.add.at(F, e_u[j_e], -0.5 * (1.0 - t)[:, None] * push)
+            np.add.at(F, e_v[j_e], -0.5 * t[:, None] * push)
+        # crossing gadgets toward squares: the sides are springs to k (above),
+        # the two diagonals springs to k*sqrt(2); a spring never pulls a corner
+        # across one of its own gadget's edges
+        if len(diag):
+            dg = X[diag[:, 1]] - X[diag[:, 0]]; Ld = np.hypot(dg[:, 0], dg[:, 1]); Ls = np.maximum(Ld, 1e-12)
+            fd = 3.0 * (Ld - k * math.sqrt(2.0))[:, None] * dg / Ls[:, None]
+            np.add.at(F, diag[:, 0], fd); np.add.at(F, diag[:, 1], -fd)
+        # straight through every crossing: the strand node outside a corner is
+        # pulled onto the ray from the gadget centre through that corner (the
+        # strand's own diagonal), at its current distance; the corner takes the
+        # reaction, which turns the gadget toward its strands.  Without this the
+        # strands hook into the crossings sideways and the drawing reads as full
+        # of extra kinks once the under-strand gaps are cut.
+        if len(ports):
+            cen = X[port_g].mean(axis=1)
+            u = X[port_c] - cen
+            u /= np.maximum(np.hypot(u[:, 0], u[:, 1]), 1e-300)[:, None]
+            reach = np.hypot(*(X[port_s] - X[port_c]).T)
+            tgt = X[port_c] + reach[:, None] * u
+            pull = SPREAD_PORT_PULL * (tgt - X[port_s])
+            np.add.at(F, port_s, pull)
+            np.add.at(F, port_c, -pull)
+        # segment nodes toward the midpoint of their two neighbours (smooth strands)
+        if len(seg_mid):
+            mid = 0.5 * (X[seg_mid[:, 1]] + X[seg_mid[:, 2]])
+            pull = SPREAD_SMOOTH_PULL * (mid - X[seg_mid[:, 0]])
+            np.add.at(F, seg_mid[:, 0], pull)
+            np.add.at(F, seg_mid[:, 1], -0.5 * pull); np.add.at(F, seg_mid[:, 2], -0.5 * pull)
+        # a kink's loop node toward the apex of a triangle of side k on ITS OWN
+        # side of the gadget edge it hangs off (a target across that edge would
+        # press it onto the edge, where the guard freezes it)
+        if len(seg_kink):
+            a_, b_ = X[seg_kink[:, 1]], X[seg_kink[:, 2]]
+            mid = 0.5 * (a_ + b_); ab = b_ - a_
+            nrm = np.stack([-ab[:, 1], ab[:, 0]], -1)
+            nrm /= np.maximum(np.hypot(nrm[:, 0], nrm[:, 1]), 1e-300)[:, None]
+            side = np.sign(np.einsum("ij,ij->i", X[seg_kink[:, 0]] - mid, nrm)); side[side == 0] = 1.0
+            # the rendered loop (_round_kink_loops) is a teardrop whose tip is
+            # this node, so the node sets the loop's size
+            apex = mid + (0.5 * math.sqrt(3.0) * k) * side[:, None] * nrm
+            np.add.at(F, seg_kink[:, 0], apex - X[seg_kink[:, 0]])
+        # step: cooled, then capped by the safe radius
+        mag = np.hypot(F[:, 0], F[:, 1])
+        step = np.minimum(mag, T)
+        step = np.minimum(step, 0.95 * r_safe)
+        X = X + F * (step / np.maximum(mag, 1e-300))[:, None]
+    _r1, D1 = _spread_safe_radii(X, e_u, e_v, inc_mask)
+    if stats_out is not None:
+        stats_out.update(k=k, clear_before=float(D0.min() / k), clear_after=float(D1.min() / k))
+    # the guard makes a crossing impossible in exact arithmetic; check anyway
+    if _straight_line_crossings(X, e_u, e_v) > 0:
+        return None
+    # scale to the unit disc, as the Tutte layouts are
+    X = X - X.mean(axis=0)
+    rad = float(np.hypot(X[:, 0], X[:, 1]).max() or 1.0)
+    X = X / rad
+    return {v: X[idx[v]].copy() for v in nodes}
+
+
+def spread_tutte_layout(G, emb, rounds=SPREAD_ROUNDS_DEFAULT, puncture_face=None,
+                        crossing_ids=None, puncture_report=None, report_out=None):
+    """
+    The 'spread-tutte' layout: a strictly planar start with every crossing
+    square a face of the embedding and the chosen puncture face outside, then
+    `spread_planar_layout`.
+
+    1. `crossing_face_embedding` (the embedding nx returns may put a kink loop
+       inside its own crossing square; then that is a different picture).
+    2. The puncture face is chosen on that embedding among the DIAGRAM's
+       faces -- never a crossing square (`select_outer_face`, so
+       --puncture-face and the [puncture] report work as for the Tutte family).
+    3. Starts: `stellated_tutte_start` (convex, puncture on a circle) and
+       `grid_planar_start` (integer grid, same outer face) on each base edge
+       in SPREAD_GRID_ROTATIONS.  The Tutte start must have no straight-line
+       crossing and a node-edge clearance of at least SPREAD_START_MIN of its
+       span; a grid start is checked exactly on its integer coordinates.  Each valid start is spread and the
+       result with the largest final clearance is kept (the earlier one on a
+       tie).  The Tutte start's resolution falls exponentially with nesting
+       depth (deeply nested kinks, or a 3-4-node puncture face, put it below
+       double precision) where the grid start's does not; and the final
+       clearance predicts the rendered result (on the review corpus the
+       spreads that ended with false crossings were the ones with the
+       smallest clearance among their candidates).
+    4. If no spread succeeds, the first exact grid start is returned unspread.
+    ``report_out`` (a list) receives one-line notes for the log.
+    Returns positions, or None if no valid start could be made at all.
+    """
+    notes = report_out if report_out is not None else []
+    cycles = _gadget_cycles(G)
+    bad_before = sum(1 for cyc in cycles.values() if not _is_face_of(emb, cyc))
+    emb_c = crossing_face_embedding(G)
+    if emb_c is None:
+        notes.append("no embedding with every crossing square a face exists; kept networkx's embedding "
+                     "(%d of %d crossing squares hold other strands)" % (bad_before, len(cycles)))
+        emb_c = emb
+    elif bad_before:
+        notes.append("re-embedded: %d of %d crossing squares held a kink or other strands in the default embedding"
+                     % (bad_before, len(cycles)))
+    faces = planar_faces(emb_c)
+    if not faces:
+        return None
+    # the crossing squares are faces of this embedding but not of the diagram:
+    # never puncture one (a pinned single crossing then matches a diagram face)
+    squares = {frozenset(cyc) for cyc in cycles.values()}
+    diagram_faces = [f for f in faces if not (len(f) == 4 and frozenset(f) in squares)] or faces
+    outer = select_outer_face(
+        diagram_faces, crossing_ids=crossing_ids, prefer=puncture_face,
+        report_out=puncture_report, layout_name="spread-tutte",
+    )
+    arcs = sum(1 for v in outer if isinstance(v, tuple) and v and v[0] == "seg")
+    if arcs <= 2 and len(diagram_faces) > 2:
+        notes.append("the puncture face is a %s (%d strand arc%s): the whole diagram lies inside it, and the "
+                     "smoothed strands along its long edges are likely to cut through the drawing; pin a larger face "
+                     "for a clean picture" % ("kink" if arcs == 1 else "bigon", arcs, "" if arcs == 1 else "s"))
+    candidates = []
+    try:
+        candidates.append(("Tutte", stellated_tutte_start(G, emb_c, outer), None))
+    except np.linalg.LinAlgError:
+        notes.append("the stellated Tutte solve is singular")
+    for rot in SPREAD_GRID_ROTATIONS:
+        P_g, cr_g = grid_planar_start(G, emb_c, outer, rotation=rot)
+        candidates.append(("grid@%.2f" % rot, P_g, cr_g))
+    best, summary, dropped = None, [], []
+    unspread = None
+    for name, P0, exact_cr in candidates:
+        if P0 is None:
+            dropped.append("%s unavailable" % name)
+            continue
+        if exact_cr is not None:
+            # integer grid drawing: exact planarity test, no clearance threshold
+            if exact_cr > 0:
+                dropped.append("%s rejected (%d crossing(s) in the integer drawing)" % (name, exact_cr))
+                continue
+            if unspread is None:
+                unspread = (name, P0)
+        else:
+            cr, cl = straight_line_clearance(P0, G)
+            if cr > 0 or cl < SPREAD_START_MIN:
+                dropped.append("%s rejected (%d straight-line crossing(s), clearance %.0e of the span)" % (name, cr, cl))
+                continue
+        st = {}
+        P1 = spread_planar_layout(P0, G, rounds=rounds, stats_out=st)
+        if P1 is None:
+            dropped.append("%s discarded (the spread produced a straight-line crossing)" % name)
+            continue
+        cl1 = straight_line_clearance(P1, G)[1]
+        summary.append("%s %.2g->%.2g" % (name, st.get("clear_before", float("nan")), st.get("clear_after", float("nan"))))
+        if best is None or cl1 > best[2] * 1.0000001:
+            best = (name, P1, cl1)
+    if dropped:
+        notes.append("starts not used: " + "; ".join(dropped))
+    if best is None:
+        if unspread is not None:
+            notes.append("no spread succeeded; kept the unspread %s drawing" % unspread[0])
+            return unspread[1]
+        return None
+    notes.append("node-edge clearance before->after the spread, as fractions of the edge length k: %s; kept %s"
+                 % (", ".join(summary), best[0]))
+    return best[1]
+
+
 def compute_positions_connected(G, layout, tutte_opts=None, meta_out=None):
     ok, emb = nx.check_planarity(G)
     if not ok:
@@ -3249,6 +3832,25 @@ def compute_positions_connected(G, layout, tutte_opts=None, meta_out=None):
             # Some connected planar graphs are singular for this simple
             # barycentric solve. NetworkX planar_layout is a safe fallback.
             return {n: np.asarray(xy, float) for n, xy in nx.planar_layout(G).items()}
+    if layout == "spread-tutte":
+        # Crossing squares made faces of the embedding, a strictly planar start
+        # (stellated Tutte or integer grid, the better spread kept), then the
+        # planarity-guarded force-directed spread (see spread_tutte_layout).
+        P = spread_tutte_layout(
+            G, emb, rounds=int(opts.get("spread_rounds", SPREAD_ROUNDS_DEFAULT)),
+            puncture_face=_pface, crossing_ids=_cids, puncture_report=_prep,
+            report_out=opts.get("spread_report"),
+        )
+        if P is None:
+            rep = opts.get("spread_report")
+            if rep is not None:
+                rep.append("no valid start; fell back to networkx's planar layout (puncture face not honoured)")
+            # integer labels: networkx pops nodes from a set (PYTHONHASHSEED)
+            order = list(G.nodes())
+            Gi = nx.relabel_nodes(G, {v: i for i, v in enumerate(order)})
+            pos = nx.planar_layout(Gi)
+            P = {v: np.asarray(pos[i], float) for i, v in enumerate(order)}
+        return P
     if layout == "tutte":
         # Plain 'tutte' always uses the classic unit-circle boundary.
         try:
@@ -3455,14 +4057,79 @@ def _override_flat_component(ctrl, dense, starts, arc_intervals, samples):
     return dense
 
 
+def _round_kink_loops(model, ctrl, dense, starts, ci, samples):
+    """
+    Redraw every kink (Reidemeister-I loop) of component ``ci`` as a smooth loop.
+
+    A kink's loop has ONE control point (its segment node s), so the
+    Catmull-Rom spline through out-corner a -> s -> in-corner b of the same
+    crossing is a pointed hook, which reads as a stray bend rather than a
+    loop.  Here the two intervals of the loop are replaced by two cubic
+    Beziers a -> s -> b: tangent at a to the strand's own direction through
+    the crossing (centre -> a), tangent at b to the direction the strand goes
+    on through it (b -> centre), and crossing the loop's axis at s
+    perpendicularly, so the loop is a round teardrop whose tip is the node the
+    layout placed (and keeps clear of other strands).  A circle tangent at a
+    and through b was tried first and REJECTED: its radius is fixed by the
+    crossing's size, it sweeps beyond the room the layout keeps around s, and
+    the clean share of a 74-diagram corpus fell from 72 to 56.  Used only when
+    ``model["round_kinks"]`` is set (spread-tutte); every curve consumer --
+    the renderer, the false-crossing audit, the 3-D sampler -- goes through
+    `_component_dense`, so they all see the same loop.
+    """
+    pos_cross = model["pos_cross"]
+    nextpos = model["nextpos"]
+    comp = model["comp_positions"][ci]
+    n = len(ctrl)
+    out = None
+    for j, p in enumerate(comp):
+        if pos_cross[nextpos[p]] != pos_cross[p]:
+            continue
+        ia = 4 * j + 2                       # interval a -> s; ia + 1: s -> b
+        a = np.asarray(ctrl[ia], float)
+        sx = np.asarray(ctrl[(ia + 1) % n], float)
+        b = np.asarray(ctrl[(ia + 2) % n], float)
+        c = np.asarray(ctrl[(4 * j + 1) % n], float)
+        ta, tb = a - c, b - c
+        la, lb = float(np.hypot(*ta)), float(np.hypot(*tb))
+        m = 0.5 * (a + b)
+        w = sx - m
+        lw = float(np.hypot(*w))
+        if min(la, lb, lw) <= 0.0:
+            continue
+        ta, tb, w = ta / la, tb / lb, w / lw
+        side = (b - a) - float((b - a) @ w) * w   # across the loop at its tip, from a's side to b's
+        ls = float(np.hypot(*side))
+        if ls <= 0.0:
+            continue
+        side = side / ls
+        h1 = 0.55 * float(np.hypot(*(sx - a)))
+        h2 = 0.55 * float(np.hypot(*(sx - b)))
+        hs = 0.45 * float(np.hypot(*(b - a)))
+        segs = ((a, a + h1 * ta, sx - hs * side, sx), (sx, sx + hs * side, b + h2 * tb, b))
+        if out is None:
+            out = np.array(dense, float)
+        for half, (p0, p1, p2, p3) in enumerate(segs):
+            s0 = starts[ia + half]
+            for q in range(samples):
+                tq = q / float(samples)
+                u = 1.0 - tq
+                out[s0 + q] = (u ** 3) * p0 + 3 * (u ** 2) * tq * p1 + 3 * u * (tq ** 2) * p2 + (tq ** 3) * p3
+    return dense if out is None else out
+
+
 def _component_dense(model, ctrl, ci, samples):
     """Catmull-Rom dense curve for component ``ci``, with flattened 'D' rings
     redrawn as exact straight-line + circular-arc geometry (see
-    ``_override_flat_component`` and ``_flatten_orthogonal_rings``)."""
+    ``_override_flat_component`` and ``_flatten_orthogonal_rings``) and, when
+    ``model["round_kinks"]`` is set, kinks drawn as round loops
+    (`_round_kink_loops`)."""
     dense, starts = catmull_rom(ctrl, samples=samples)
     arcs = model.get("flatten_arcs") or {}
     if ci in arcs:
         dense = _override_flat_component(ctrl, dense, starts, arcs[ci], samples)
+    if model.get("round_kinks"):
+        dense = _round_kink_loops(model, ctrl, dense, starts, ci, samples)
     return dense, starts
 
 
@@ -9164,6 +9831,8 @@ def prepare_diagram(args, status_stream=None):
         "aspect": getattr(args, "tutte_aspect", 1.8),
         "corner_radius": getattr(args, "tutte_corner_radius", 0.25),
         "decompress": getattr(args, "tutte_decompress", 0.0),
+        "spread_rounds": getattr(args, "spread_rounds", SPREAD_ROUNDS_DEFAULT),
+        "spread_report": [],
         "com_expand": getattr(args, "tutte_com_expand", 0.0),
         "auto_aspect": bool(getattr(args, "tutte_auto_aspect", True)),
         # Shaped-tutte orientation is now handled inside the layout solve: the
@@ -9204,11 +9873,17 @@ def prepare_diagram(args, status_stream=None):
         tutte_opts["ring_equalize"] = 0.0
     tutte_guides = {}
     P = compute_positions(G, args.layout, tutte_opts=tutte_opts, meta_out=tutte_guides)
+    # spread-tutte reserves room for round kink loops; every curve consumer then
+    # draws (and audits) them round -- see _round_kink_loops
+    if args.layout == "spread-tutte":
+        model["round_kinks"] = True
     # Report the outer-face ('puncture') choice for the Tutte-family layouts,
     # including any tie among the largest faces so the user can pin one with
     # --puncture-face (see select_outer_face).
+    for _note in tutte_opts.get("spread_report") or []:
+        out.write("[spread] %s.\n" % _note)
     puncture_report = tutte_opts.get("puncture_report") or []
-    if args.layout in ("tutte", "shaped-tutte", "holed-tutte"):
+    if args.layout in ("tutte", "shaped-tutte", "holed-tutte", "spread-tutte"):
         for rep in puncture_report:
             cands = rep.get("candidates", [])
             if rep.get("tie"):
@@ -9636,6 +10311,14 @@ def run_pipeline(args, status_stream=None):
 
     return 0
 
+def _positive_int(text):
+    """argparse type: an integer >= 1."""
+    v = int(text)
+    if v < 1:
+        raise argparse.ArgumentTypeError("must be at least 1 (got %d)" % v)
+    return v
+
+
 def build_arg_parser():
     ap = argparse.ArgumentParser(
         description=(
@@ -9734,13 +10417,19 @@ def build_arg_parser():
     )
     ap.add_argument(
         "--layout",
-        choices=["tutte", "shaped-tutte", "holed-tutte", "sphere-stereo", "planar", "spring", "kamada"],
+        choices=["tutte", "shaped-tutte", "holed-tutte", "spread-tutte", "sphere-stereo", "planar", "spring", "kamada"],
         default="tutte",
         help=(
             "Layout engine. 'tutte' is default. 'shaped-tutte' pins the Tutte "
             "boundary to a chosen convex shape (see --tutte-shape). 'holed-tutte' "
             "pins two faces (outer + auto-picked central hole) to the outer/inner "
-            "outlines of a holed shape and solves the ring. 'sphere-stereo' lays "
+            "outlines of a holed shape and solves the ring. 'spread-tutte' is "
+            "for diagrams with many trivial crossings -- kinks and bigons, which "
+            "a Tutte solve crushes to points: it makes every crossing square a "
+            "face of the embedding, starts from strictly planar Tutte and grid "
+            "drawings, and spreads them with forces under which the straight-line "
+            "drawing cannot acquire a crossing (the smoothed curves are audited "
+            "as usual; see --spread-rounds). 'sphere-stereo' lays "
             "the diagram on the unit sphere and stereographically projects it "
             "from the pole farthest from all strands (best for links whose rings "
             "lie in near-orthogonal planes, e.g. Edwards-Venn AM5). If false crossings are "
@@ -9770,6 +10459,19 @@ def build_arg_parser():
         help=(
             "Corner radius as a fraction (0..1) of the short half-extent for the "
             "shaped-tutte rounded-rectangle shape. Default: 0.25."
+        ),
+    )
+    ap.add_argument(
+        "--spread-rounds", type=_positive_int, default=SPREAD_ROUNDS_DEFAULT,
+        help=(
+            "spread-tutte only: number of force-directed rounds for each start "
+            "(a stellated Tutte drawing and integer-grid drawings on three base "
+            "edges; the result with the largest node-edge clearance is kept). "
+            "Each node moves at most its PrEd safe radius per round, so the "
+            "straight-line drawing stays planar whatever the count.  Cost grows "
+            "with size: about 2 s at 25 crossings, 5-10 s at 40-60, 40 s at 100; "
+            "lower it for big diagrams.  At least 1.  Default: %d."
+            % SPREAD_ROUNDS_DEFAULT
         ),
     )
     ap.add_argument(
@@ -9826,7 +10528,8 @@ def build_arg_parser():
         default=None,
         metavar="cA,cB,...",
         help=(
-            "Tutte-family layouts (tutte / shaped-tutte / holed-tutte): pin a "
+            "Tutte-family layouts (tutte / shaped-tutte / holed-tutte / "
+            "spread-tutte): pin a "
             "specific planar face as the OUTER ('punctured') face -- the face "
             "sent to infinity when the sphere is laid flat -- by the crossing "
             "IDs on its boundary, e.g. --puncture-face c1,c3,c5. When several "
@@ -10855,6 +11558,7 @@ def run_gui(initial_args):
     tutte_aspect_var = tk.StringVar(value=str(getattr(initial_args, "tutte_aspect", 1.8)))
     tutte_corner_var = tk.StringVar(value=str(getattr(initial_args, "tutte_corner_radius", 0.25)))
     tutte_decompress_var = tk.StringVar(value=str(getattr(initial_args, "tutte_decompress", 0.0)))
+    spread_rounds_var = tk.StringVar(value=str(getattr(initial_args, "spread_rounds", SPREAD_ROUNDS_DEFAULT)))
     tutte_com_expand_var = tk.StringVar(value=str(getattr(initial_args, "tutte_com_expand", 0.0)))
     tutte_auto_aspect_var = tk.BooleanVar(value=bool(getattr(initial_args, "tutte_auto_aspect", True)))
     tutte_auto_orient_var = tk.BooleanVar(value=bool(getattr(initial_args, "tutte_auto_orient", True)))
@@ -10936,7 +11640,7 @@ def run_gui(initial_args):
     ttk.Label(settings, text="layout").grid(row=row, column=0, sticky="w", pady=3)
     ttk.Combobox(
         settings, textvariable=layout_var,
-        values=["tutte", "shaped-tutte", "holed-tutte", "sphere-stereo", "planar", "spring", "kamada"],
+        values=["tutte", "shaped-tutte", "holed-tutte", "spread-tutte", "sphere-stereo", "planar", "spring", "kamada"],
         width=15, state="readonly"
     ).grid(row=row, column=1, sticky="w", pady=3)
     add_help_button(row, "layout")
@@ -10971,6 +11675,8 @@ def run_gui(initial_args):
               help_key="tutte_decompress", key="tutte_decompress")
     add_entry("tutte COM expand", tutte_com_expand_var,
               help_key="tutte_com_expand", key="tutte_com_expand")
+    add_entry("spread rounds", spread_rounds_var,
+              help_key="spread_rounds", key="spread_rounds")
     _tutte_auto_orient_chk = ttk.Checkbutton(
         settings, text="tutte auto orient (PCA to x)", variable=tutte_auto_orient_var
     )
@@ -11555,7 +12261,8 @@ def run_gui(initial_args):
         # applies to any non-circular shape regardless of the auto-orient framing.
         _set_dynamic("tutte_orient", shaped_family and t_shape != "circle")
         # Puncture-face selection applies to every Tutte-family layout.
-        _set_dynamic("puncture_face", shaped_family or layout == "tutte")
+        _set_dynamic("puncture_face", shaped_family or layout in ("tutte", "spread-tutte"))
+        _set_dynamic("spread_rounds", layout == "spread-tutte")
         _set_dynamic("show_tutte_outline", shaped_family)
         _set_dynamic("show_tutte_pca", shaped_family)
         # holed-tutte only.
@@ -11632,6 +12339,7 @@ def run_gui(initial_args):
             tutte_aspect=_float_value(tutte_aspect_var, "tutte aspect"),
             tutte_corner_radius=_float_value(tutte_corner_var, "tutte corner radius"),
             tutte_decompress=_float_value(tutte_decompress_var, "tutte decompress"),
+            spread_rounds=max(1, _int_value(spread_rounds_var, "spread rounds")),
             tutte_com_expand=_float_value(tutte_com_expand_var, "tutte COM expand"),
             tutte_auto_aspect=bool(tutte_auto_aspect_var.get()),
             tutte_auto_orient=bool(tutte_auto_orient_var.get()),
@@ -11760,7 +12468,7 @@ def run_gui(initial_args):
                 auto_aspect_value_lbl.configure(text="")
             # Report the punctured face / tie faces next to the puncture field.
             prep = state.get("puncture_report") if isinstance(state, dict) else None
-            if prep and layout_var.get() in ("tutte", "shaped-tutte", "holed-tutte"):
+            if prep and layout_var.get() in ("tutte", "shaped-tutte", "holed-tutte", "spread-tutte"):
                 r0 = prep[0]
                 if r0.get("tie"):
                     txt = "tie (%d): %s  →  %s" % (
@@ -12481,6 +13189,7 @@ def run_gui(initial_args):
         "xyz_clearance": xyz_clearance_var, "xyz_decimals": xyz_decimals_var,
         "tutte_shape": tutte_shape_var, "tutte_aspect": tutte_aspect_var,
         "tutte_corner_radius": tutte_corner_var, "tutte_decompress": tutte_decompress_var,
+        "spread_rounds": spread_rounds_var,
         "tutte_com_expand": tutte_com_expand_var, "tutte_orient": tutte_orient_var,
         "puncture_face": puncture_face_var,
         "hole_ratio": hole_ratio_var, "ring_tilt": ring_tilt_var,
@@ -12686,6 +13395,7 @@ def run_gui(initial_args):
         tutte_corner_var,
         tutte_decompress_var,
         tutte_com_expand_var,
+        spread_rounds_var,
         tutte_auto_aspect_var,
         tutte_auto_orient_var,
         tutte_orient_var,

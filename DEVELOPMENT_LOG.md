@@ -4,6 +4,88 @@ DT Link Toolkit Development Log
 This file records version-specific development notes and implementation history.
 For installation and everyday usage, see README.md.
 
+draw_dt_original_labelsV5_7: `--layout spread-tutte` for diagrams full of trivial crossings (2026-10-09)
+----------------------------------------------------------------------------------------------------
+* Made for the intermediate diagrams of a backtrack round (e.g. K7a1 after 30
+  random Reidemeister moves: 30 crossings; 4BL: 34), where most crossings are
+  kinks and bigons.  Every Tutte-family solve crushes those to points -- a
+  kink's loop node is the barycentre of two ADJACENT gadget corners, so it
+  lands on that gadget edge -- and the force-directed layouts create false
+  crossings.  Counted with the exact segment-pair audit of the development
+  copy (not yet committed), `tutte` and `shaped-tutte` drew none of 72 such
+  diagrams cleanly (median 37 false crossings).  The committed audit, which
+  ignores contacts near true crossings, reports every one of those drawings
+  clean; the comparisons below therefore all use the exact audit.
+* `crossing_face_embedding`: the embedding `nx.check_planarity` returns for
+  the gadget graph puts a kink loop INSIDE its own crossing 4-cycle for
+  practically every kink of these diagrams (the loop hangs off a 2-cut of
+  two adjacent corners), and the strands drawn through the crossing centre
+  then cut through it.  Each 4-cycle is made a wheel (a hub joined to the
+  corners and to a node subdividing each side) before the planarity test;
+  no face of the wheel touches two corners, so every embedding of the
+  augmented graph has the squares as faces.  Contracting back gives the
+  embedding used; it realises the same Gauss word, hence the same DT code.
+* Starts, all strictly planar on that embedding with the puncture outside
+  (chosen among the diagram's faces, never a crossing square):
+  `stellated_tutte_start` (a centre node in every other face, so the
+  barycentric map is one-to-one with every face of positive area; rejected
+  below 1e-6 clearance, because its resolution falls exponentially with
+  nesting depth and on deep diagrams it is non-planar in float64) and
+  `grid_planar_start` (networkx's Chrobak-Payne grid drawing driven with OUR
+  outer face, on three base edges, checked exactly on its integer
+  coordinates; nodes relabelled to integers first, because networkx pops
+  them from a set and tuple labels made the result depend on
+  PYTHONHASHSEED).  If no spread succeeds the unspread grid drawing is used.
+* `spread_planar_layout`: springs, Fruchterman-Reingold node repulsion,
+  singular node-edge repulsion, gadget side and diagonal springs (crossings
+  pulled toward squares), each strand pulled straight through its crossing,
+  smooth-strand pulls, and each kink's loop node pulled to an apex on its own
+  side of the gadget edge; every node moves at most 0.95 x its PrEd safe
+  radius (`_spread_safe_radii`), so a node and a non-incident edge at
+  distance d each move less than d/3 and the straight-line drawing cannot
+  acquire a crossing (checked at the end).  The spread with the largest
+  final node-edge clearance is kept.
+* Kinks are drawn as teardrop loops (`_round_kink_loops`): two cubic Beziers
+  through the loop node, tangent to the strand at both corners.  It runs in
+  `_component_dense`, which the renderer, the audit and the 3-D sampler all
+  use, and only when `model["round_kinks"]` is set (spread-tutte), so every
+  other layout is unchanged.
+* Measured on the final code (exact audit): a review corpus of 60 backtrack
+  diagrams (3_1, 4_1, 5_2, 6_2, 7_1, 7_2, 8_19, L2a1, L4a1, L6a4 after 20-40
+  moves, 15-55 crossings) 58/60 clean, the other two with 2 false crossings
+  each, 60/60 with `--min-sep 0.02`; a held-out corpus of 72 never used while
+  tuning (5_1, 6_1, 7_4, 8_18, 9_1, L4a1, L5a1, L6a5, L6n1, K7a1, L9a45,
+  L10a118 after 25-45 moves, another seed, 24-61 crossings; L4a1 is also in
+  the review set and K7a1 is the figure's knot) 69/72 clean, the others with
+  2-4 (with `--min-sep 0.02` also 69/72, one of them then 10); the two figure
+  diagrams clean.  None of the 474 spreads reduced the clearance; the
+  straight-line drawing had no crossing in any of the 132 diagrams.
+  Deterministic under eight hash seeds.  About 2 s at 25 crossings, 5 s at
+  40, 8-10 s at 50-61, 12 s at T(2,61), 41 s at T(2,101) (four spreads of
+  400 rounds; plain tutte 0.2-1 s).  Every other layout unchanged: node
+  positions of 35 (code, layout) pairs identical to the committed script.
+* Trade-off kept: pulling strands straight through their crossings cuts the
+  mean turning per crossing-to-crossing arc from 2.74 to 2.33 rad (14
+  diagrams) and makes each strand's direction readable at its crossing, at
+  a small cost in cleanliness (without that pull: review 60/60 instead of
+  58/60; held-out 69/72 either way, 71/72 instead of 69/72 with
+  `--min-sep 0.02`).
+* Rejected on the way, each measured: the networkx embedding as given (kinks
+  inside squares; the guard pinned them and the drawing collapsed to 1e-17
+  of its span); a plain Tutte start (degenerate); a coincidence nudge (1000x
+  the gap it fixed, created crossings); Procrustes square targets for the
+  gadgets (froze corners against their own edges); a "no close pair may get
+  closer" collapse guard (froze the drawing); a fixed 1e-6 clearance cut on
+  the exact grid starts (rejected every start above ~150 crossings); round
+  kink loops drawn as circles tangent at one corner through the other (the
+  circle swept past the room kept around the loop node: 56/74 instead of
+  71/74).
+* CLI `--spread-rounds` (default 400, at least 1); GUI combobox entry and a
+  'spread rounds' field (watched for the live preview); the puncture face
+  and its tie note apply, and a kink or bigon puncture is flagged in the
+  log; decompress / COM expand do not apply.  Used by the V3 scoring note's
+  Figures 5 and 6, all panels.
+
 score_diagramV2_5: the Jones column is filled headless, and checked (2026-10-09)
 -------------------------------------------------------------------------------
 * `_jones` falls back to `dt_converter.py` (Kauffman bracket, Invariant 13) when
