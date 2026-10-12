@@ -135,6 +135,14 @@ TOOLS: Tuple[Tool, ...] = (
         gui="optional",
     ),
     Tool(
+        key="grid",
+        base="grid_diagram",
+        aliases=("grid", "grid-diagram", "griddiagram", "arc", "arc-index",
+                 "arc-presentation"),
+        desc="Minimal grid diagram (arc presentation) of a link, and its 3-D lift",
+        gui="never",
+    ),
+    Tool(
         key="canonical",
         base="canonical_dt",
         aliases=("canonical", "canonical-dt", "canon", "symmetry"),

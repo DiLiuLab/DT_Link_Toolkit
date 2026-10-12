@@ -39,6 +39,8 @@ check_two_dt.py                  Standalone SnapPy/Sage DT-comparison utility
 find_link_in_snappy.py           Search SnapPy link databases for DT matches
 score_diagramV2_5.py             Generate, deduplicate, score, and rank diagrams
 enumerate_puncturing_dt.py       Atlas of the plane drawings, one per punctured face
+grid_diagram.py                  Minimal grid diagram (arc presentation) of a link, and its 3-D lift
+chain_layout.py                  3-D layout of a linear chain (--sphere-layout chain): segment and reunite, or --chain-form folded
 canonical_dt_V2_0.py             Canonical DT code (up to mirror) and symmetry
 dt_converter.py                  Convert between DT, Gauss, PD, braid and named codes
 figure_to_dt_V3_0.py             Extract a DT code from a diagram image
@@ -111,6 +113,7 @@ draw             DT diagram drawing and 3-D XYZ export
 strand-passage   Strand-passage explorer (GUI / --nongui / --demo)
 score            Diagram generation, deduplication, and scoring
 puncture         Atlas of the plane drawings, one per punctured face
+grid             Minimal grid diagram (arc presentation) of a link, and its 3-D lift
 canonical        Canonical DT code and diagram symmetry
 convert          Convert between DT, Gauss, PD, braid and named codes
 figure           Extract a DT code from a diagram image
@@ -257,7 +260,20 @@ and SnapPy are available. `Save XYZ`, `View XYZ`, and `Redraw 3D projection`
 show `[ok]`, `[FAIL]`, or an `[info]` dependency-skip result in the main status
 log; the two interactive 3D windows also carry a color-coded audit banner.
 Dense Kamada layouts that fail should be rebuilt with `sphere layout =
-stereo-safe` (CLI: `--sphere-layout stereo-safe`). The `clearance (0=auto)` and
+stereo-safe` (CLI: `--sphere-layout stereo-safe`).
+
+The reference is spherogram's reading of the DT code.  spherogram's DT decoder
+cannot read most codes with kinks or other two-point cuts (it fails on 126 of
+132 diagrams made by random Reidemeister moves), so when it fails the audit
+builds the reference from a planar embedding of the code that the drawing
+script supplies (every crossing square a face), and the audit line says so.
+For a link whose type is prime every such realisation is the same link up to
+mirror image, which the audit does not distinguish.  A curve whose exterior is
+hyperbolic is reported as a FAIL against a DT link whose exterior is not (a
+torus link, say), and a curve that reduces to the unlink passes when the DT
+code is a kinked unlink with as many components.  `audit_xyz.py` used on its own takes `--flips 0110...` (one
+bit per crossing in DT-label order) or, by default, asks the newest
+`draw_dt_original_labels*.py` beside it for them.  The `clearance (0=auto)` and
 `repair 3D strand clearance` GUI controls correspond to `--xyz-clearance` and
 `--no-xyz-repair`.
 
@@ -396,8 +412,7 @@ tightly than the rod radius:
 
 A `[note]` appears, naming the cause, when part of the curve leaves its shells:
 `shaped-kamada` cylinder and torus strands that pass the sphere's poles run as
-straight chords across the open ends or the hole; the angled cube's 90-degree
-connectors cut through the cube between crossings; `raw-kk`'s default final
+straight chords across the open ends or the hole; `raw-kk`'s default final
 smoothing rescales its radii (`--no-xyz-final-smooth` keeps the curve on
 them); and on dense diagrams the clearance repair pushes strands into extra
 radial layers. A `[warn]` appears when an offset shell turns inside out
@@ -448,12 +463,373 @@ the saved 7BL square session had segments down to 0.63× the typical one and a
 short closing segment. With even spacing every component's segments are equal
 to the precision of the XYZ file, and crossings and topology-audit results are
 unchanged. The exception is a curve that itself turns more sharply than the
-point spacing (cube smooth, where offset strands jump across a cube edge;
+point spacing (cube smooth, where strands fold over a cube edge;
 torus and cylinder pole chords): equal chords would cut it short, so such a
 component is spread evenly along the curve instead, and the `[spacing]` line
-says how many components that was. The angled cube style is left alone,
-since its points are its corners.
+says how many components that was. The angled and grid cube styles and the
+grid-diagram layout instead cut every straight wire into equal pieces of
+about the spacing and keep the corners exactly.
 `--no-xyz-even-spacing` reproduces the previous output exactly.
+
+
+### Cube wiring and grid diagrams (V5.7, 2026-10-02)
+
+`--sphere-layout cubic-kamada` now has three styles (`--cube-style`, GUI
+`cube style`):
+
+- **`smooth`** (default) maps the sphere construction onto a cube. The
+  over/under offset is taken on the *concentric* cube, `(R + o)·d/|d|∞`,
+  so a strand stays continuous across a cube edge (it used to be lifted along
+  the dominant face normal, which flipped at every edge and made inner strands
+  zig-zag) and the three `.glb` shells are exactly the layers it rides.
+- **`angled`** and **`grid`** *wire* the diagram over the cube's faces. Every
+  crossing sits on a node of an N×N grid per face with its two strands along
+  the two face axes, in the cyclic port order of the diagram's own planar
+  embedding, and every connector is routed as an axis-aligned path on the
+  surface grid that no other strand touches (a negotiated-congestion A* router
+  that penalises in-face bends, cube-edge steps and running next to another
+  strand). Because a cellular embedding in the sphere is fixed by its rotation
+  system, a crossing-free wiring with these ports *is* the diagram whatever
+  route the connectors take; the topology audit confirms it on every test
+  link that SnapPy can decide (figure-eight, 5₂, Borromean rings, both 5BLs,
+  Fishtail5, the 6BL lark, the 80-crossing C6BL). A detected cube symmetry is
+  exact (one connector per orbit is routed and copied). `angled` makes each
+  crossing a right-angle bridge — the over-strand steps out by the offset
+  along the face normal, runs over the crossing point and steps back. `grid`
+  is a grid diagram in 3-D, face by face: strands along a face's *over axis*
+  run on the outer shell, strands along the other axis on the inner shell, a
+  post joins the two wherever a strand turns, and a crossing is simply the
+  outer strand passing the inner one. `--cube-grid N` (GUI `cube grid (0 =
+  auto)`) sets the grid; 0 picks about 12 cells between the two closest
+  crossings and refines it when the wires do not fit. The XYZ holds points
+  every `--xyz-spacing` along the wires with the corners kept exactly (corners
+  only with even spacing off). A negative offset inverts every crossing, as in
+  the other layouts.
+
+```bash
+draw_dt_original_labelsV5_7.py --dt "DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]" \
+  --sphere-layout cubic-kamada --cube-style grid --xyz bl4_cube.xyz --save-projections
+```
+
+**Grid diagrams.** `grid_diagram.py` (launcher: `grid`) builds a *grid
+diagram* of the link — KnotInfo's grid notation / an arc presentation: an
+n×n grid with one X and one O per row and column, vertical segments joining
+the X and O of a column, horizontal ones those of a row, verticals always
+over — from the DT code via its braid closure, then shrinks it by grid moves
+(cyclic shifts, commutations, destabilisations, an occasional stabilisation to
+escape a dead end) over several seeds, keeping the smallest grid and, among
+equals, the fewest crossings. The smallest n is the link's arc index; the
+result is certified minimal when it meets a lower bound: crossings + 2 for a
+reduced alternating diagram (exact, Bae–Park), otherwise HOMFLY-PT
+v-breadth + 2 (arc index ≥ 2 × braid index ≥ v-breadth + 2, Cromwell and
+Morton–Franks–Williams; not sharp). It prints the oriented notation (rows of
+the X and O per column) and KnotInfo's unoriented list of cells, draws the
+classic picture, and checks the result against the DT link (SnapPy isometry,
+or the Jones polynomial through `dt_converter` where SnapPy cannot decide, as
+for 4BL).
+
+```bash
+python3 grid_diagram.py --dt "DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]" \
+  --figure bl4_grid.png --xyz bl4_grid.xyz --json bl4_grid.json
+python3 grid_diagram.py --grid "[[1,2],[1,4],[2,3],[2,5],[3,1],[3,4],[4,2],[4,5],[5,1],[5,3]]" --figure trefoil_grid.png
+python3 grid_diagram.py --selftest
+```
+
+| link | grid found | bound | crossings in the grid |
+|---|---|---|---|
+| trefoil, figure-eight, Hopf, 5₂ | 5, 6, 4, 7 (minimal) | = | 4, 4, 2, 7 |
+| Borromean rings | 8 (minimal) | 8 | 10 |
+| 4BL | 12 | 8 | 14 (the diagram's own number) |
+
+**Which diagram?** The braid route and the moves above preserve the *link*,
+not the *diagram*: 4BL's 12×12 grid is a 14-crossing clasp, not the rosette
+its DT code draws. `--same-diagram` (the drawing script's default; GUI
+`grid diagram keeps this diagram (same DT code)`) instead keeps the diagram:
+the DT code's own 2-D layout is routed rectilinearly with the over strand
+vertical at every crossing (the surface-grid router on a flat grid), the
+maximal runs become rows and columns — exactly the diagram's crossings — and
+the simplification uses planar isotopies only (destabilisations, commutations
+of non-overlapping segments, kink-free stabilisations; no cyclic shifts, no
+nested commutations). The result is verified by canonical signed DT code, is
+the smallest grid found *for that diagram* (no arc-index bound applies to a
+fixed diagram), and the link's minimum is printed beside it for comparison.
+If one of the link-level search's results turns out to be this very diagram
+(or its mirror image, which transposing the grid undoes) in a smaller grid, it
+is adopted. For 4BL's four minimal diagrams: Orthogonal rosette 18×18,
+Balanced clasp 19×19, Offset clasp 12×12 (the link-level 12×12 *is* the
+Offset clasp), Lopsided clasp 18×18, each with its own 14 crossings.
+`--grid-any-diagram` (CLI) or unticking the box gives the link-level minimum
+when the input diagram is not the one you want.
+
+```bash
+python3 grid_diagram.py --dt "DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]" \
+  --same-diagram --figure bl4_rosette_grid.png
+```
+
+The **3-D version** is `--sphere-layout grid-diagram` in the drawing script
+(GUI: `sphere layout`, with `grid diagram keeps this diagram`, `grid search
+steps` and `grid search seed`): the grid diagram lifted so that the vertical segments lie on the plane
+z = +offset, the horizontal ones on z = −offset, and a post stands at every X
+and O. Every edge is parallel to an axis, every crossing is the upper strand
+passing the lower one at a right angle, the grid spans the sphere radius in
+x and y, and the usual XYZ export, even spacing, topology audit, `.glb`
+shells (two planes) and projection images apply; smoothing and clearance
+repair are skipped because the lattice is exact. The `top` projection is the
+grid diagram itself. At a positive offset the lift has the chirality
+spherogram and `dt_converter` assign to the DT code (writhe +3 for
+`DT: [(4,6,2)]`); use a negative offset for the mirror.
+
+```bash
+draw_dt_original_labelsV5_7.py --dt "DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]" \
+  --sphere-layout grid-diagram --xyz bl4_grid3d.xyz --shells-glb --save-projections --proj-views top,current
+```
+
+**Chains on a closed cylinder: `--surface-shape capped-cylinder`.** Every
+Kamada layout starts from a 3-D Kamada–Kawai layout projected radially onto a
+sphere, and for an elongated chain that projection folds both end clasps (each
+end ring sits threaded through its neighbour, seen edge-on from the centre):
+`raw-kk`, `spherical-kamada` and every `shaped-kamada` surface then export a
+*different link* — for the 8-ring Brunnian chain an unlink, or a (2,4) torus
+link on the end rings — and the open cylinder cannot help, because its warp
+copies whatever link the sphere curve has, and on the sphere the chain already
+sweeps 266°. The closed cylinder (side wall plus two end discs) gets its own
+layout instead:
+
+- a point inside the first end ring and one inside the last become the two
+  disc centres (a Möbius map of the 2-D drawing followed by the inverse
+  stereographic projection — a homeomorphism, so no fold);
+- Kamada–Kawai stress is then minimised *on the cylinder*, with the end
+  rings' nodes kept on the discs and the others on the wall, and every step
+  certified to keep the layout an embedding (no face flips, no edge
+  crossings);
+- the finished curve is projected from the centre onto nested closed
+  cylinders, which keeps the link and its handedness exactly.
+
+The chain then runs along the cylinder's axis by construction, rings 0 and 7
+lie on the two discs, and rings 1–6 follow in order up the wall. `auto` end
+rings (default) are the two components with a single neighbour when the
+components are linked in a path; `--surface-end-rings i,j` picks them (0-based)
+and `none` uses the drawing's deepest point and its outside. The can's
+half-height / radius is 3, or `--no-surface-auto-aspect --surface-aspect X`.
+The layout takes about two minutes for the 48-crossing chain (it is cached
+within a run, so `--save-projections` reuses it).
+
+```bash
+draw_dt_original_labelsV5_7.py --dt "DT: [(16,-10), (32,-26,-2,-18,24,4), (8,-14,40,-34,12,-6,-42,48), (28,-20,56,-50,22,-30,-58,64), (44,-36,72,-66,38,-46,-74,80), (60,-52,86,-82,54,-62,-88,92), (76,-68,94,70,-78,-96), (-90,84)]" \
+  --sphere-layout shaped-kamada --surface-shape capped-cylinder \
+  --xyz chain_can.xyz --shells-glb --save-projections --proj-views current,front
+```
+
+**Elongated links: the sheet layout.** Every sphere or cube layout closes
+the diagram up, so a long chain comes out with its two ends curled towards
+each other. `--sphere-layout sheet` (GUI `sphere layout: sheet`) keeps the
+2-D drawing's long axis straight: the drawing is lifted onto a ruled sheet
+along that axis — flat by default, bent about the axis by `--sheet-bend DEG`
+(360 closes it into a tube) and/or twisted along it by `--sheet-twist DEG`
+(a ribbon) — with over and under as offsets *within* each cross-section, so
+the three layers are concentric curves and the lift is correct by
+construction, like `stereo-safe`. The 2-D drawing sets the proportions, so
+draw a chain elongated first; `--sheet-aspect` stretches it further and the
+sheet's length is twice `--sphere-radius`. The status log warns when the
+offset is large against the sheet's width (steep bumps) or exceeds a bent
+sheet's arc radius (the inner layer would fold). Shells and the mapped
+skeleton (the sheet's grid lines) are exported as for the other layouts.
+
+```bash
+draw_dt_original_labelsV5_7.py \
+  --dt "DT: [(16,-10), (32,-26,-2,-18,24,4), (8,-14,40,-34,12,-6,-42,48), (28,-20,56,-50,22,-30,-58,64), (44,-36,72,-66,38,-46,-74,80), (60,-52,86,-82,54,-62,-88,92), (76,-68,94,70,-78,-96), (-90,84)]" \
+  --layout shaped-tutte --tutte-shape ellipse --no-tutte-auto-aspect --tutte-aspect 3.5 \
+  --sphere-layout sheet --sheet-bend 120 --sheet-twist 180 --sphere-radius 200 --crossing-offset 6 \
+  --xyz chain_sheet.xyz --save-projections --proj-views current,top
+```
+
+**Linear chains: `--sphere-layout chain` (segment and reunite).** For a
+link whose rings form a *path* — ring 0 linked only with ring 1, ring *i* only
+with rings *i*−1 and *i*+1 — such as the 8-ring Brunnian chain or a chain of
+simply linked rings, this layout builds the chain the way a rubber-band chain
+looks: straight, the rings in order along one axis, consecutive rings
+interlocking in nearly perpendicular planes. It is the user's own idea,
+"segmentation first and then reunite to form the chain", implemented in
+`chain_layout.py` (unversioned; `python3 chain_layout.py --selftest`):
+
+1. **Cut** an elongated 2-D drawing by one straight line through every middle
+   ring — a line that meets only that ring, an even number of times, as
+   transversally as possible. The drawing you gave is used when it has no
+   false crossings and admits the cuts; otherwise the elliptical shaped-tutte
+   (aspect 3.5), spring and Tutte drawings are tried in turn.
+2. **Segment**: the slabs between the cuts are the clasps. The drawing is
+   lifted exactly (smooth bumps up at over-passes, down at under-passes), and
+   each clasp is laid out in 3-D by a relaxation with its cut ends pinned; the
+   first end ring is turned 90° about the axis.
+3. **Reunite** by a twist about the chain's axis: slab *k* is turned
+   *k* × `--chain-twist` (default 90°; always *adding* — an alternating
+   0°/90° pattern fails), the strands of each cut ring twisting smoothly in a
+   collar between two slabs. The twist is a rotation in every plane across the
+   axis, so it cannot change the link. It is only the *starting* turn: the
+   relaxation below pulls consecutive rings toward perpendicular planes
+   whatever the twist, so `--chain-twist 0` does **not** give a flat chain
+   (the 8-ring chain at 0 still ends with its ring planes 73–80° apart).
+4. **Relax** the whole chain (`--chain-rounds`, default 40 rounds of 400
+   steps): tension, bending, thickness, the end rings pulled apart, the rings
+   pulled onto the axis and into perpendicular planes. Then a short smoothing
+   and, with `--chain-symmetrize auto` (default), a D2 symmetrisation (a
+   half-turn about the axis and one about a perpendicular axis), kept only if
+   it does not tilt the ring planes.
+
+Every relaxation step moves each point by less than a third of the closest
+approach between non-adjacent pieces of the curve, and every resampling
+deletes a vertex only when no other strand crosses the triangle it sweeps, so
+no strand ever passes through another; at the end a self-check projects the
+curve twice and compares components, Jones polynomial and signed linking
+numbers with the diagram (through `dt_converter`) and refuses to write a
+mismatch. **Handedness** is decided exactly: the drawing's sign at every
+crossing is compared with `dt_converter`'s reading of the DT code, so a
+positive `--crossing-offset` gives spherogram's reading and a negative one its
+mirror (as for `grid-diagram`). The 8-ring chain's elliptical drawing is the
+in-plane mirror of that reading at all 48 crossings, so the finished curve is
+reflected; for a connected sum such as the chain of simply linked rings, whose
+drawing agrees at only some crossings, single clasps are mirrored instead. (The
+8-ring chain is amphichiral, so its hand is invisible to any invariant; the
+self-test checks the rule on the chiral two-ring chain L4a1, linking number 2,
+built from its own drawing and from that drawing's mirror image.)
+
+Scale: the construction is scaled by `--sphere-radius` / 50 (at the default
+radius its units are the XYZ units); `|--crossing-offset|` sets the strand
+thickness the relaxation keeps (0.8 × |offset|) and the initial over/under
+lift. The chain's own proportions scale with the radius but the thickness does
+not, so a large offset at a small radius is slow (the 4-ring chain at offset 5:
+22 s at radius 50, about 55 s at 17, about 260 s at 10); a `[hint]` says so
+when |offset| > radius / 4. Points are spaced by `--xyz-spacing` (the shape is built at a fixed
+fine spacing and resampled at the end, so the spacing does not change it).
+No smoothing or clearance repair is applied; even point spacing is applied
+only if the move can be certified. There is no base surface: `--shells-glb`
+writes the curve as rods when `--glb-rod-diameter` is set, and nothing
+otherwise. A link whose rings do not form a path (the trefoil, 4BL, the
+Borromean rings) or a chain no drawing can cut (e.g.
+`DT: [(8, -12), (-14, 2), (16, -4), (-6,), (10,)]`, whose two-crossing ring
+collapses in the Tutte drawings and whose spring drawing has false crossings)
+is refused with one `[error]` line saying why (the spring fallback depends on
+`PYTHONHASHSEED`; with the exact audit its defect counts read the same) — exit status 1, no traceback,
+nothing written; the same holds for a bad chain parameter (`--crossing-offset
+0`, a negative `--chain-rounds`) and for a failed self-check.
+
+On the 8-ring chain (about 110 s; cached within a run): 48 crossings,
+8 components, Jones polynomial and volume 43.9663 equal in every projection,
+all linking numbers 0, every 7-ring sublink an unlink; consecutive ring planes
+80.3, 88.8, 88.4, 86.1, 88.4, 88.8, 80.3°; ring centres strictly in order along
+the axis; D2.
+
+```bash
+draw_dt_original_labelsV5_7.py \
+  --dt "DT: [(16,-10), (32,-26,-2,-18,24,4), (8,-14,40,-34,12,-6,-42,48), (28,-20,56,-50,22,-30,-58,64), (44,-36,72,-66,38,-46,-74,80), (60,-52,86,-82,54,-62,-88,92), (76,-68,94,70,-78,-96), (-90,84)]" \
+  --layout shaped-tutte --tutte-shape ellipse --no-tutte-auto-aspect --tutte-aspect 3.5 \
+  --sphere-layout chain --xyz chain_segments.xyz --shells-glb --glb-rod-diameter 3 \
+  --save-projections --proj-views current,front
+python3 chain_layout.py --selftest          # ~30 s; --full adds the 8-ring chain (~2 min)
+```
+
+GUI: `sphere layout: chain`, with `chain twist deg`, `chain relax rounds` and
+`chain symmetrize` (greyed for every other layout).
+
+**The folded form: `--chain-form folded` (rubber bands under tension).** The
+default chain (`--chain-form perpendicular`, everything above, unchanged)
+keeps every ring a single flat loop. Real rubber bands pulled apart settle
+differently, and `--chain-form folded` builds that shape: round end rings,
+every middle band of a Brunnian chain folded into a doubled loop with four
+strands in its cross-section, every clasp at 90°, all the folds in parallel
+planes (each band turns 90° from its fold to its tips), the whole chain D2d.
+
+1. The same path check, drawing choice and exact handedness rule as above —
+   but the drawing does not need straight cuts, because it is never
+   segmented: it is lifted flat (exact over/under bumps), scaled so its
+   closest far approach is one tube diameter, and thinned to an even spacing
+   by one certified move.
+2. A rubber-band energy is minimised in tube units — tension, length caps,
+   bending, even spacing, short-range repulsion, the end rings pulled apart,
+   and at the end made round — in four phases: *contract* (the flat lift
+   shrinks to a tight tangle), *pull-short* (the bands fold), *elongate* (the
+   bands lengthen to their caps), *polish*. Every step is **certified**:
+   points move less than a third of the certified distance t = 0.97 tube;
+   strands on different rings, or far apart along one ring, stay at least t
+   apart (exact segment distances); every 1.3-tube window of curve points
+   forward along its chord before and after the step, so it cannot cross
+   itself. A refused step is halved, never taken; shrinking and resampling
+   are certified too. No strand ever passes through another.
+3. `--chain-symmetrize auto` (default) then makes the chain D2d (exactly at the
+   construction spacing; within ~0.014 tube after the output resample) (or
+   D2) by certified averaging, the same self-check compares the Jones
+   polynomial and linking numbers, and the curve is resampled (certified) to
+   `--xyz-spacing`.
+
+The band lengths follow from the clasps: a clasp of *c* crossings joins a
+bundle of *a* parallel bights of one ring with *b* of the next, *c* = 2*ab*, and
+the end rings are single loops — so the Brunnian chain's clasps (4, 8, …, 8, 4)
+give doubled four-strand bands and a chain of simply linked rings (2, 2, …)
+plain loops. `--chain-fold-preset elongated` (default) caps a band at 14 tube
+diameters per strand (56) with end rings of 10 per bight they hold (20,
+radius 3.2); `tight` uses 8 and 6 (32 and 12; the 8-ring chain is then about
+29 tube diameters long instead of 68). For anything in between, set the
+lengths directly: `--chain-band-length L` is the rope per strand of each middle
+band (about the band's length along the chain plus its end bends; 4–40, 0 =
+the preset's 14 or 8) and `--chain-ring-length R` the rope per bight an end
+ring holds (4–30, 0 = the preset's 10 or 6). Measured on the 8-ring chain with
+the default end rings (overall length with 10-unit rods, `--crossing-offset 5`):
+
+| `--chain-band-length` | 6 | 8 | 10 | 12 | 14 (default) |
+|---|---|---|---|---|---|
+| overall length, tube diameters | 26.9 | 38.9 | 51.2 | 63.5 | 75.7 |
+
+Every one passes the self-check, takes 20–25 s, and leaves 0.7–1.0 units between
+10-unit rods of different rings; at 8 and below a band's own strands lie side by
+side (touching rods). A chain that is not a rubber-band chain
+(T(2,4) drawn as a two-ring chain) is refused with one `[error]` line. The
+strands are tubes of diameter **2 × |`--crossing-offset`|**, so
+`--glb-rod-diameter` = 2 × |offset| draws touching tubes; `--sphere-radius` is
+not used. A positive offset gives spherogram's reading of the DT code, a
+negative one its mirror (for the amphichiral, D2d 8-ring chain the two are the
+same shape up to a rotation).
+
+The structure of the relax-from-correct picture (`chain8_relaxed_from_sheet_tubes.png`):
+
+```bash
+python3 draw_dt_original_labelsV5_7.py \
+  --dt "DT: [(16,-10), (32,-26,-2,-18,24,4), (8,-14,40,-34,12,-6,-42,48), (28,-20,56,-50,22,-30,-58,64), (44,-36,72,-66,38,-46,-74,80), (60,-52,86,-82,54,-62,-88,92), (76,-68,94,70,-78,-96), (-90,84)]" \
+  --layout shaped-tutte --tutte-shape ellipse --no-tutte-auto-aspect --tutte-aspect 3.5 \
+  --sphere-layout chain --chain-form folded --crossing-offset 5 \
+  --xyz chain8_folded.xyz --shells-glb --glb-rod-diameter 10 \
+  --save-projections --proj-views current,front,top --output chain8_folded_2d.svg
+```
+
+(Without `--output` the 2-D drawing is also written, as `link_diagram.svg` in
+the current folder.)
+
+Measured on it: within 0.05–0.12 tube diameters (mean closest-point distance
+per ring, after a proper rotation) of the prototype's curve; clasps 90.0°,
+consecutive fold planes 0.0–0.1°, end rings round (aspect 0.991, radius 3.2),
+four strands in every band, closest approach 1.09 tube diameters, D2d (exact
+after the certified symmetrisation, ~1e-14; within ~0.014 tube in the written
+XYZ, which is resampled to `--xyz-spacing` afterwards);
+48 crossings, 8 components, Jones polynomial and volume 43.9664 equal in three
+random projections, all linking numbers 0, every 7-ring sublink an unlink. It
+takes about **25–35 s of CPU** (50–70 s of wall time on a machine shared with
+heavy jobs; the window waits like for the other layouts; cached within a run);
+the prototype took 24 minutes. The 3- to 6-ring Brunnian chains and the 4-ring
+chain of simply linked rings build the same way (the 3-ring one — the
+Borromean rings drawn as a chain — even from the default drawing, which the
+perpendicular form refuses for lack of a straight cut).
+
+GUI: `chain form` (perpendicular / folded), `chain fold preset`,
+`band length (0 = preset)` and `end-ring length (0 = preset)` under the chain
+settings; `chain twist deg` and `chain relax rounds` are greyed for the
+folded form. `python3 chain_layout.py --dt "..." --form folded` runs it
+without the drawing script (`--fold-optimizer fire` replays the prototype's
+own FIRE schedule, about 20 minutes, for cross-checks).
+
+Also fixed on the way: `audit_xyz` now orients each reconstructed component
+as the curve runs it (spherogram chooses the direction itself otherwise, which
+left the writhe of a multi-component curve arbitrary; the isometry test, being
+unoriented, never noticed), and treats a non-planar reconstruction from a
+degenerate projection as a retry instead of an exception.
 
 `--layout spread-tutte` (GUI: layout `spread-tutte`, field `spread rounds`)
 is for diagrams whose crossings are mostly trivial -- the kinks and bigons
@@ -1048,7 +1424,13 @@ sage -python ./strand_passage_guiV4_2.py
 - Standalone SVGs from `draw_dt_original_labelsV5_7.py` use the same Arial
   editable-text policy and roomier DT-label/crossing-ID boxes. Requested layouts
   are kept even when they create false crossings, with those artifacts
-  highlighted and a metadata caption added to saved diagrams. The standalone
+  highlighted and a metadata caption added to saved diagrams. Since
+  2026-10-03 the false-crossing audit is exact: every pair of strand segments
+  is tested, with no exclusion zone around the true crossings (the old 6%
+  zone hid every false crossing near a real one — 4BL's kamada drawing read
+  "no false crossings" while having 10, plus 2 crossings drawn as mere
+  touches). The `[warn]` line also names DT crossings whose strands do not
+  actually cross in the drawing. The standalone
   helper GUI splits parameters into separate 2-D diagram and 3-D XYZ tabs.
 - In the drawing helper GUI, saved SVG font sizes follow the live GUI fields:
   `DT label font` maps to `--font-size`, and `crossing ID font` maps to

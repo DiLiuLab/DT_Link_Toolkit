@@ -4,6 +4,56 @@ DT Link Toolkit Development Log
 This file records version-specific development notes and implementation history.
 For installation and everyday usage, see README.md.
 
+audit_xyz: a reference link for codes spherogram cannot read (2026-10-09)
+------------------------------------------------------------------------
+* The xyz topology audit printed "reference DT link failed: not enough values
+  to unpack (expected 2, got 1)" and gave up as inconclusive.  Root cause:
+  `spherogram.Link("DT: ...")` must search for a planar embedding when it is
+  given no flip vector, and that search (`DTcodec.embed` -> `bridge`) fails on
+  most codes with kinks or other two-point cuts -- 126 of 132 backtrack
+  diagrams measured, and on a split pair of trefoils it even reports "Link
+  isn't planar".  So every 3-D build of such a diagram went unaudited.
+* `dt_flips_from_embedding` (drawing script) reads a flip vector off
+  `crossing_face_embedding` (every crossing square a face): per crossing, the
+  square's orientation XOR (the even label is the smaller), spherogram's
+  DTFatGraph convention.  With a flip vector spherogram skips the failing
+  search.  `audit_xyz.audit_components_against_dt(..., flips=, flips_source=)`
+  uses it only when spherogram's own reading fails.  The drawing script
+  passes the components TOGETHER with the vector, rebuilt from its model (an
+  adversarial review found that re-parsing the raw string separately dropped
+  Unicode minus signs -- which the drawing's parser accepts -- and turned a
+  correct 8_20 build into a false FAIL).  The reference must be a planar
+  diagram (crossings + 2 faces per piece), is simplified before its exterior
+  is taken (a raw 24-crossing Hopf-link diagram gave a degenerate solution of
+  "volume" 2.0299), and the audit line ends "[reference built from <source>:
+  ...]", naming where the vector came from.  `audit_xyz.py` alone: `--flips`,
+  or the newest drawing script beside it computes them.
+* Validated on the 132 backtrack codes: every flip vector built a planar
+  diagram of the link the code was made from (72 hyperbolic: isometric; 30
+  torus knots: Jones polynomial equal up to mirror; 30 torus links: simplify
+  back to the original crossing and component counts).  Without the
+  label-order term every vector fails to build.
+* Two verdicts changed.  A curve whose exterior has a hyperbolic structure
+  (all tetrahedra positive) against a DT link whose exterior has none in ten
+  re-triangulations (of a copy -- the reference volume is read first) is a
+  FAIL ("curve link is hyperbolic ... but the DT link is not"); a
+  non-hyperbolic exterior never gets an all-positive solution, so this cannot
+  fail a correct curve.  And a curve that reduces to the unlink is ok when
+  the DT link does too, with as many components (kinked unknot codes such as
+  `DT: [(2,)]` and `DT: [(-2,),(-4,)]`, which used to fail).
+* Measured on 22 backtrack codes, stereo-safe 3-D builds: from spread-tutte
+  drawings 12 isometric, 10 undecided (torus links, no hyperbolic structure
+  on either side), 0 FAIL; from plain tutte drawings 9 FAIL (unlink 2, not
+  isometric 3, hyperbolic against a torus link 4) -- every one a drawing with
+  6-118 false crossings -- all of which used to read "inconclusive".  XYZ
+  output is unchanged (119 builds compared by the review).  Codes spherogram
+  can read whose exterior is hyperbolic give identical audit lines before and
+  after (5_2, Borromean rings x stereo-safe, spherical-kamada, cubic-kamada,
+  three runs each); for non-hyperbolic ones (trefoil, Hopf, 4BL) the verdict
+  is the same and only the degenerate-solution "volumes" differ, which varied
+  from run to run before the fix as well (Hopf curve 0.0000 or 1.9616 with
+  the old code).  -0.0000 now prints 0.0000.
+
 draw_dt_original_labelsV5_7: `--layout spread-tutte` for diagrams full of trivial crossings (2026-10-09)
 ----------------------------------------------------------------------------------------------------
 * Made for the intermediate diagrams of a backtrack round (e.g. K7a1 after 30
@@ -105,6 +155,400 @@ score_diagramV2_5: the Jones column is filled headless, and checked (2026-10-09)
   + 4 - 2t + 3t^2 - t^3; the four 4BL composites are unchanged
   (0.8976 / 0.7478 / 0.7209 / 0.5573).  Made for the third edition of the
   reports in project.topo/results_score_10X_V3.
+
+Folded chain: adjustable band and end-ring lengths (2026-10-03)
+---------------------------------------------------------------
+* The user found the middle bands of the elongated 8-ring chain too long.
+  New `--chain-band-length L` / `--chain-ring-length R` (tube diameters per
+  strand / per bight held; 0 = the preset's 14 / 10 or 8 / 6), GUI entries
+  'band length (0 = preset)' and 'end-ring length (0 = preset)', session
+  keys chain_fold_band / chain_fold_ring; chain_layout `--fold-band-length`
+  / `--fold-ring-length`.  `fold_relax` pulls the bands short to min(L, 8)
+  and ramps to L only when it is longer; the presets follow exactly their
+  old paths (elongated and tight 8-ring XYZ byte-identical).
+* 8-ring chain, default end rings: span 19.5 / 31.4 / 43.8 / 56.1 / 68.3
+  tube diameters at L = 6 / 8 / 10 / 12 / 14; every build passes the
+  self-check in 20-25 s; different rings stay 0.7-1.0 units apart with
+  10-unit rods.
+
+--chain-form folded -- the certified rubber-band relaxation (2026-10-03)
+-----------------------------------------------------------------------
+* The user asked how to make the relax-from-correct picture
+  (chain8_relaxed_from_sheet_tubes.png: the 8-ring Brunnian chain as relaxed
+  rubber bands -- round end rings, doubled 4-strand bands, clasps at 90 deg,
+  fold planes parallel, ~D2d) with the drawing tool.  It came from a scratch
+  prototype (torch autograd, FIRE, 345 k steps, ~24 min).  Now:
+  `--sphere-layout chain --chain-form folded` (default `perpendicular`, the
+  segment-and-reunite output, byte-identical: 8-ring md5
+  609e4fc5d6fa3868348fe664a0ee818f, .glb 6f18b27e76a04ba6a6118167de455ab7),
+  `--chain-fold-preset elongated|tight`; GUI comboboxes 'chain form' and
+  'chain fold preset'; session keys chain_form, chain_fold_preset.
+* chain_layout.py gained the folded section: `_FoldTopo`, `_FoldCert` (the
+  prototype's state invariant and step certificate exactly -- moves < t/3,
+  far segments >= t by exact segment distances, 1.3-tube windows pointing
+  forward along their chord before and after; neighbour lists with a skin,
+  exact by construction; a midpoint lower bound skips exact distances only
+  for pairs that cannot be under max(t, 1.25)), `_fold_energy` (the
+  prototype's energy with an exact analytic gradient; the prototype detached
+  the repulsion weight, here it is differentiated so a line search can trust
+  the gradient -- `detach_w=True` gives the prototype's force, equal to torch
+  autograd to 1.8e-13), `fold_targets` (band and ring lengths from the clasp
+  crossing counts: c = 2ab bights, end rings single loops -- the 8-ring
+  chain gives 56 / 20 tube diameters, the prototype's numbers; T(2,4) is
+  refused), `_fold_prepare` (fixed-point scale: closest FAR approach 1 tube
+  with the far threshold in tube units), `_fold_even_start` (one certified
+  thinning move), `_fold_lbfgs` (certified L-BFGS: Armijo + certificate
+  backtracking), `_fold_fire` (the prototype's FIRE, kept), `fold_relax`
+  (contract, pull-short, elongate, polish), `fold_features`,
+  `fold_clearance`, `symmetrize_folded` (certified D2d, else D2, through
+  `_sym_run`, which gained `count_multiple`: 4 here, 2 -- unchanged -- for
+  the perpendicular form), `_build_folded_chain`.  `choose_drawing` and
+  `_drawing_problem` gained `need_cuts` (default True; the folded form passes
+  False, so the 3-ring Brunnian chain's default drawing, which has no
+  straight cut, is accepted).
+* Port verified: numpy gradient = torch autograd to 1.8e-13 (relative,
+  prototype checkpoint, detached weight); full gradient = central finite
+  differences to 1.6e-9 / 3.8e-9 of the largest component; the FIRE port
+  from the prototype's own start and protocol reproduced its log line for
+  line (E 294.2 at 5 k, -113.6 at 10 k, -509.6 vs -509.2 at 195 k) and its
+  final curve to <= 0.002 tube diameters (mean closest-point distance per
+  ring).
+* Why L-BFGS: FIRE's global power test restarted every ~11 steps during the
+  elongation (9 % of steps; mean dt 0.015 against dtmax 0.08 -- dtmax made no
+  difference), so the bands crept.  The certified L-BFGS polished the
+  prototype's own elongated state in 1 500 iterations (6.6 s) to the
+  reference within 0.02-0.12 tube, and from the tight state in ~3 000.
+* Things that failed on the way, kept out: starting from chain_layout's
+  coarse lift (1.5-unit segments) -- turning angles up to 120 deg, the start
+  is not certified (window margin -0.33); starting from the dense lift as
+  sampled -- 0.01-0.5 tube segments fold into near-hairpins and the window
+  test stalls the contraction (hence the even thinning); contracting at
+  0.66-tube spacing -- tension bends of radius ~1 make 2-3-segment windows
+  turn > 90 deg; switching straight to the elongated caps -- the line search
+  is blocked by the certificate (repulsion 1000 too weak against the length
+  penalty), hence the prototype's ramps, in stages; the D2d scan centred on
+  the mean of all vertices -- partner rings at different spacings shift it
+  along the axis (C2' rms 0.307 instead of 0.087); D2d with even point
+  counts -- the 5-ring chain's self-mapped middle band kept a 0.16 C2'
+  residual (multiples of 4 close up).
+* Measured, 8-ring chain through the CLI at +5 (tube diameter 10): per-ring
+  mean closest-point distance to the prototype's curve 0.045-0.118 tube
+  (proper rotation); clasps 90.0; consecutive fold planes 0.0-0.1 (raw,
+  before the symmetrisation, 0.2-4); band twist 90; end rings aspect 0.991,
+  radius 3.20; bands 4-stranded; closest approach 1.091 tube; span 68.3;
+  lengths 20.1 / 56.1 x 6 / 20.1; exact D2d (residuals ~1e-14); strict 3/3
+  (48 crossings, 8 components, Jones, volume 43.9664), all linking numbers
+  0, Brunnian; 9 500 certified steps, 1 refused.  Two fresh processes:
+  identical XYZ and .glb.  Time to shape: contract 10.7 s, pull-short 15.0,
+  elongate 23.5, within 0.4 tube of the reference after ~500 polish
+  iterations (24.7 s), converged by ~1 100 (26 s) -- all CPU seconds; the
+  default build is 25-35 s of CPU and took 50-70 s of wall time with the
+  machine's load average at 200-450.  The GUI therefore runs it on the Tk
+  thread like every other layout (no worker; < 3 min).
+* Corpus (Brunnian chains n = 3..6 from chain_model, the 4-ring chain of
+  simply linked rings): all build, self-check 2/2, D2d except n = 3 (not
+  close to D2d or D2: a single band cannot swap its fold and its tips; left
+  unsymmetrised), 4-strand bands and 90-degree clasps; the 5-ring chain
+  strict 3/3 (24 crossings, volume 21.9832), lk 0, Brunnian.  T(2,4)
+  refused (bights 1, 2: its second ring would have to be doubled).
+* Every other layout byte-identical (spherical-kamada, raw-kk + .glb,
+  shaped-kamada ellipsoid and capped-cylinder + .glb, stereographic,
+  stereo-safe, sheet, cubic-kamada grid, grid-diagram on the trefoil and
+  4BL; the perpendicular 4-ring chain + .glb) against the pre-folded copy.
+* `chain_layout --selftest`: 33 checks (the folded targets, the gradient,
+  the certificate refusing a t/2 move and a ring dropped onto its
+  neighbour, the 4-ring chain folded at +-5 with signed linking numbers =
+  +- spherogram's, determinism, the T(2,4) refusal, 200 FIRE steps);
+  `--full` adds the 8-ring folded chain.
+
+Exact false-crossing audit (2026-10-03)
+---------------------------------------
+* `audit_false_crossings` and `find_false_crossings_in_curves` dropped every
+  curve point within 6% of the drawing's size of ANY crossing centre before
+  testing segment intersections, so false crossings near true ones were
+  invisible. Measured old -> new: 5-ring chain spring 0 -> 6; 4BL kamada
+  0 -> 10 false + 2 DT crossings drawn as touches; 8-ring chain spring
+  0 -> 63 and T(2,61) spring 0 -> 6 at PYTHONHASHSEED=0 (spring drawings
+  depend on the seed: 63 / 45 / 34 / 44 and 6 / 4 / 12 / 12 at seeds 0-3).
+* New: `_strand_contacts` (closed-form test of every segment pair, cKDTree
+  candidates, meetings at sample points included, grouped by point, each pair
+  of passages classified cross / touch / overlap by the cyclic order of its
+  rays), `_merge_contact_runs` (one event per touch / overlap run: the
+  collapsed ring of the 5-ring chain's Tutte drawing gave 778 raw events in
+  the first version and 3 overlap runs; after the revisions 612 raw events
+  and 2 overlap runs), `_classify_strand_contacts` (each DT crossing claims one
+  transversal contact of its own two strands within two control intervals,
+  nearest first; unclaimed crossings are reported as missing),
+  `audit_false_crossings_detail`, `_drawing_curves_and_passages`.
+* Flattened 'D' rings make ~3e-7-wide hairpins at the crossings on their
+  straight side (touch at the centre, cross on the way back). The two-interval
+  window and the absorption of a touch next to a claimed crossing keep 4BL
+  holed-tutte + flatten at 0 -- checked by plotting the geometry.
+* Count = false contacts + missing crossings (state, image warning,
+  metadata); gaps are drawn only at transversal false crossings.
+* Unchanged: clean drawings render byte-identically (5 SVGs compared); the
+  puncture atlas JSON is identical at the default and `auto` decompress for
+  the four 4BL diagrams, trefoil and Borromean (auto now rejects three
+  squeezed settings it used to accept, each verified by eye, and still picks
+  the same values); CLAUDE.md self-check 122/122 before the new lines.
+* Revised after an adversarial review (three independent verifiers, an
+  exact rational reference on 73 constructed cases, a 2864-drawing sweep):
+  absorption is decided on raw contacts BEFORE touch / overlap runs merge and
+  only for the crossing's own two passages (a saw-tooth run of touches
+  vanished, orientation-dependently, when its first tooth sat near a
+  crossing; a spike from another passage could hide); repeated consecutive
+  points are collapsed (three equal points faked a touch); only passage
+  pairs that really met are classified; the candidate search is local
+  (segments cut into pieces <= 2 x the median length for the search, pairs
+  tested in chunks): planar T(2,101) went from 3.6 GB / 6.9 s to 11 MB /
+  0.8 s; render_diagram now uses the same cached 26-sample audit as
+  prepare_diagram, so the log, the red text and the metadata always agree
+  (4BL planar read 28 vs 29 before); runs merge within half a control
+  interval; the first [warn] line is printed only for false contacts; the
+  dead helpers _seg_intersect, _seg_intersect_point and
+  find_false_crossings_in_curves were removed.  Clean drawings still render
+  byte-identically (11 SVGs).
+* Second revision after the re-review: the candidate search groups the
+  pieces by LENGTH CLASS and searches each pair of classes with the radius
+  their own lengths need (a 174-crossing knot's crowded Tutte drawing took
+  106 s / 3.5 GB, now ~1 s / 20 MB; holed-tutte 25 s / 2 GB -> 1 s / 22 MB),
+  with h floored at total length / (4 x count); pieces of one curve within
+  4 tol of each other along the curve are not compared (that knot's clean
+  drawing read 5 tolerance-level "touches"; a synthetic micro-bump 4-5);
+  curves are re-centred and tolerances use a rotation-invariant size; the
+  unused point-matching branch is gone; render places each gap at the drawn
+  sample nearest the contact; the atlas counts an audit that raises as one
+  defect (it read 0); the chain layout's refusal keeps the collapsed-ring
+  diagnosis next to the defect count.  Re-checked: 73 constructed cases
+  (14 flagged, all tolerance-level or by design), the real drawings
+  unchanged, 11 clean SVGs byte-identical, 12 atlas JSON files identical,
+  log / image / metadata counts equal, CLAUDE.md self-check 135/135.
+
+chain_layout.py + --sphere-layout chain -- segment and reunite (2026-10-03)
+--------------------------------------------------------------------------
+* New unversioned module chain_layout.py (imported by the drawing script,
+  which it finds by itself -- newest draw_dt_original_labels*.py or the
+  running program -- so a version bump needs no edit) and a new sphere layout
+  `chain` for LINEAR chains: links whose component-adjacency graph is a path.
+  The method is the user's ("segmentation first and then reunite to form the
+  chain"), ported from the 2026-10-03 prototype: an elongated 2-D drawing
+  with zero exact false crossings; one straight cut x = c per middle ring
+  meeting only that ring, evenly often, as transversally as possible; an
+  exact lift; each clasp slab laid out by a step-limited relaxation with its
+  cut ends pinned (the first end ring turned 90 deg in certified steps, both
+  senses tried); the slabs reunited by the twist map (u, v, w) ->
+  (R(theta(u)) (v, w), u) with slab k at k x twist (always adding); a
+  certified global relaxation (40 x 400 steps); a short tension-free
+  smoothing; an optional certified D2 symmetrisation; a self-check.
+* Faithful port: run in the prototype's units with the prototype's spacing
+  it reproduces the prototype's final XYZ BYTE FOR BYTE (md5
+  6f6e8a7131d0f151f5e5b9c69b797046; the module rounds to 9 decimals where
+  the prototype passed its stages through XYZ files).
+* Fixes from the independent verification:
+  (a) the resampler's triangle-segment test (Moller-Trumbore) had no branch
+  for a segment lying IN the triangle's plane, where it can cross the
+  triangle without piercing it -- common here, since away from the bumps the
+  whole lift lies in one plane.  _tri_seg_hits now adds an exact in-plane
+  test (endpoint inside, or an edge crossing; touching counts).  On the
+  8-ring lift it examined 1.34 M in-plane pairs and found no hit, so the
+  prototype's output was not affected.  (b) The reunite check computed a
+  curvature radius it never used; dropped (a polygon's corners give it no
+  meaning as a reach), and the check is documented as a measured polygon
+  error, delta < half the non-local clearance (0.09 vs 0.74 on the 8-ring
+  chain), the end-to-end check being the proof.  (c) Handedness is decided
+  EXACTLY, not by Jones: the drawing's sign at every crossing against
+  dt_converter's sign for the same crossing (the k-th odd DT label in both;
+  dt_converter's signs equal spherogram's Link(DT) crossing signs on both
+  test chains), so a positive offset realises spherogram's reading and a
+  negative one its mirror.  The 8-ring chain's elliptical drawing is the
+  in-plane mirror at 48 / 48 crossings (as the verifier found) and the
+  finished curve is reflected; +5 and -5 are exact mirror images.
+* New finding: the 4-ring chain of simply linked rings DT: [(6, -10), (2,),
+  (12, -4), (8,)] is a CONNECTED SUM (three Hopf clasps), and its drawing
+  agrees with spherogram's reading at only 4 of 6 crossings -- neither the
+  drawing nor its mirror is that reading, and the prototype's Jones test had
+  accepted the mirror lift although the oriented link differed (Jones sees
+  only how many clasps are positive; the signed linking numbers were wrong).
+  Its cuts meet the link in 2 points (decomposing spheres), so mirroring one
+  slab through the page mirrors exactly one summand: the rule mirrors the
+  slabs whose crossings disagree (fewest slabs, the rest by the final
+  reflection).  Verified: signed linking numbers (1, -1, 1) = spherogram's at
+  +5 and their negatives at -5, Jones equal to spherogram's at +5 and to the
+  mirror's at -5.  Where the slabs cannot be separated that way the
+  drawing's own diagram is built with a [warn].
+* The construction always finishes at the prototype's fine spacing (0.75 x
+  R/50) and is then resampled (certified) to --xyz-spacing: finishing at the
+  drawing script's default 1.8 was measured to tilt the 8-ring chain's end
+  rings to 73 / 76 deg and lose the D2.  'auto' symmetrisation keeps the D2
+  curve only if it does not tilt the ring planes by more than 1 deg on
+  average (8-ring: 4.7 -> 4.1, kept; 4-ring: 0.4 -> 17.1, rejected -- its
+  planes are 89.8, 90.0, 89.1 without it).
+* Refusals (chain_layout.ChainLayoutError, a ValueError; nothing written):
+  not a path (trefoil: 1 component; 4BL: every pair linked), no drawing with
+  straight cuts (the 5-ring chain DT: [(8, -12), (-14, 2), (16, -4), (-6,),
+  (10,)]: a two-crossing ring collapses in the Tutte drawings, spring has 6
+  false crossings), a bad chain parameter (offset 0, negative rounds), a
+  failed reunite check, a failed self-check.  Both command lines (the
+  drawing script's main() and chain_layout's) print it as one [error] line,
+  exit status 1, no traceback; the GUI shows it in a dialog.
+* Drawing script: --sphere-layout chain, --chain-twist (90), --chain-rounds
+  (40), --chain-symmetrize {auto,none}; GUI entries greyed unless the layout
+  is chain (bump, repair, clearance and smoothing method greyed for it);
+  session keys chain_twist / chain_rounds / chain_symmetrize.  No smoothing
+  or repair; even spacing applied and certified by straight-line moves
+  (chain_layout.certified_move), else undone; --shells-glb writes rods only
+  (_write_rods_only_glb) or an [info] when no rod diameter is set; the
+  negative-offset notice (which speaks of a base surface) is replaced by the
+  [chain] handedness line.
+* Measured: the 8-ring chain through the CLI at +5 and -5 -- strict 6/6
+  (48 crossings, 8 components, Jones and volume 43.9663 equal, lk all 0,
+  Brunnian), planes 80.3, 88.8, 88.4, 86.1, 88.4, 88.8, 80.3 deg, centres
+  -88.7 ... 88.7 in order, D2 (residual 1e-13 at the construction spacing),
+  106-115 s; also R 100 / offset 8 and the default round Tutte drawing.  Two
+  fresh processes give byte-identical XYZ.  Every other layout is
+  byte-identical (12 XYZ + 2 .glb: spherical-kamada +-, raw-kk, ellipsoid,
+  capped-cylinder, stereographic, stereo-safe, sheet, cubic-kamada grid,
+  grid-diagram, crossing-pinned negative).
+* Second verification round (two independent verifiers, topology and
+  plumbing), fixed the same day:
+  - CLI refusals ended in a ~30-frame traceback.  The refusals now raise
+    ChainLayoutError (user_facing = True); main() catches a ValueError only
+    when it carries that flag, so a genuine bug (or another layout's error)
+    still shows its traceback.  Checked on the 5-ring chain, the trefoil,
+    4BL, the Borromean rings, --crossing-offset 0 and --chain-rounds -3
+    (drawing script) and the trefoil (chain_layout CLI): one [error] line,
+    exit 1, no XYZ.
+  - Relaxer.run's contact-freeze branch (inherited from the prototype)
+    rebuilt the step without the slab clamp, so a point could be accepted
+    outside its slab and pulled back by up to 2/3 d_cert on the next step.
+    It re-clamps now, and the step bound is CHECKED (any point moving more
+    than d_cert / 3 refuses the step) rather than assumed.  Never fired in
+    any measured run: every output is byte-identical (the prototype md5,
+    the 8-ring chain at +5 / -5 / twist 0, the 4-ring chain at +5 / -5).
+  - --chain-twist 0 was documented as "a flat chain"; it is not (the end
+    ring is turned 90 deg in its segment and the relaxation pulls the rings
+    toward perpendicular planes: 8-ring at 0 -> planes 73-80 deg; with
+    --chain-rounds 0 too the 4-ring chain's middle clasps stay nearly flat,
+    88, 10, 12 deg).  The help texts now call it the STARTING turn.
+  - A [hint] when |offset| > radius / 4: the thickness does not scale with
+    the radius, and the 4-ring chain at offset 5 takes 22 s at radius 50,
+    32 s at 25, 54-60 s at 17 and ~260 s at 10 (the result stays correct).
+  - A cached rebuild (--save-projections, a repeated GUI build) printed the
+    whole [chain] block again with the first build's stage timings; it now
+    prints one "construction cached" line plus the lines that are redone
+    (output spacing, geometry, hand, check) and the total time.
+  - The chiral PRIME case of the handedness rule is now self-tested: the
+    2-ring chain L4a1 (lk 2) from its own drawing ('equal') and from the
+    in-plane mirror of that drawing ('opposite') gives lk +2 at +5 and -2 at
+    -5 either way (the verifier had also checked L6a2 and L7a6).  The
+    self-test has 18 checks (~30 s), 22 with --full.
+  - Docs: the module docstring described the connected-sum case as "kept
+    with a [warn]" (it mirrors single slabs; the [warn] is only the
+    fallback), a comment quoted stale 4-ring numbers, and README gave the
+    wrong reason for the 5-ring refusal.  All corrected.
+
+draw_dt_original_labels V5.7 -- cube wiring and grid diagrams (2026-10-02)
+--------------------------------------------------------------------------
+* cubic-kamada made usable.  SMOOTH takes the over/under offset on the
+  concentric cube ((R + o) d / |d|_inf) instead of along the dominant face
+  normal, whose flip at every edge made inner strands zig-zag and leave the
+  inner cube; the map is a homeomorphism of space minus the origin, so the
+  cube curve is ambient-isotopic to the sphere curve, rides exactly the .glb
+  shells, and spaces evenly.  ANGLED was rewritten: the V5.5 router drew each
+  connector as a straight axis-aligned path THROUGH the cube and never routed
+  the connectors around each other (the figure-eight knot audited as an
+  UNLINK; every multi-component link fell back to a 100-400-corner staircase;
+  abs(offset) ignored the sign).  Now every crossing sits on a face-interior
+  node of an N x N grid per face with its strands along the face axes, in the
+  port order of the diagram's planar embedding, and the connectors are routed
+  node-disjoint on the surface grid by a negotiated-congestion A* (bends 4,
+  edge steps 2, lane crowding 1, port bends doubled).  Correct by
+  construction (Heffter-Edmonds); audited on 12 links up to 80 crossings in
+  0.1-6 s each; exact symmetry by orbit routing; signed offset.  Two bugs
+  found by brute-force contact checks after the first cut: a bridge post
+  placed past a cube-edge fold (the connector looked straight from its
+  crossing because all its nodes were on the ray) and route nodes under a
+  bridge, both fixed and re-verified.  New cube style GRID: a grid diagram in
+  3-D face by face (outer / inner level by face axis, posts at the turns, no
+  bridges), with the per-face over axis chosen by majority and made
+  equivariant where the symmetry allows.  --cube-grid N / GUI 'cube grid'.
+* grid_diagram.py (launcher 'grid'): grid diagrams / arc presentations from
+  the DT code via the braid closure (size 2m + k), simplified by grid moves
+  over several seeds, certified against crossings + 2 (alternating, Bae-Park)
+  or HOMFLY-PT v-breadth + 2 (Cromwell + MFW), with KnotInfo notation, the 2-D
+  picture, a direct spherogram Link (orientation fixed through
+  Link(build=False) + _build(start_orientations)) and a Jones fallback through
+  dt_converter where SnapPy's isometry test cannot decide (4BL).  Known grid
+  numbers reproduced: trefoil 5, figure-eight 6, Hopf 4, 5_2 7, Borromean 8;
+  4BL reaches 12 x 12 with 14 crossings in ~4 s (bound 8).  Exposed in the
+  drawing script as --sphere-layout grid-diagram: verticals on z = +offset,
+  horizontals on z = -offset, posts at the X and O cells, shells as two
+  planes, no smoothing or repair.  Chirality: a positive offset gives
+  spherogram's reading of the DT code (writhe +3 for DT: [(4,6,2)]).
+* grid_diagram keeps the DIAGRAM when asked (--same-diagram; the drawing
+  script's default, --grid-any-diagram for the link-level minimum).  The
+  braid route and the grid moves preserve the link only -- 4BL's 12 x 12 is a
+  clasp, not the rosette -- so from_planar_diagram routes the DT code's own
+  2-D layout rectilinearly with the over strand vertical at every crossing
+  (the cube router on a flat grid) and compresses the maximal runs into rows
+  and columns, giving exactly the diagram's crossings; simplify(same_diagram)
+  uses planar isotopies only (destabilisations, commutations of
+  non-overlapping segments, kink-free stabilisations -- the variant whose two
+  long segments both extend past the old corner adds a kink -- no cyclic
+  shifts) with a crossing-count safety net, and same_diagram_check compares
+  canonical signed DT codes through dt_converter.link_to_dt and
+  canonical_dt_V2_0.canonicalize.  The rosette: 18 x 18 with its 14
+  crossings (link minimum 12 x 12, printed for comparison); the known small
+  links keep their own diagrams at their arc indices.  The free search's
+  seeds are scanned for a smaller grid of the SAME diagram (or its mirror,
+  undone by transposing) and adopted when found: the four 4BL classes give
+  rosette 18, Balanced clasp 19, Offset clasp 12 (adopted -- the link-level
+  12 x 12 IS the Offset clasp), Lopsided clasp 18.  The flat routing starts
+  at ~4 cells between the closest crossings (the clasps' pairs are 5% apart;
+  a 12-cell start exceeded the cap before the first attempt).  The router's
+  negotiation is restarted up to 8 times with a different seeded net order
+  (and shuffles from round two within an attempt): negotiated congestion only
+  moves a net that shares a node, so the Hopf link's connector that took the
+  only bottom lane first walled off another's port and was never penalised;
+  the first attempt's first round is unchanged.
+* raw-kk diagnosis + --surface-shape capped-cylinder (2026-10-02/03).  raw-kk
+  (and spherical-kamada, every shaped-kamada surface, cubic-kamada) exported a
+  different link for the 8-ring Brunnian chain: the direction step -- 3-D
+  Kamada-Kawai, radially projected -- is not an embedding there.  Both end
+  clasps fold (gadgets 0, 7 and 45, 47 wound backwards against the planar
+  embedding, 5 of 98 faces inverted, 12 geodesic edge crossings, 10 spurious
+  sphere crossings); the curve is a mirrored T(2,4) on rings 0, 1 plus an
+  unlink (exact Gauss lk(0,1) = -2).  It is the converged KK minimum (KK from
+  an embedding returns to it; 0 of 23 seeds embed; --sphere-refine worsens
+  it); raw-kk's radii, the smoothing, the repair and patch overlap are not
+  the cause.  The user asked for shaped-kamada on a cylinder with the axis
+  aligned and the end rings on the end discs.  The open cylinder cannot do
+  it (Archimedes' warp is one-to-one, the sphere curve sweeps 266 deg), so
+  the closed cylinder has its own direction step (capped_cylinder_directions):
+  poles inside the end rings, Moebius + inverse stereographic lift, then
+  Kamada-Kawai stress on the can with cap / wall penalties, a vertex-edge
+  barrier, gadget conditioning and a step-rejecting embedding certificate;
+  the finished spherical curve is radially projected onto concentric cans
+  (a homeomorphism of the shell).  Chain: strict pass at the defaults and at
+  the safe 2.7 deg unsmoothed, from the elliptical and from the default round
+  Tutte drawing alike (stress 6135 / 2004 -> 1326), rings in order along the
+  axis, end rings 100% on the discs; ~2 min.  Existing layouts byte-identical.
+* --sphere-layout sheet for elongated links (the 8-ring Brunnian chain came
+  out of every sphere / cube layout with its ends curled towards each other,
+  and the kamada layouts failed its audit).  The 2-D drawing, rotated to its
+  PCA axis and scaled to length 2R, is lifted onto a ruled sheet: each
+  cross-section x = const is a segment (flat), an arc of radius width / bend
+  (--sheet-bend, 360 = tube) or either rotated by a linear twist
+  (--sheet-twist); over / under = the stereographic cosine bump as an offset
+  within the cross-section.  x preserved + embedded cross-sections = correct
+  by construction (no smoothing / repair; audit runs).  Shells as the sheet's
+  offsets, skeleton = sheet grid lines.  Hints when the offset is large
+  against the width or exceeds the arc radius.  Handedness = stereo-safe's.
+* audit_xyz: components are oriented as the curve runs them (spherogram
+  otherwise picks directions, leaving inter-component crossing signs and the
+  writhe of a link arbitrary -- the Hopf grid read as writhe -2 against +2);
+  a non-planar reconstruction from a degenerate projection is a retry, not an
+  exception (axis-aligned wires with many collinear points hit it).
 
 draw_dt_original_labels V5.5 (2026-07-12)
 -----------------------------------------

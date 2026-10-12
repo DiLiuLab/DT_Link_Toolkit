@@ -41,6 +41,22 @@ V5.7 changes
   About 2 s at 25 crossings, 5-10 s at 40-60, 12 s at T(2,61), 41 s at
   T(2,101).  Every other layout byte-identical.  CLI --spread-rounds (400,
   >= 1), GUI 'spread rounds'.
+* 2-D: the false-crossing audit is EXACT (2026-10-03).  It used to ignore
+  every curve point within 6% of the drawing's size of any crossing centre,
+  so false crossings near true ones were never seen (4BL's kamada drawing:
+  reported 0, really 10 plus 2 DT crossings drawn as touches).  Every segment
+  pair is now tested (`_strand_contacts`), each DT crossing claims only the
+  one contact of its own two strands at its centre
+  (`_classify_strand_contacts`), and the `[warn]` lines name touches,
+  overlaps and undrawn crossings.  Clean drawings render byte-identically.
+  Revised after review: absorption before run merging and only for the
+  crossing's own passages, repeated points collapsed, a local candidate
+  search (planar T(2,101): 3.6 GB -> 11 MB), and one cached audit shared by
+  prepare_diagram and render_diagram so log, image and metadata agree.
+  Second revision: a length-class candidate search (a crowded 174-crossing
+  Tutte drawing: 106 s / 3.5 GB -> ~1 s / 20 MB), no comparison of pieces
+  of one curve within 4 tol along it (tolerance-level false touches), and a
+  re-centred, rotation-invariant tolerance frame.
 * 3D: --crossing-offset may now be NEGATIVE, which inverts the over/under
   layering at every crossing (the over-strand runs INSIDE the base surface and
   the under-strand outside).  The exported curve is then the MIRROR of the
@@ -107,8 +123,7 @@ V5.7 changes
   styles.  A [note] names the cause wherever the curve itself leaves its
   surface, each one verified: shaped-kamada cylinder (4BL 10%) and torus
   (7.5%) strands that pass the sphere's poles run as straight chords across
-  the open ends / the hole; the angled cube's 90-degree connectors cut
-  through the cube between crossings (trefoil); raw-kk's default final
+  the open ends / the hole; raw-kk's default final
   smoothing rescales its multi-radius offsets (4BL 80% inside, and 100% with
   --no-xyz-final-smooth on all six test diagrams); and the clearance repair
   on dense diagrams.  A [warn] fires when an offset
@@ -202,9 +217,253 @@ V5.7 changes
   edge; pole chords) and are spread evenly along the curve instead (worst
   75%); one kinked 7BL component within 0.44%.  Crossings, kinks and
   topology-audit outcomes unchanged in all 63 cases.
-  Skipped for the angled cube style, whose points are its corners.  This
+  For the angled cube style it cuts every straight wire into equal pieces
+  of about the spacing and keeps the corners exactly (see below).  This
   changes the default output; --no-xyz-even-spacing reproduces the previous
   output byte for byte.
+
+* 3D: cubic-kamada reworked so that both styles are usable (2026-10-01).
+  SMOOTH: the over/under offset is now taken on the CONCENTRIC cube,
+  (R + o) * d / |d|_inf, instead of along the dominant face normal.  The
+  face-normal lift flipped direction at every cube edge, so an inner-layer
+  strand zig-zagged across the edge and lay outside the inner cube (the old
+  [note] said so), and the even point spacing could not close.  The
+  concentric lift is continuous (x -> x |x|_2 / |x|_inf is a homeomorphism of
+  space minus the origin), so the cube curve is ambient-isotopic to the sphere
+  curve, it rides exactly the three shells the .glb export draws, and every
+  component now spaces evenly.  Audit outcomes are unchanged.
+  ANGLED: rewritten as orthogonal routing on the cube's SURFACE grid
+  (_cube_surface_grid, _cube_place_crossings, _cube_route_nets,
+  _cube_assemble_wires).  The V5.5 router drew each connector as a straight
+  axis-aligned path between two crossing points on the shells, THROUGH the
+  cube, and never routed the connectors around each other: the figure-eight
+  knot's wires audited as an UNLINK (the straight connectors realised a
+  different diagram), every multi-component test link fell back to a
+  100-400-corner staircase, and it took abs(offset), so a negative offset did
+  not invert the crossings (the open bug recorded under the V5.7 signed
+  offset).  Now every crossing sits on a face-interior node of an N x N grid
+  per face with its two strands along the two face axes, in the cyclic port
+  order of the diagram's own planar embedding (the 3-D layout only picks the
+  global orientation, by majority), and every connector is routed as a
+  NODE-DISJOINT path on the surface grid by a negotiated-congestion
+  (PathFinder) A* search that penalises in-face bends (4 steps), cube-edge
+  steps (2) and running next to another strand (1 per occupied neighbour).
+  Because a cellular embedding in the sphere is determined by its rotation
+  system, a crossing-free routing with these ports IS the diagram, so the
+  wiring is correct by construction and the audit confirms it: figure-eight,
+  5_2, Borromean rings, 4BL, both 5BLs, Fishtail5, the 6BL lark and the
+  80-crossing C6BL all route (one negotiation round each, 0.1-6 s) and audit
+  isometric where the audit can decide.  Over/under is a right-angle bridge:
+  the strand steps off the base cube by the SIGNED offset along the face
+  normal, runs over (under) the crossing point and steps back, so the trefoil
+  now reconstructs to writhe -3 at +5 and +3 at -5 like every other layout.
+  A detected cube symmetry is exact: the anchors are orbit-averaged, one
+  connector per orbit is routed and copied by the (integer) cube rotation
+  (trefoil 3-fold about a body diagonal, 6BL lark 3-fold), and the sense of
+  the rotation is chosen by residual, since the detected axis has a free sign
+  (orbit-averaging with the wrong sense collapses the anchors onto the axis).
+  The grid is --cube-grid N (GUI 'cube grid (0 = auto)'; 0 = about 12 cells
+  between the two closest crossings, at least 6) and is refined by 30% when
+  the crossings collide or the routing does not converge; if no grid up to
+  72 works the smooth map is written with a [warn] (seen only on the 7BL
+  square, whose sphere layout every layout fails the audit on).  The XYZ holds
+  points every ~spacing along the wires with the corners kept exactly (even
+  spacing on); corners only with it off.  The mapped skeleton of the angled
+  style is the wiring itself, and the .glb records the grid.  Status lines
+  report the grid, how far the crossings moved, the negotiation rounds, and
+  the corners split into bridges / in-face bends / edge folds.
+  Two bugs were caught by a brute-force contact check after the first cut:
+  a bridge post placed past a cube-edge fold (the connector looked straight
+  from its crossing because all its route nodes were on the ray, though the
+  next crossing was not) and route nodes left under a bridge, both of which
+  doubled the wire back over itself; fixed and re-verified on 12 links.
+  Third cube style GRID (2026-10-02): a grid diagram in 3-D, face by face --
+  on each face the strands along one axis (the face's over axis, chosen by
+  majority over its crossings and made equivariant where the symmetry
+  allows) run on the outer shell and the strands along the other on the
+  inner shell, a post joins the two wherever a strand turns, and a crossing
+  is simply the outer strand passing the inner one, no bridge
+  (_cube_assemble_grid_wires).  Fold corners sit |offset| from the edge, so
+  crossings and in-face turns are kept ceil(|offset| / pitch) cells from
+  every edge and grids with a lane exactly |offset| from the edge are
+  skipped.  The over axis is assigned at placement (over pass -> over axis),
+  so a crossing is never mis-levelled.
+* 3D: --sphere-layout grid-diagram (2026-10-02): the 3-D lift of a MINIMAL
+  grid diagram of the link, from grid_diagram.py (launcher 'grid') -- an
+  n x n grid with one X and one O per row and column, verticals over
+  horizontals (KnotInfo's grid notation / an arc presentation; the smallest n
+  is the arc index).  The module builds one from spherogram's braid closure
+  (size 2m + k), shrinks it by grid moves (cyclic shifts, commutations,
+  destabilisations, occasional stabilisations) over several seeds keeping the
+  smallest grid and then the fewest crossings, and certifies the size when it
+  meets crossings + 2 (reduced alternating, Bae-Park) or HOMFLY-PT
+  v-breadth + 2 (Cromwell x Morton-Franks-Williams, from dt_converter's
+  polynomials).  Known grid numbers reproduced -- trefoil 5, figure-eight 6,
+  Hopf 4, 5_2 7, Borromean rings 8 -- and 4BL reaches 12 x 12 with exactly
+  its 14 crossings in a few seconds (bound 8, so not certified).  The lift
+  puts the vertical segments on z = +offset, the horizontal ones on
+  z = -offset and a post at every X and O; the grid spans the sphere radius;
+  smoothing and clearance repair are skipped (the lattice is exact); the
+  shells are the two planes; the 'top' projection is the grid diagram.  At a
+  positive offset the lift has the chirality spherogram and dt_converter
+  assign to the DT code (writhe +3 for DT: [(4,6,2)]) -- a negative offset
+  mirrors it.  --grid-steps / --grid-seed, GUI 'grid search steps / seed'.
+  The module's own check builds the grid's link in spherogram directly from
+  the markers with the component orientations FIXED (Link(build=False) +
+  _build(start_orientations), spherogram's own rebuild hook; left to itself
+  spherogram chooses them, which made the Hopf grid read as writhe -2), and
+  falls back to comparing Jones polynomials through dt_converter where
+  SnapPy's isometry test cannot decide.  audit_xyz got the same orientation
+  fix, so the writhe it reads off a multi-component curve is now meaningful,
+  and treats a non-planar reconstruction from a degenerate projection as a
+  retry rather than an exception.
+  THE DIAGRAM IS KEPT BY DEFAULT (--grid-any-diagram / GUI 'grid diagram
+  keeps this diagram' off for the link-level minimum): the braid route and
+  the grid moves preserve the link, not the diagram -- 4BL's 12 x 12 grid is
+  a clasp, not the rosette its DT code draws -- so grid_diagram's
+  from_planar_diagram routes the DT code's own 2-D layout rectilinearly with
+  the over strand vertical at every crossing (this script's surface-grid
+  router on a flat grid, through _cube_route_nets) and compresses the
+  maximal runs into rows and columns, giving exactly the diagram's crossings;
+  the simplification then uses planar isotopies only and the result is
+  verified by canonical signed DT code.  The rosette: 18 x 18 with its 14
+  crossings, with the link's 12 x 12 reported beside it.  _cube_route_nets
+  restarts its negotiation up to 8 times in a different seeded net order
+  (_negotiate_routes), because negotiated congestion only moves a net that
+  shares a node: on a flat grid the Hopf link's connector that took the only
+  bottom lane first walled off another connector's port and was never
+  penalised, so the other was driven round the drawing for ever.  The first
+  attempt's first round is the original procedure, and every earlier case
+  converged there, so their wiring is unchanged.
+* 3D: --sphere-layout sheet (2026-10-02), for elongated links.  Every earlier
+  3-D layout closes the diagram up on a sphere or a cube, so the 8-ring
+  Brunnian chain DT: [(16,-10), (32,-26,-2,-18,24,4), ..., (-90,84)] came out
+  with its two end rings curled towards each other (and the kamada layouts
+  failed its audit).  The sheet keeps the 2-D drawing's long (PCA) axis
+  straight: x runs along it, y across, and each cross-section x = const is a
+  planar curve in the yz-plane -- a straight segment (flat), an arc of
+  radius width / bend (--sheet-bend; 360 closes a tube), rotated about x by
+  a twist growing linearly along the length (--sheet-twist) -- with over /
+  under as the stereographic layout's cosine bump taken as an offset WITHIN
+  the cross-section (normal for the flat sheet, radial for the bent one).
+  x is preserved and each cross-section curve is embedded, so the lift is
+  correct by construction like stereo-safe: no smoothing or clearance
+  repair, audit as usual (the chain audits "undecided" with equal volumes,
+  like 4BL, in flat, 180-degree-twisted, 150-degree-bent and bent+twisted
+  builds; a 360-degree tube with offset 5 on a 29-wide sheet folds its inner
+  layer -- arc radius 4.6 -- and the [warn] says so before the audit FAILs).
+  The 2-D drawing sets the proportions: draw a chain with --layout
+  shaped-tutte --tutte-shape ellipse --no-tutte-auto-aspect --tutte-aspect
+  3.5 for a straight caterpillar; --sheet-aspect stretches it further; the
+  sheet's length is 2 x --sphere-radius.  Shells (.glb) as the sheet and its
+  two offsets (open grid meshes, exact signed offset via the cross-section
+  frame), mapped skeleton = the sheet's grid lines plus the crossing points.
+  GUI: sphere layout 'sheet' with 'sheet bend deg', 'sheet twist deg',
+  'sheet aspect'.  Handedness equals stereo-safe's at the same offset
+  (measured on the trefoil and 5_2).
+* 3D: --surface-shape capped-cylinder for shaped-kamada (2026-10-03): a
+  CLOSED cylinder -- side wall and two end discs -- with the chain along its
+  axis and its two end rings on the discs.  Why: on the 8-ring Brunnian
+  chain every kamada layout exported a different link, because the 3-D
+  Kamada-Kawai layout projected radially onto the sphere folds both end
+  clasps (gadgets 0, 7, 45, 47 wound backwards; 12 geodesic edge crossings);
+  that fold is the converged KK minimum, and the open cylinder's Archimedes
+  warp is one-to-one, so it inherits the wrong link whatever the axis.  The
+  closed cylinder therefore gets its own direction step,
+  capped_cylinder_directions(): poles inside the end rings (auto: the end
+  components of a path-shaped component-adjacency graph; --surface-end-rings
+  i,j | none), a Moebius + inverse-stereographic lift of the 2-D drawing (a
+  homeomorphism), then Kamada-Kawai stress on the can with cap / wall
+  penalties, a vertex-edge barrier, gadget conditioning and a step-rejecting
+  embedding certificate (no face flips, no edge crossings), so the layout is
+  an embedding all the way.  The spherical builder runs on these directions
+  unchanged (_build_spherical_kamada_xyz_components(dirs_override=)), and the
+  finished curve is projected from the centre onto concentric cans,
+  p = d * min((rad + o) / rho, (H + o) / |d_z|) -- for each offset a
+  bijection of the sphere onto that can, increasing in o, so the link and its
+  handedness are kept exactly; the post-warp repair is skipped.  Half-height /
+  radius 3 (or --surface-aspect with auto aspect off).  Measured on the
+  chain: correct link (Jones and volume equal, 48 crossings, 8 components)
+  at the defaults and at the safe 2.7 deg unsmoothed, from the elliptical
+  shaped-tutte drawing and from the default round Tutte drawing alike (KK
+  stress on the can 6135 / 2004 -> 1326), component centres strictly in
+  chain order along the axis, end rings 100% on their discs, ~2 minutes for
+  48 crossings (cached within a run).  Shells: kind 'can' (side wall + two
+  discs, concentric offsets).  Every existing layout and surface, the open
+  cylinder included, is byte-identical.
+* 3D: --sphere-layout chain (2026-10-03), the user's "segmentation first and
+  then reunite to form the chain", for LINEAR chains -- links whose
+  components form a path, ring i linked only with rings i-1 and i+1 (the
+  8-ring Brunnian chain, a chain of simply linked rings).  The construction
+  lives in chain_layout.py (unversioned, like grid_diagram.py; its
+  --selftest is the contract): one straight cut x = c per middle ring in an
+  elongated 2-D drawing (the given drawing if it has no false crossings and
+  admits the cuts, else the elliptical shaped-tutte, spring and Tutte
+  drawings), the slabs between cuts are the clasp tangles; an exact lift,
+  each slab laid out in 3-D by a step-limited (certified) relaxation with
+  its cut ends pinned, the slabs REUNITED by the twist map (u, v, w) ->
+  (R(theta(u)) (v, w), u) with slab k turned k x --chain-twist (default 90,
+  always adding), a certified global relaxation (--chain-rounds, default
+  40, of 400 steps: tension, bending, thickness, end pull, rings onto the
+  axis and into perpendicular planes), a certified D2 symmetrisation
+  (--chain-symmetrize auto|none; auto keeps it only when it does not tilt
+  the ring planes) and a self-check (random projections: components, Jones
+  polynomial and signed linking numbers against the built diagram, through
+  dt_converter; a mismatch raises instead of writing).  Handedness is
+  decided EXACTLY, per crossing, against dt_converter's reading of the DT
+  code, so a positive offset realises spherogram's reading and a negative
+  one its mirror (the grid-diagram convention); on the 8-ring chain the
+  elliptical drawing is the in-plane mirror at 48 / 48 crossings and the
+  finished curve is reflected; a connected sum (the chain of simply linked
+  rings) gets single slabs mirrored instead.  Not a chain, no drawing with
+  straight cuts, a bad chain parameter or a failed self-check: refused with
+  chain_layout.ChainLayoutError (a ValueError) naming why, which main()
+  prints as one [error] line, exit status 1, no traceback (other
+  ValueErrors still propagate).  Scale: the chain's internal units are
+  scaled by --sphere-radius / 50; |offset| sets the strand thickness (0.8
+  |offset|) and the initial over/under lift (0.6 |offset|); a [hint] fires
+  when |offset| > radius / 4, where the build slows down sharply.
+  --chain-twist is the STARTING turn: the relaxation still pulls the rings
+  toward perpendicular planes, so 0 is not a flat chain.  No smoothing or clearance repair; even spacing (default on)
+  is applied and CERTIFIED (straight-line moves under a third of the
+  closest approach), else undone; the audit runs as usual.  There is no
+  base surface: --shells-glb writes the rods alone (with
+  --glb-rod-diameter), or nothing, with an [info].  Measured on the 8-ring
+  chain: the module reproduces the prototype byte for byte; consecutive
+  ring planes 80.3, 88.8, 88.4, 86.1, 88.4, 88.8, 80.3 deg, ring centres
+  strictly in order along the axis, exact D2, about 100-120 s.  Every other
+  layout's output is byte-identical.  GUI: sphere layout 'chain' with
+  'chain twist deg', 'chain relax rounds' and 'chain symmetrize'.
+* 3D: --chain-band-length / --chain-ring-length (2026-10-03) set the folded
+  chain's band and end-ring lengths directly (tube diameters per strand / per
+  bight; 0 = --chain-fold-preset's), e.g. 10 makes the 8-ring chain 44 tube
+  diameters long instead of 68; the presets' output is unchanged.
+* 3D: --chain-form folded (2026-10-03) for --sphere-layout chain: the chain
+  as relaxed rubber bands -- round end rings, every middle band of a
+  Brunnian chain folded into a doubled loop (4 strands), clasps at 90 deg,
+  fold planes parallel, exactly D2d -- the shape of the relax-from-correct
+  prototype's picture, which the tool could not make before.  The default
+  form 'perpendicular' is the segment-and-reunite chain above, byte-for-byte
+  unchanged.  chain_layout.py keeps the path check, the drawing choice (no
+  straight cuts needed), the exact handedness rule (+offset = spherogram's
+  reading) and an exact flat lift, then relaxes it in tube units with the
+  prototype's energy and its step certificate (moves < t/3, far segments
+  >= t = 0.97 by exact segment distances, 1.3-tube windows pointing forward
+  before and after every step) through certified L-BFGS phases (contract,
+  pull-short, elongate, polish; the prototype's FIRE is kept as an option of
+  chain_layout), a certified D2d (else D2) symmetrisation, a certified
+  resample to --xyz-spacing and the same self-check.  Band and ring lengths
+  follow from the clasp crossing counts (c = 2ab bights; end rings single
+  loops), --chain-fold-preset elongated (56 / 20 tube diameters for the
+  8-ring chain) or tight (32 / 12); a chain that does not fit (T(2,4)) is
+  refused.  The strands are tubes of diameter 2 x |--crossing-offset|
+  (--glb-rod-diameter 10 at offset 5 draws touching tubes); --sphere-radius
+  is not used.  Measured on the 8-ring chain: within 0.05-0.12 tube of the
+  prototype's curve, clasps 90.0 deg, fold planes 0.0-0.1 deg, end rings
+  aspect 0.991, closest approach 1.09 tube, strict 3/3 (Jones, volume),
+  linking numbers 0, Brunnian; 25-35 s of CPU (the prototype: 24 min).
+  GUI: 'chain form' and 'chain fold preset'.  Every other layout
+  byte-identical.
 
 V5.6 changes
 ------------
@@ -792,9 +1051,11 @@ Tkinter is needed only for GUI mode.
 import argparse
 import ast
 import csv
+import heapq
 import io
 import time
 import json
+import hashlib
 import math
 import os
 import queue
@@ -914,11 +1175,13 @@ GUI_HELP_TEXT = {
     "tutte_orient": "Shaped-tutte shape tilt in degrees: the angle by which the tutte shape's aspect (long) axis is tilted AWAY FROM the diagram's intrinsic PCA elongation axis. 0 = shape long axis aligned with the PCA axis. Unlike a final rotation, this actually re-stretches the diagram into a boundary pointed in a new direction relative to the diagram's natural elongation. Only meaningful for non-circular shapes (a circle has no aspect axis). Turn on 'show shape outline' and 'show PCA axis' to see the angle between them. Any value; wraps at 360.",
     "show_tutte_outline": "Overlay the layout's shape outline(s), in both the live preview and any saved image. For shaped-tutte: the boundary outline and its aspect (long) axis. For holed-tutte: both the outer and inner ring outlines. Only shown for the shaped-tutte / holed-tutte layouts.",
     "show_tutte_pca": "Overlay the layout's principal axis, in both the live preview and any saved image. For shaped-tutte: the diagram's intrinsic (circular-Tutte) PCA elongation axis (with 'show shape outline', the angle between the two equals 'tutte orient deg'). For holed-tutte: the mid-ring closed principal curved axis. Only shown for the shaped-tutte / holed-tutte layouts.",
-    "surface_shape": "Target surface for the shaped-kamada sphere layout: ellipsoid, cylinder, or torus. The spherical construction is warped onto this surface and the over/under crossing offset follows the local surface normal. Only used when sphere layout is shaped-kamada.",
-    "cube_style": "For the cubic-kamada sphere layout, how strands are drawn on the cube. 'smooth' maps them as smooth curves on the cube faces (like the sphere); 'angled' routes them as axis-aligned 90-degree segments so strands turn only 90 degrees and over/under strands cross at 90 degrees (a right-angle bridge). Over/under is a bump out of / dip into the local face either way. A detected cyclic symmetry is aligned with a matching cube axis (4-fold to a face, 3-fold to a body diagonal, 2-fold to an edge), else the diagram's PCA axis. Only used when sphere layout is cubic-kamada.",
+    "surface_shape": "Target surface for the shaped-kamada sphere layout: ellipsoid, cylinder, or torus. The spherical construction is warped onto this surface and the over/under crossing offset follows the local surface normal. Only used when sphere layout is shaped-kamada.  capped-cylinder (V5.7) is a CLOSED cylinder -- side wall plus two end discs -- with its own layout: the chain runs along the cylinder's axis, its two end rings lie on the two end discs, and the middle rings follow in order up the wall.  The layout is Kamada-Kawai stress minimised ON the can, started from a lift of the 2-D drawing that puts one point inside each end ring at the disc centres, and every step is certified to keep the layout an embedding, so it cannot fold the way the spherical layout folds an elongated chain.  The finished curve is projected from the centre onto concentric closed cylinders, which keeps the link exactly.  See 'end rings'.",
+    "surface_end_rings": "V5.7. Only for the capped-cylinder surface: which two components lie on the two end discs, as 0-based indices such as 0,7.  'auto' (default) takes the two end rings of a chain -- the components with a single neighbour when the components are linked one after another -- and 'none' (or a link that is not a chain) uses the deepest point of the 2-D drawing and its outside as the two disc centres instead.  The can's half-height / radius is 3 unless auto aspect is off, when 'surface aspect' sets it.",
+    "cube_style": "For the cubic-kamada sphere layout, how strands are drawn on the cube.  'smooth' maps them as smooth curves on the cube faces (like the sphere), with over/under a bump onto the concentric cube at +/- the crossing offset.  'angled' and 'grid' (V5.7) WIRE the diagram over the cube's faces: every crossing sits on a node of an N x N grid per face with its two strands along the two face axes, and every connector is an axis-aligned path on the surface grid that no other strand touches, so strands turn only 90 degrees (within a face, or folding over a cube edge) and cross only at right angles.  'angled' makes each crossing a right-angle bridge: the over-strand steps out by the crossing offset along the face normal, runs over the crossing point and steps back (the under-strand steps in).  'grid' is a grid diagram in 3-D: on each face the strands along one axis (the face's over axis) run on the outer shell and the strands along the other axis on the inner shell, a strand changes level with a post wherever it turns, and a crossing is simply the outer strand passing the inner one -- no bridge.  Both are correct by construction: the order of the four ports around every crossing is the diagram's own, read from its planar embedding, and the connectors never touch, so the result is the DT diagram whatever route they take (the topology audit still runs).  A detected cyclic symmetry is aligned with a matching cube axis (4-fold to a face, 3-fold to a body diagonal, 2-fold to an edge) and the wiring is then exactly symmetric where the style allows; else the diagram's PCA axis.  The status log reports the grid, the corner count and how far the crossings moved to reach their grid nodes.  Only used when sphere layout is cubic-kamada.",
+    "cube_grid": "V5.7. For cube styles 'angled' and 'grid': the routing grid, in cells per cube face side (the base cube's face is split N x N; crossings sit on grid nodes and wires run along grid lines).  0 (default) picks N from the diagram -- about 12 cells between the two closest crossings, at least 6 -- and refines it automatically, by 30%% at a time, if the crossings collide or the wires cannot all be routed.  A coarser grid gives longer straight runs and fewer lanes, and moves each crossing by up to half a cell from its layout position; a finer one follows the layout more closely.  A requested value that is too coarse is refined too, and the status log says so.  Ignored by the smooth style.",
     "surface_auto_orient": "Shaped-kamada auto orient. When on, the surface's primary axis (ellipsoid major, cylinder length, torus symmetry) is aligned to the diagram's principal (3D PCA) axis. When off, 'surface orient deg' spins the mapping about that primary axis, measured from the PCA axis. Independent of auto aspect.",
     "surface_auto_aspect": "Shaped-kamada auto aspect. When on, the surface proportions (ellipsoid axis ratios, cylinder length/radius, or torus tube ratio) are derived from the diagram's own 3D PCA magnitudes so the surface is as elongated as the diagram. It does NOT equalize strand lengths. When off, the manual surface aspect / tube values are used. Independent of orientation.",
-    "surface_aspect": "Dimensionless ratio for shaped-kamada when auto aspect is off: ellipsoid major/minor, or cylinder length/radius. Suggested range 1.0-3.0. Ignored by the torus. Default: 1.6.",
+    "surface_aspect": "Dimensionless ratio for shaped-kamada when auto aspect is off: ellipsoid major/minor, or cylinder length/radius, or the capped cylinder's half-height/radius. Suggested range 1.0-3.0. Ignored by the torus. Default: 1.6.",
     "surface_tube": "Dimensionless torus tube ratio (minor radius / major radius) for shaped-kamada when auto aspect is off. Suggested range 0.15-0.60. Only used by the torus surface. Default: 0.35.",
     "surface_orient": "Manual shaped-kamada spin in degrees (any value; wraps at 360). Rotates the mapping ABOUT the surface's primary axis, measured from the diagram's PCA axis (a spin around the PCA axis). Used only when surface auto orient is off. Default: 0.",
     "surface_tilt": "Manual shaped-kamada tilt in degrees (any value; wraps at 360). Rotates the surface's primary axis AWAY from the diagram's PCA axis, about the perpendicular secondary axis, so the mapping is no longer aligned with the PCA axis. Complements 'surface orient deg' (which spins about it). Used only when surface auto orient is off. Default: 0.",
@@ -931,7 +1194,20 @@ GUI_HELP_TEXT = {
     "line_width": "2D strand line width in Matplotlib points. Default: 2.0.",
     "gap_frac": "Under-strand gap size in the 2D image. This is a ratio of the overall 2D diagram span, not an absolute coordinate distance. Default: 0.025.",
     "over_gap_factor": "Length of the colored OVER-strand piece redrawn on top of each crossing gap, as a multiple of the under-strand gap. At each crossing the under strand is masked with a white piece and the over strand is then redrawn over it; if this piece is too short a white nick shows at the crossing. Must be > 1 so the over strand fully covers the white mask; increase for thicker lines or if nicks appear. Default: 2.0.",
-    "sphere_layout": "XYZ sphere layout. spherical-kamada distributes the graph directly over the sphere and is best for symmetric spherical models. shaped-kamada warps that construction onto a shaped surface. cubic-kamada maps it onto a cube, aligning a detected cyclic symmetry with a matching cube axis (see cube style for smooth vs 90-degree-angled strands). raw-kk skips the projection altogether: the 3-D Kamada-Kawai layout puts nodes at different distances from the centre, and the other layouts throw that away by pushing everything onto one sphere. raw-kk keeps each crossing at its own radius, so the diagram sits on as many concentric shells as the graph actually wants, and the sorted radii are printed as [raw-KK] status lines (1.000 = the mean shell). Some links layer cleanly -- the Bing-double clasps put one component pair on its own outer shell -- while others give a continuous spread. Useful for seeing the structure the projection hides; the strands still carry the usual over/under bumps and the topology audit still runs. stereographic maps the current 2D drawing onto a sphere. stereo-safe uses the audited planar layout, stereographically lifts it, and adds only radial crossing bumps; it is the correct-by-construction choice when a dense Kamada layout fails the topology audit.",
+    "sphere_layout": "XYZ sphere layout. spherical-kamada distributes the graph directly over the sphere and is best for symmetric spherical models. shaped-kamada warps that construction onto a shaped surface. cubic-kamada maps it onto a cube, aligning a detected cyclic symmetry with a matching cube axis (see cube style for smooth vs 90-degree-angled strands). raw-kk skips the projection altogether: the 3-D Kamada-Kawai layout puts nodes at different distances from the centre, and the other layouts throw that away by pushing everything onto one sphere. raw-kk keeps each crossing at its own radius, so the diagram sits on as many concentric shells as the graph actually wants, and the sorted radii are printed as [raw-KK] status lines (1.000 = the mean shell). Some links layer cleanly -- the Bing-double clasps put one component pair on its own outer shell -- while others give a continuous spread. Useful for seeing the structure the projection hides; the strands still carry the usual over/under bumps and the topology audit still runs. stereographic maps the current 2D drawing onto a sphere. stereo-safe uses the audited planar layout, stereographically lifts it, and adds only radial crossing bumps; it is the correct-by-construction choice when a dense Kamada layout fails the topology audit.  grid-diagram (V5.7) is different in kind: it ignores the sphere and lifts a MINIMAL GRID DIAGRAM of the link into 3-D -- an n x n grid with one X and one O per row and column (KnotInfo's grid notation; the smallest n is the link's arc index), vertical segments on the plane z = +offset, horizontal ones on z = -offset, and a post at every X and O.  Every edge is parallel to an axis and every crossing is the upper strand passing the lower one at a right angle.  grid_diagram.py builds it from THIS diagram's 2-D layout and shrinks it by planar isotopies, so the DT code is unchanged (default; see 'grid diagram keeps this diagram'), or from the braid closure over all diagrams of the link, certified minimal when the HOMFLY-PT bound is met.  The grid spans the sphere radius in x and y.  sheet (V5.7) keeps an elongated link elongated: the 2-D drawing is lifted onto a ruled sheet along its own long axis -- flat, bent about that axis (sheet bend) or twisted along it (sheet twist) -- with over / under as an offset within each cross-section, so the three layers are concentric and the lift is correct by construction like stereo-safe, but the two ends of a chain never curl towards each other.  The 2-D drawing sets the proportions (an elliptical shaped-tutte layout with a large aspect draws a chain as a straight caterpillar); sheet aspect can stretch it further.  chain (V5.7) is for LINEAR chains only -- links whose rings form a path, each linked only with its neighbours, like the 8-ring Brunnian chain: segment-and-reunite (chain_layout.py) cuts an elongated 2-D drawing into its clasps by one straight line through every middle ring, lays each clasp out in 3-D by a certified relaxation, reunites them by twisting slab k by k x chain twist about the chain's axis, and relaxes the whole chain into a straight rubber-band chain whose consecutive rings interlock in nearly perpendicular planes.  Every step is certified or exact, a self-check compares Jones polynomial and linking numbers, and a positive crossing offset gives spherogram's reading of the DT code, a negative one its mirror.  Anything that is not a chain, or a chain no drawing can cut, is refused with a message.  It takes one to two minutes for 48 crossings (cached within a session).  'chain form' folded builds the same chain as relaxed rubber bands instead: round end rings, doubled bands, clasps at 90 degrees.",
+    "grid_steps": "V5.7. Only for sphere layout grid-diagram: how many steps the random search takes to shrink the grid diagram (commutations and cyclic shifts of rows and columns, destabilisations whenever a 2 x 2 block holds three markers, an occasional stabilisation to escape a dead end).  It stops early when the size reaches the Morton-Beltrami lower bound (HOMFLY-PT a-breadth + 2), which proves it minimal; otherwise more steps or another seed may still find a smaller one.  Results are cached for the session.  Default 20000.",
+    "grid_same_diagram": "V5.7. Only for sphere layout grid-diagram.  Checked (default): the grid diagram is a grid diagram of THIS diagram -- it is built by routing the DT code's own 2-D layout rectilinearly with the over strand vertical at every crossing, and simplified by planar isotopies only (destabilisations, commutations of non-overlapping segments, kink-free stabilisations; no cyclic shifts), so it has exactly the input's crossings and the same DT code, which the status log verifies by canonical DT code.  It is the smallest grid found for this diagram; the link's arc-index bound does not apply to it.  Unchecked: the search minimises over ALL diagrams of the link (grid number / arc index), starting from the braid closure, and the result is in general a different diagram of the same link -- 4BL's 12 x 12 grid is a clasp, not the rosette.  CLI: --grid-any-diagram.",
+    "sheet_bend": "V5.7. Only for sphere layout sheet: the angle, in degrees, that the sheet's cross-section bends through about the long axis.  0 = a flat sheet (the 2-D drawing with over / under bumps, lying in a plane); 90-180 = a curved trough or half-cylinder around the chain's axis; 360 = a closed tube, the top and bottom edges of the drawing meeting along a seam in the outer face.  Over / under is radial within the cross-section, so the layers are concentric arcs and the lift stays correct as long as the crossing offset is smaller than the arc radius (width / bend), which the status log checks.",
+    "sheet_twist": "V5.7. Only for sphere layout sheet: the total twist of the cross-section about the long axis from one end to the other, in degrees -- 180 turns the sheet into a half-twisted ribbon along the chain, 360 a full twist.  Cross-sections stay in disjoint planes whatever the twist, so the lift remains correct by construction.",
+    "chain_twist": "V5.7. Only for sphere layout chain, chain form perpendicular: the STARTING turn of each clasp slab about the chain's axis relative to the previous one, in degrees, applied when the clasps are reunited.  Slab k is turned k x this angle -- always ADDING (an alternating 0 / 90 pattern was tried and fails).  The turn is applied by the twist map (u, v, w) -> (R(theta(u)) (v, w), u), which cannot change the link.  It is not the final angle between the rings: the first end ring is turned 90 degrees in its own segment, and the global relaxation (chain relax rounds > 0) pulls consecutive rings toward perpendicular planes whatever the twist.  So 0 does NOT give a flat chain -- the 8-ring chain at 0 still ends with consecutive ring planes 73-80 degrees apart; with 0 rounds as well the middle clasps stay nearly flat (the 4-ring chain: 88, 10, 12 degrees, the first end ring still turned).  The default 90 starts the rings where the relaxation wants them.",
+    "chain_rounds": "V5.7. Only for sphere layout chain, chain form perpendicular: rounds of the global relaxation after the clasps are reunited, 400 certified steps each (default 40).  Tension, bending, thickness repulsion, the end rings pulled apart along the axis, the rings pulled onto the axis and into perpendicular planes.  Fewer rounds are faster and leave the chain less settled; 0 skips it.  It is the bulk of the run time (about 70 s for the 8-ring chain at 40).",
+    "chain_symmetrize": "V5.7. Only for sphere layout chain: 'auto' (default) tries a certified D2 symmetrisation -- C2 about the chain's axis and C2 about the best perpendicular axis, every ring averaged with its partner's image and moved there by certified steps -- when the chain is already close to D2, and keeps it only if the ring planes stay as perpendicular as before (within 1 degree on average).  'none' skips it.  The 8-ring Brunnian chain comes out exactly D2.  For chain form folded, 'auto' tries a certified D2d symmetrisation -- C2 about the axis, C2 about the best perpendicular axis and the mirror that contains the axis at 45 degrees to it -- else D2, when the relaxed chain is already within 0.3 tube diameters of the group, and keeps it only if every move certifies and the strands stay at least 0.97 tube diameters apart; the 8-ring folded chain comes out exactly D2d.",
+    "chain_form": "V5.7. Only for sphere layout chain: which 3-D form to build.  'perpendicular' (default) is the segment-and-reunite chain: every ring one flat loop, consecutive rings interlocking in nearly perpendicular planes (chain twist and chain relax rounds apply to it).  'folded' relaxes the chain the way rubber bands settle under tension: the 2-D drawing is lifted flat (correct by construction) and relaxed by a rubber-band energy -- tension, length caps, bending, thickness, the end rings pulled apart and made round -- into a straight chain with round end rings and every middle band folded into a doubled loop (4 strands in cross-section for the Brunnian chain), each clasp at about 90 degrees and all fold planes parallel.  Every move is certified, so no strand ever passes through another, and the self-check still compares the Jones polynomial and the linking numbers.  The strands are tubes of diameter 2 x |crossing offset| (so 'rod diameter' = 2 x |offset| draws touching tubes); sphere radius is not used.  It needs a rubber-band chain: a clasp of c crossings joins a bundle of a parallel bights of one ring with b of the next, c = 2ab, and the end rings are single loops -- the Brunnian chains and chains of simply linked rings qualify, T(2,4) drawn as a 2-ring chain does not and is refused.  It does not cut the drawing, so it also takes drawings that the perpendicular form refuses for lack of a straight cut.  About half a minute to a minute for the 8-ring chain on an idle machine (cached within a session); the window waits like for the other layouts.",
+    "chain_fold_preset": "V5.7. Only for chain form folded: the band lengths, in tube diameters.  'elongated' (default): 14 per strand of a band's cross-section (56 for the Brunnian chain's 4-strand bands) and 10 per bight an end ring holds (20 for the Brunnian end rings: radius 3.2) -- the long rubber-band chain, 68 tube diameters from end ring to end ring for 8 rings.  'tight': 8 and 6 (32 and 12) -- the bands pulled short around each other, about 29 tube diameters for 8 rings.",
+    "chain_fold_band": "V5.7. Only for chain form folded: rope per strand of each middle band, in tube diameters (tube diameter = 2 x |crossing offset|). It is about the band's length along the chain plus its two end bends, so it sets how far the middle rings span. 0 (default) uses the chain fold preset: 14 (elongated) or 8 (tight). Allowed: 4 to 40. Measured on the 8-ring Brunnian chain: about 68 tube diameters end to end at 14 and 29 at 8. A value between the presets is ramped to after the bands have folded at the tight length. CLI: --chain-band-length.",
+    "chain_fold_ring": "V5.7. Only for chain form folded: rope per bight an end ring holds, in tube diameters. The end ring's circumference is this times the number of bights it holds (2 for the 8-ring Brunnian chain, so 10 gives a ring of length 20, radius about 3.2). 0 (default) uses the chain fold preset: 10 (elongated) or 6 (tight). Allowed: 4 to 30. CLI: --chain-ring-length.",
+    "sheet_aspect": "V5.7. Only for sphere layout sheet: the sheet's length / width.  0 (default) keeps the 2-D drawing's own proportions -- so draw an elongated link elongated, e.g. layout shaped-tutte with tutte shape ellipse and tutte aspect 3 or more -- while a value stretches or squeezes the drawing across the chain to that ratio (an affine map of the plane, which cannot change the diagram).",
+    "grid_seed": "V5.7. Only for sphere layout grid-diagram: the seed of the random search.  Different seeds give different (equally valid) grid diagrams of the same size; try a few for the prettiest.  Default 0.",
     "sphere_radius": "Base radius of the sphere in XYZ coordinate units. Default: 50.0. With crossing offset = 0, all XYZ points lie at this radius.",
     "sphere_extent": "Only used by stereographic. Dimensionless. After centering the 2D drawing, the farthest planar point is scaled to this radius before inverse stereographic projection. 1.0 reaches the equator; larger values use more of the southern hemisphere.",
     "crossing_offset": "Signed radial offset in XYZ coordinate units, not a ratio. Over-layer radius is R + offset; under-layer radius is R - offset. Default: 5.0. Use 0 for a perfect sphere with no height separation. A NEGATIVE value swaps the two layers, inverting every crossing: the exported curve is then the MIRROR of the positive-offset build. That is a legitimate second realisation, because a signed DT code does not determine handedness -- but note the topology audit cannot tell the two apart (SnapPy's isometry test is mirror-blind). Only the magnitude is limited by the sphere radius.",
@@ -940,14 +1216,14 @@ GUI_HELP_TEXT = {
     "sphere_refine": "V5.6. After the kamada layout is projected onto the sphere, run a SECOND stress minimisation with the points constrained to the sphere and distances measured as great-circle arcs. Default: OFF.\n\nWhy it exists: the kamada layouts minimise the stress in flat 3-D space and only then project onto the sphere, so the energy that was optimised is not the energy of the arrangement that is actually drawn. This closes that gap. It is a refinement, never a replacement -- started from scratch the spherical stress collapses into degenerate minima, so it is always warm-started from the projected layout, and if it cannot improve on its input the unrefined layout is kept.\n\nApplies to spherical-kamada, shaped-kamada (ellipsoid / cylinder / torus) and cubic-kamada alike, because it acts on the directions BEFORE the gadgets are compacted; the shaped and cube warps run afterwards as usual. Not used by stereographic or stereo-safe.\n\nAcross 17 test links it lowered the spherical stress in every case but improved the closest crossing spacing in only some of them, so it is opt-in. When on, a [refine] status line reports stress, closest pair and mean spacing before and after, so you can check whether it helped THIS diagram. Costs roughly 1.4-2x the layout time.",
     "direct_connecting": "Only for spherical-kamada XYZ export. Default: on. If off, connectors return to the middle sphere layer between localized crossing bumps/dips. If on, each segment from crossing to crossing directly connects its endpoint layers: dip-to-dip stays on the inner layer, bump-to-bump stays on the outer layer, and dip-to-bump or bump-to-dip transitions smoothly between layers.",
     "xyz_spacing": "Target separation between adjacent XYZ points, in the same coordinate units as the sphere radius. Default: 1.8. The script resamples each closed component so points are distributed evenly along the curve; the exact spacing is adjusted slightly so each component closes cleanly.",
-    "xyz_even_spacing": "V5.7. When checked (the default), the finished curve is re-spaced as the very last step -- after smoothing, clearance repair and any surface warp -- so that every segment of each component, including the closing one from the last point back to the first, has the same length: that component's average. The number of points and the curve stay the same; the points only slide along it (the first point stays put). Why: the clearance repair moves points after the last resampling, so without this the dense 7BL square had segments down to 0.63x the typical one and a short closing segment. Where the curve itself turns more sharply than the point spacing (cube smooth: offset strands jumping across a cube edge; torus/cylinder: pole chords; dense diagrams: repair kinks), equal chords would cut it short, so those components are spread evenly along the curve instead and the status log names how many. Not applied to the angled cube style, whose points are its corners. CLI: --no-xyz-even-spacing turns it off.",
+    "xyz_even_spacing": "V5.7. When checked (the default), the finished curve is re-spaced as the very last step -- after smoothing, clearance repair and any surface warp -- so that every segment of each component, including the closing one from the last point back to the first, has the same length: that component's average. The number of points and the curve stay the same; the points only slide along it (the first point stays put). Why: the clearance repair moves points after the last resampling, so without this the dense 7BL square had segments down to 0.63x the typical one and a short closing segment. Where the curve itself turns more sharply than the point spacing (cube smooth: offset strands jumping across a cube edge; torus/cylinder: pole chords; dense diagrams: repair kinks), equal chords would cut it short, so those components are spread evenly along the curve instead and the status log names how many. For the angled and grid cube styles it instead cuts every straight wire into equal pieces of about the spacing and keeps the corners exactly; off writes only the corners (one row per right-angle turn). CLI: --no-xyz-even-spacing turns it off.",
     "xyz_final_smooth": "Final smoothing for the written 3D XYZ curve. This is applied after the spherical construction and even point redistribution. It smooths unit directions and radial offsets separately, so crossing layers remain recognizable while small stitched-arc kinks are reduced. Default: on.",
     "xyz_smooth_window": "Final smoothing window, measured in number of adjacent XYZ points on each side. Larger values make smoother curves but may soften local features. Default: 10.",
     "xyz_smooth_passes": "Number of repeated final smoothing passes. Larger values smooth more strongly. Default: 5. Use 0 or uncheck final smooth to disable.",
     "xyz_smooth_method": "V5.7. How the final smoothing treats the crossings. Default: gaussian.\n\ngaussian -- the original smoothing: directions and radial offsets are Gaussian-smoothed along the curve, then the offsets are rescaled so the highest and lowest points are back at +/- the crossing offset. The kernel (window 10 x 5 passes, about 18 units at the default spacing) is wider than a crossing patch, so each strand's radius AT a crossing is averaged with the connectors on either side: the over/under gap at a crossing can shrink or grow (4BL: 7.4-10.0 for a designed 10; raw-kk 8.0-11.7), and on dense diagrams with small crossing angles it can invert -- the 40-crossing C5BL at 8 deg loses 10 of 40 crossings and the topology audit fails.\n\ncrossing-pinned -- the same Gaussian smoothing, but each point is smoothed over at most its own distance from the nearest crossing core (the central 35% of each crossing patch), up to the smooth window. The cores never move, so every crossing stays centred on the base surface (its own shell for raw-kk) with the over-strand at + and the under-strand at - the crossing offset; connectors are smoothed more the farther they are from a crossing, and the stitch kinks at the patch edges are still rounded. Measured: every crossing gap exact on all test diagrams, and the C5BL that gaussian breaks passes the audit. Right next to a crossing the curve is a little less smooth than with gaussian. Works with every layout that smooths (stereo-safe never smooths). CLI: --xyz-smooth-method crossing-pinned.",
     "xyz_decimals": "Number of decimal places written for each x y z coordinate.",
     "xyz_close_components": "If checked, repeat the first coordinate at the end of each component block so plotting tools display closed loops. Default: unchecked/off.",
-    "shells_glb": "V5.7. When checked, 'Save XYZ' also writes the surfaces the 3D curve is built on, as one binary glTF file next to the .xyz: <xyz name>_shells.glb. Default: off.\n\nIt holds three meshes: base_surface -- the sphere of the sphere layout, or its ellipsoid / cylinder / torus (shaped-kamada) or cube (cubic-kamada) -- and inner_shell / outer_shell, the base offset by -/+ |crossing offset| along its normal. Those two are the layers the strands ride at the crossings: with a positive offset the over-strand is on the outer shell, with a negative one on the inner. raw-kk has no single sphere, so its base shell follows the radius its strands are built on and is interpolated between them.\n\nThe meshes are in the XYZ file's own coordinates and units (no recentring, no axis swap), so they line up with anything else made from the same XYZ, e.g. a tube model. They are translucent and double-sided; any glTF viewer opens them (Blender, ChimeraX, three.js). Set 'rod diameter' to put the curve itself into the same file as solid rods (one mesh per component).\n\nThe status log reports the surfaces and how well the finished curve fits them -- the share of its points between the inner and outer shell -- and warns when an offset shell turns inside out (an offset larger than the surface's smallest radius of curvature, e.g. a thin torus tube). CLI: --shells-glb [PATH].",
+    "shells_glb": "V5.7. When checked, 'Save XYZ' also writes the surfaces the 3D curve is built on, as one binary glTF file next to the .xyz: <xyz name>_shells.glb. Default: off.\n\nIt holds three meshes: base_surface -- the sphere of the sphere layout, or its ellipsoid / cylinder / torus (shaped-kamada) or cube (cubic-kamada) -- and inner_shell / outer_shell, the base offset by -/+ |crossing offset| along its normal. Those two are the layers the strands ride at the crossings: with a positive offset the over-strand is on the outer shell, with a negative one on the inner. raw-kk has no single sphere, so its base shell follows the radius its strands are built on and is interpolated between them.\n\nThe meshes are in the XYZ file's own coordinates and units (no recentring, no axis swap), so they line up with anything else made from the same XYZ, e.g. a tube model. They are translucent and double-sided; any glTF viewer opens them (Blender, ChimeraX, three.js). Set 'rod diameter' to put the curve itself into the same file as solid rods (one mesh per component).\n\nThe chain layout has no base surface, so it writes the curve as rods only: set 'rod diameter' > 0, otherwise no .glb is written (the log says so).\n\nThe status log reports the surfaces and how well the finished curve fits them -- the share of its points between the inner and outer shell -- and warns when an offset shell turns inside out (an offset larger than the surface's smallest radius of curvature, e.g. a thin torus tube). CLI: --shells-glb [PATH].",
     "glb_rod_diameter": "V5.7. With 'Save XYZ also writes surface shells' on, also put the curve itself into the .glb as solid rods of this diameter, in XYZ units (the same units as the sphere radius). 0 = no rods (default). Each component becomes one watertight, 24-sided mesh named component_1, component_2, ... in the component colours, built along the written XYZ points, so the rods sit exactly on the saved curve and inside the shells. The status log reports how close the strands come to each other -- the widest rods that still stay apart -- and warns when your diameter is wider than that (rods would overlap, and fuse in a print) or when the curve bends more tightly than the rod radius somewhere (the rod's inner wall would fold). Over/under strands at a crossing are 2 x |crossing offset| apart, so rods narrower than that clear every crossing. CLI: --glb-rod-diameter D (with --shells-glb).",
     "view_xyz": "Open an interactive 3D preview window for the current Sphere XYZ parameters. The viewer computes the XYZ curves in memory and does not require saving the XYZ file first.",
     "show_crossing_ids": "Draw displayed crossing IDs such as c1, c2, etc. These IDs stay fixed at the true crossing centers; if they overlap DT labels, the DT labels move outward. IDs can be remapped with crossing order or explicit map.",
@@ -4181,134 +4457,518 @@ def over_position_for_crossing(model, k):
 # --------------------------------------------------------------------------- #
 #  5. False-crossing audit
 # --------------------------------------------------------------------------- #
-def _seg_intersect(p1, p2, p3, p4):
-    r = p2 - p1
-    s = p4 - p3
-    rxs = r[0] * s[1] - r[1] * s[0]
-    if abs(rxs) < 1.0e-12:
-        return False
-    qp = p3 - p1
-    t = (qp[0] * s[1] - qp[1] * s[0]) / rxs
-    u = (qp[0] * r[1] - qp[1] * r[0]) / rxs
-    return (1.0e-6 < t < 1.0 - 1.0e-6) and (1.0e-6 < u < 1.0 - 1.0e-6)
+_CONTACT_CHUNK = 400000   # candidate segment pairs tested per vectorised block
+
+
+def _collapse_repeats(c, tol):
+    """Indices of the points kept when runs of (nearly) equal consecutive
+    points of the closed curve ``c`` are collapsed to their first point."""
+    n = len(c)
+    keep = [0]
+    for i in range(1, n):
+        if float(np.hypot(*(c[i] - c[keep[-1]]))) > tol:
+            keep.append(i)
+    while len(keep) > 1 and float(np.hypot(*(c[keep[-1]] - c[keep[0]]))) <= tol:
+        keep.pop()
+    return np.asarray(keep, int)
+
+
+def _contact_frame(curves):
+    """Centroid and a rotation-invariant size of the drawing (twice the largest
+    distance from the centroid): tolerances are relative to it, and the
+    contact test runs on curves re-centred on the centroid (a far-off origin
+    otherwise lets rounding turn coincident strands into tiny crossings)."""
+    live = [np.asarray(c, float) for c in curves if len(c)]
+    if not live:
+        return np.zeros(2), 1.0
+    allp = np.vstack(live)
+    c0 = allp.mean(axis=0)
+    size = 2.0 * float(np.sqrt(((allp - c0) ** 2).sum(axis=1).max()))
+    return c0, (size or 1.0)
+
+
+def _candidate_segment_pairs(A, B, tol):
+    """Pairs of segments (i < j) that can meet, found locally at every scale.
+
+    Segments longer than h = max(2 x median, total / (4 x count), 8 tol) are
+    cut into pieces <= h FOR THE SEARCH ONLY (at most ~5 pieces per segment),
+    the pieces are grouped by length class (powers of two below h), and two
+    classes are searched against each other with the radius their own lengths
+    need, (Ra + Rb) / 2 + 4 tol.  Two segments that meet have pieces
+    containing the meeting point whose midpoints are at most half the sum of
+    the two pieces' lengths apart, so nothing is missed.  One global radius
+    (the longest segment, then 2 x the median) let the thousands of tiny
+    segments Tutte crowding packs into one spot pair with each other: 43 M
+    pairs, 3.5 GB, 106 s on a 174-crossing knot."""
+    L = np.linalg.norm(B - A, axis=1)
+    nseg = len(L)
+    pos = L[L > 0]
+    h = max(2.0 * float(np.median(pos)) if len(pos) else 0.0,
+            float(L.sum()) / (4.0 * max(nseg, 1)), 8.0 * tol)
+    k = np.maximum(1, np.ceil(L / h).astype(np.int64))
+    seg_of = np.repeat(np.arange(nseg), k)
+    first = np.repeat(np.cumsum(k) - k, k)
+    j = np.arange(len(seg_of)) - first
+    frac = (j + 0.5) / k[seg_of]
+    mid = A[seg_of] + frac[:, None] * (B[seg_of] - A[seg_of])
+    plen = L[seg_of] / k[seg_of]
+    qmin = int(math.floor(math.log2(max(tol, 1e-300) / h)))
+    with np.errstate(divide="ignore"):
+        q = np.ceil(np.log2(np.maximum(plen, tol) / h))
+    q = np.clip(np.nan_to_num(q, nan=qmin), qmin, 0).astype(int)
+    out = []
+    try:
+        from scipy.spatial import cKDTree
+        groups = {int(v): np.nonzero(q == v)[0] for v in np.unique(q)}
+        trees = {v: cKDTree(mid[ix]) for v, ix in groups.items()}
+        keys = sorted(groups)
+        for x, qa in enumerate(keys):
+            ia = groups[qa]
+            for qb in keys[x:]:
+                ib = groups[qb]
+                r = 0.5 * h * (2.0 ** qa + 2.0 ** qb) + 4.0 * tol
+                if qa == qb:
+                    pp = trees[qa].query_pairs(r, output_type="ndarray")
+                    if len(pp):
+                        out.append(np.stack([ia[pp[:, 0]], ia[pp[:, 1]]], axis=1))
+                else:
+                    sm = trees[qa].sparse_distance_matrix(trees[qb], r, output_type="ndarray")
+                    if len(sm):
+                        out.append(np.stack([ia[sm["i"]], ib[sm["j"]]], axis=1))
+    except ImportError:   # no scipy: chunked brute force with the same radii
+        R = h * 2.0 ** q
+        for s0 in range(0, len(mid), 1024):
+            d = np.linalg.norm(mid[s0:s0 + 1024, None, :] - mid[None, :, :], axis=2)
+            lim = 0.5 * (R[s0:s0 + 1024, None] + R[None, :]) + 4.0 * tol
+            ii, jj = np.nonzero(d <= lim)
+            ii = ii + s0
+            sel = ii < jj
+            out.append(np.stack([ii[sel], jj[sel]], axis=1))
+    if not out:
+        return np.zeros((0, 2), np.int64)
+    pp = np.vstack(out)
+    sa, sb = seg_of[pp[:, 0]], seg_of[pp[:, 1]]
+    lo, hi = np.minimum(sa, sb), np.maximum(sa, sb)
+    sel = lo != hi
+    key = np.unique(lo[sel].astype(np.int64) * nseg + hi[sel])
+    return np.stack([key // nseg, key % nseg], axis=1)
+
+
+def _strand_contacts(curves, tol_rel=1.0e-9):
+    """Every place where two strand passages of the closed polylines ``curves``
+    (a list of (n_i, 2) arrays) meet, found exactly -- no exclusion zones.
+
+    Runs of repeated consecutive points are collapsed first.  Candidate segment
+    pairs come from a local search (``_candidate_segment_pairs``); each pair is
+    tested in closed form (a meeting at a sample point counts; adjacent
+    segments of one curve are skipped); meetings are grouped by point (within
+    16 tol, tol = ``tol_rel`` x the drawing size) to merge the duplicate
+    reports of one meeting at a shared sample point; and only passage pairs
+    that actually met are classified, by the cyclic order of their four rays.
+    Returns dicts ``{"point": (x, y), "a": (curve, index, param), "b": (curve,
+    index, param), "kind": "cross" | "touch" | "overlap"}`` with ``index`` /
+    ``param`` in the ORIGINAL sample numbering of each curve (``param`` =
+    position in sample units, ``index`` = its sample / segment index)."""
+    c0, scale = _contact_frame(curves)
+    raw_curves = [np.asarray(c, float) - c0 for c in curves]
+    if not any(len(c) for c in raw_curves):
+        return []
+    tol = tol_rel * scale
+    curves = []
+    keeps = []
+    for c in raw_curves:
+        if len(c) < 3:
+            curves.append(np.zeros((0, 2)))
+            keeps.append(np.zeros(0, int))
+            continue
+        K = _collapse_repeats(c, tol)
+        keeps.append(K)
+        curves.append(c[K] if len(K) >= 3 else np.zeros((0, 2)))
+    A_l, B_l, cid_l, idx_l, n_l = [], [], [], [], []
+    for ci, c in enumerate(curves):
+        n = len(c)
+        if n < 3:
+            continue
+        A_l.append(c)
+        B_l.append(np.roll(c, -1, axis=0))
+        cid_l.append(np.full(n, ci))
+        idx_l.append(np.arange(n))
+        n_l.append(np.full(n, n))
+    if not A_l:
+        return []
+    A = np.vstack(A_l)
+    B = np.vstack(B_l)
+    cid = np.concatenate(cid_l)
+    idx = np.concatenate(idx_l)
+    nn = np.concatenate(n_l)
+    seglen = np.linalg.norm(B - A, axis=1)
+
+    pairs = _candidate_segment_pairs(A, B, tol)
+    if len(pairs) == 0:
+        return []
+    a_all, b_all = pairs[:, 0], pairs[:, 1]
+    # Pieces of ONE curve that are within 4 tol of each other ALONG the curve
+    # are not compared (adjacent segments included): where samples are 1-2 tol
+    # apart and the curve turns a few degrees per segment, the +-tol windows
+    # bridge a short middle segment and segments i and i+2 of a smooth simple
+    # arc "touch" (a 174-crossing Tutte drawing read 5 such false contacts).
+    S = np.zeros(len(seglen) + 1)
+    S[1:] = np.cumsum(seglen)
+    start = {}
+    for ci in np.unique(cid):
+        start[int(ci)] = int(np.nonzero(cid == ci)[0][0])
+    first_of = np.array([start[int(c)] for c in cid])
+    total = np.array([S[start[int(c)] + int(n)] - S[start[int(c)]] for c, n in zip(cid, nn)])
+    same = cid[a_all] == cid[b_all]
+    lo, hi = np.minimum(a_all, b_all), np.maximum(a_all, b_all)
+    fwd = S[hi] - S[lo + 1]                                     # end of lo -> start of hi
+    back = total[lo] - (S[hi + 1] - S[lo])                      # end of hi -> start of lo (wrap)
+    keep = ~(same & (np.minimum(fwd, back) <= 4.0 * tol))
+    a_all, b_all = a_all[keep], b_all[keep]
+
+    def _pos(seg, t, eps):
+        c, i, n = int(cid[seg]), int(idx[seg]), int(nn[seg])
+        if t <= eps:
+            return (c, "v", float(i))
+        if t >= 1.0 - eps:
+            return (c, "v", float((i + 1) % n))
+        return (c, "s", i + float(t))
+
+    raw = []   # (point, passage a, passage b, overlap?)
+    for s0 in range(0, len(a_all), _CONTACT_CHUNK):
+        a = a_all[s0:s0 + _CONTACT_CHUNK]
+        b = b_all[s0:s0 + _CONTACT_CHUNK]
+        r = B[a] - A[a]
+        s_ = B[b] - A[b]
+        q = A[b] - A[a]
+        den = r[:, 0] * s_[:, 1] - r[:, 1] * s_[:, 0]
+        lr = np.maximum(seglen[a], 1e-300)
+        ls = np.maximum(seglen[b], 1e-300)
+        nonpar = np.abs(den) > 1.0e-12 * lr * ls
+        with np.errstate(all="ignore"):
+            t = (q[:, 0] * s_[:, 1] - q[:, 1] * s_[:, 0]) / den
+            u = (q[:, 0] * r[:, 1] - q[:, 1] * r[:, 0]) / den
+        et = tol / lr
+        eu = tol / ls
+        hit = nonpar & (t >= -et) & (t <= 1 + et) & (u >= -eu) & (u <= 1 + eu)
+        for jj in np.nonzero(hit)[0]:
+            tt = float(min(max(t[jj], 0.0), 1.0))
+            uu = float(min(max(u[jj], 0.0), 1.0))
+            pt = A[a[jj]] + tt * r[jj]
+            raw.append((pt, _pos(a[jj], tt, et[jj]), _pos(b[jj], uu, eu[jj]), False))
+        for jj in np.nonzero(~nonpar)[0]:
+            rr = r[jj]
+            lr2 = float(rr @ rr)
+            if lr2 <= 0.0:
+                continue
+            if abs(q[jj, 0] * rr[1] - q[jj, 1] * rr[0]) > tol * math.sqrt(lr2):
+                continue   # parallel, not collinear
+            t0 = float((A[b[jj]] - A[a[jj]]) @ rr) / lr2
+            t1 = float((B[b[jj]] - A[a[jj]]) @ rr) / lr2
+            lo, hi = max(0.0, min(t0, t1)), min(1.0, max(t0, t1))
+            ss2 = max(float(s_[jj] @ s_[jj]), 1e-300)
+            if (hi - lo) * math.sqrt(lr2) > tol:
+                tm = 0.5 * (lo + hi)
+                pt = A[a[jj]] + tm * rr
+                um = float((pt - A[b[jj]]) @ s_[jj]) / ss2
+                raw.append((pt, _pos(a[jj], tm, -1.0), _pos(b[jj], um, -1.0), True))
+            elif hi - lo >= -et[jj]:
+                tm = min(max(lo, 0.0), 1.0)
+                pt = A[a[jj]] + tm * rr
+                um = float((pt - A[b[jj]]) @ s_[jj]) / ss2
+                raw.append((pt, _pos(a[jj], tm, et[jj]), _pos(b[jj], um, eu[jj]), False))
+    if not raw:
+        return []
+
+    pts = np.array([e[0] for e in raw])
+    order = np.lexsort((pts[:, 1], pts[:, 0]))
+    groups, used = [], np.zeros(len(raw), bool)
+    try:
+        from scipy.spatial import cKDTree
+        tree = cKDTree(pts)
+        near = lambda i: tree.query_ball_point(pts[i], 16.0 * tol)  # noqa: E731
+    except Exception:  # noqa: BLE001
+        near = lambda i: list(np.nonzero(np.linalg.norm(pts - pts[i], axis=1) <= 16.0 * tol)[0])  # noqa: E731
+    for i in order:
+        if used[i]:
+            continue
+        members = [m for m in near(i) if not used[m]]
+        for m in members:
+            used[m] = True
+        groups.append(members)
+
+    def _same_passage(p, q):
+        if p[0] != q[0]:
+            return False
+        n = len(curves[p[0]])
+        d = abs(p[2] - q[2])
+        return min(d, n - d) <= 1.0 + 1e-9
+
+    def _rays(p, X):
+        c = curves[p[0]]
+        n = len(c)
+        if p[1] == "v":
+            v = int(p[2])
+            kk = 1
+            while kk < n and np.linalg.norm(c[(v - kk) % n] - X) <= tol:
+                kk += 1
+            pin = c[(v - kk) % n]
+            kk = 1
+            while kk < n and np.linalg.norm(c[(v + kk) % n] - X) <= tol:
+                kk += 1
+            pout = c[(v + kk) % n]
+        else:
+            i = int(math.floor(p[2]))
+            pin, pout = c[i % n], c[(i + 1) % n]
+        return pin - X, pout - X
+
+    def _ang(v):
+        return math.atan2(float(v[1]), float(v[0]))
+
+    def _old(p):
+        K = keeps[p[0]]
+        m = len(K)
+        n_old = len(raw_curves[p[0]])
+        f = math.floor(p[2])
+        i = int(f) % m
+        t = p[2] - f
+        i0, i1 = int(K[i]), int(K[(i + 1) % m])
+        gap_ = (i1 - i0) % n_old or n_old
+        par = (i0 + t * gap_) % n_old
+        return (int(p[0]), int(math.floor(par)) % n_old, float(par))
+
+    events = []
+    for members in groups:
+        X = pts[members].mean(axis=0)
+        passes = []      # merged passages of this meeting point
+        met = {}         # (x, y) -> overlap? for passage pairs that really met
+
+        def _slot(p):
+            for k_, o in enumerate(passes):
+                if _same_passage(o, p):
+                    if o[1] == "s" and p[1] == "v":
+                        passes[k_] = p   # prefer the sample-point form
+                    return k_
+            passes.append(p)
+            return len(passes) - 1
+
+        for m in members:
+            x, y = _slot(raw[m][1]), _slot(raw[m][2])
+            if x == y:
+                continue
+            key = (min(x, y), max(x, y))
+            met[key] = met.get(key, False) or raw[m][3]
+        for (x, y), overlap in sorted(met.items()):
+            pa, pb = passes[x], passes[y]
+            if overlap:
+                kind = "overlap"
+            else:
+                ain, aout = _rays(pa, X)
+                bin_, bout = _rays(pb, X)
+                a0 = _ang(ain)
+                span = (_ang(aout) - a0) % (2 * math.pi)
+                rel = [(_ang(v) - a0) % (2 * math.pi) for v in (bin_, bout)]
+                eps = 1e-9
+                if (span < eps or span > 2 * math.pi - eps
+                        or any(rv < eps or rv > 2 * math.pi - eps or abs(rv - span) < eps
+                               for rv in rel)):
+                    kind = "touch"
+                else:
+                    inside = [0.0 < rv < span for rv in rel]
+                    kind = "cross" if inside[0] != inside[1] else "touch"
+            events.append({"point": (float(X[0] + c0[0]), float(X[1] + c0[1])),
+                           "a": _old(pa), "b": _old(pb), "kind": kind})
+    return events
+
+
+def _merge_contact_runs(events, lens, reach=2.0):
+    """A touch or overlap that runs along a stretch of two strands (collinear
+    pieces, a collapsed ring) is reported once per segment pair of the
+    stretch; keep ONE event per connected run (same two curves, positions
+    within ``reach`` samples of each other on both strands, either way)."""
+    idx = [i for i, e in enumerate(events) if e["kind"] in ("touch", "overlap")]
+    parent = {i: i for i in idx}
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def near(p, q):
+        if p[0] != q[0]:
+            return False
+        d = abs(p[2] - q[2])
+        return min(d, lens[p[0]] - d) <= reach
+
+    by_pair = {}
+    for i in idx:
+        e = events[i]
+        by_pair.setdefault(tuple(sorted((e["a"][0], e["b"][0]))), []).append(i)
+    for members in by_pair.values():
+        for x in range(len(members)):
+            ex = events[members[x]]
+            for y in range(x + 1, len(members)):
+                ey = events[members[y]]
+                if ((near(ex["a"], ey["a"]) and near(ex["b"], ey["b"]))
+                        or (near(ex["a"], ey["b"]) and near(ex["b"], ey["a"]))):
+                    rx, ry = find(members[x]), find(members[y])
+                    if rx != ry:
+                        parent[ry] = rx
+    keep_root = {}
+    for i in idx:
+        r = find(i)
+        if r not in keep_root or (events[i]["kind"] == "overlap"
+                                  and events[keep_root[r]]["kind"] != "overlap"):
+            keep_root[r] = i
+    drop = set(idx) - set(keep_root.values())
+    return [e for i, e in enumerate(events) if i not in drop]
+
+
+def _classify_strand_contacts(curves, true_passages=None, window=None,
+                              tol_rel=1.0e-9, absorb_rel=1.0e-4):
+    """Split the strand contacts of ``curves`` into the DT's true crossings and
+    false ones.
+
+    ``true_passages`` maps crossing id -> the two (curve, dense index) pairs at
+    which its two strands pass the crossing centre.  A crossing may claim one
+    TRANSVERSAL contact of exactly those two strands lying within ``window``
+    samples of both indices (callers pass two control intervals: the corner and
+    seg nodes of the passage); the contact nearest the centre point wins, then
+    the nearest by index, each contact serving at most one crossing.  A touch
+    of the crossing's OWN two passages (within ``window`` of its indices) lying
+    within ``absorb_rel`` x the drawing size of the claimed contact belongs to
+    it -- the flattened 'D' rings make ~3e-7 hairpins at their crossings -- and
+    such a touch at the centre of a crossing that claimed nothing is reported
+    once, as that crossing missing.  Absorption is decided per raw contact,
+    BEFORE touch / overlap runs are merged.  Every other contact -- another
+    meeting of any two strands, a touch, an overlap run -- is a false
+    crossing.  Returns (false_events, missing): missing lists the crossing ids
+    none of whose strands' contacts crosses (the drawing does not show that
+    crossing)."""
+    events = _strand_contacts(curves, tol_rel=tol_rel)
+    lens = [len(np.asarray(c)) for c in curves]
+    _c0, scale = _contact_frame(curves)
+    lim = absorb_rel * scale
+    true_passages = true_passages or {}
+    w = float(window) if window is not None else 1.0
+
+    def _own(e, k):
+        """Summed index distance if contact ``e`` joins crossing k's own two
+        passages (within the window of their indices, either way), else None."""
+        (ca, ia), (cb, ib) = true_passages[k]
+        best = None
+        for (p, q) in ((e["a"], e["b"]), (e["b"], e["a"])):
+            if p[0] != ca or q[0] != cb:
+                continue
+            da = abs(p[2] - ia)
+            da = min(da, lens[ca] - da)
+            db = abs(q[2] - ib)
+            db = min(db, lens[cb] - db)
+            if da <= w and db <= w:
+                best = da + db if best is None else min(best, da + db)
+        return best
+
+    def _dist(p, q):
+        return float(np.hypot(p[0] - q[0], p[1] - q[1]))
+
+    keys = list(true_passages.keys())
+    centre_of = {k: np.asarray(curves[ca][ia], float)
+                 for k, ((ca, ia), _b) in true_passages.items()}
+    cands = []
+    for e_i, e in enumerate(events):
+        if e["kind"] != "cross":
+            continue
+        for k in keys:
+            di = _own(e, k)
+            if di is not None:
+                cands.append((round(_dist(e["point"], centre_of[k]) / scale, 9), di, k, e_i))
+    cands.sort(key=lambda x: (x[0], x[1], str(x[2]), x[3]))
+    claimed, taken = {}, set()
+    for _dp, _di, k, e_i in cands:
+        if k in claimed or e_i in taken:
+            continue
+        claimed[k] = e_i
+        taken.add(e_i)
+    missing = sorted((k for k in keys if k not in claimed), key=str)
+
+    absorbed = set()
+    for j, e in enumerate(events):
+        if j in taken or e["kind"] != "touch":
+            continue
+        for k in keys:
+            near_pt = events[claimed[k]]["point"] if k in claimed else centre_of[k]
+            if _dist(e["point"], near_pt) <= lim and _own(e, k) is not None:
+                absorbed.add(j)
+                break
+    rest = [e for i, e in enumerate(events) if i not in taken and i not in absorbed]
+    reach = max(2.0, w / 4.0) if keys else 2.0
+    return _merge_contact_runs(rest, lens, reach=reach), missing
+
+
+def _drawing_curves_and_passages(model, P, centers, samples=26):
+    """The dense 2-D component curves the audit checks (the same Catmull-Rom /
+    flattened-'D' curves the drawing uses) and, per crossing, the two (curve,
+    dense index) pairs where its strands pass the crossing centre."""
+    curves, passages = [], {}
+    for ci in range(len(model["comp_positions"])):
+        ctrl, marks = component_controls(model, P, centers, ci)
+        dense, starts = _component_dense(model, ctrl, ci, samples)
+        curves.append(np.asarray(dense, float))
+        for cidx, pos, _over in marks:
+            if cidx < len(starts):
+                passages.setdefault(model["pos_cross"][pos], []).append((ci, int(starts[cidx])))
+    passages = {k: tuple(v) for k, v in passages.items() if len(v) == 2}
+    return curves, passages
+
+
+_AUDIT_CACHE = {}
+
+
+def audit_false_crossings_detail(model, P, centers, samples=26):
+    """Exact audit of the 2-D drawing (fixed 2026-10-03).
+
+    Returns ``{"false": [...], "missing": [...]}``: ``false`` lists every place
+    where two strands meet that is not one of the DT's crossings (a transversal
+    crossing, a touch, or a collinear overlap run; dicts with point / a / b /
+    kind, see ``_strand_contacts``), ``missing`` the crossing ids whose two
+    strands do not cross at their centre (the drawing does not show them).
+
+    The previous audit ignored every curve point within 6% of the drawing's
+    size of ANY crossing centre, so a false crossing near a true one was never
+    seen (measured: 0 reported against 6 on the 5-ring chain's spring drawing,
+    0 against 10 + 2 undrawn crossings on 4BL's kamada drawing, 0 against 63 on
+    the 8-ring chain's spring drawing).  Now nothing is excluded: every segment
+    pair is tested exactly and each DT crossing claims only the one contact of
+    its own two strands at its centre."""
+    if not centers:
+        return {"false": [], "missing": []}
+    try:   # one result per drawing: prepare_diagram and render_diagram share it
+        key = (id(model), int(samples), hashlib.sha1(np.ascontiguousarray(np.array(
+            [P[k] for k in sorted(P, key=str)] + [centers[k] for k in sorted(centers, key=str)],
+            float)).tobytes()).hexdigest())
+    except Exception:  # noqa: BLE001
+        key = None
+    if key is not None and key in _AUDIT_CACHE:
+        hit = _AUDIT_CACHE[key]
+        return {"false": list(hit["false"]), "missing": list(hit["missing"])}
+    curves, passages = _drawing_curves_and_passages(model, P, centers, samples)
+    false, missing = _classify_strand_contacts(curves, true_passages=passages,
+                                               window=2 * samples)
+    if key is not None:
+        if len(_AUDIT_CACHE) > 16:
+            _AUDIT_CACHE.clear()
+        _AUDIT_CACHE[key] = {"false": list(false), "missing": list(missing)}
+    return {"false": false, "missing": missing}
 
 
 def audit_false_crossings(model, P, centers, samples=26):
-    """Return the number of segment intersections away from true crossing disks."""
-    if not centers:
-        return 0
-
-    cvals = np.array(list(centers.values()))
-    scale = float(np.linalg.norm(cvals.max(axis=0) - cvals.min(axis=0))) or 1.0
-    R = 0.06 * scale
-
-    curves = []
-    for ci in range(len(model["comp_positions"])):
-        ctrl, _ = component_controls(model, P, centers, ci)
-        dense, _ = _component_dense(model, ctrl, ci, samples)
-        curves.append(dense)
-
-    segs = []
-    for ci, dense in enumerate(curves):
-        n = len(dense)
-        if n < 2:
-            continue
-        mask = np.ones(n, bool)
-        for k in centers:
-            mask[np.linalg.norm(dense - centers[k], axis=1) < R] = False
-        for i in range(n):
-            j = (i + 1) % n
-            if mask[i] and mask[j]:
-                segs.append((ci, i, n, dense[i], dense[j]))
-
-    false = 0
-    for a in range(len(segs)):
-        cia, ia, na, pa, pb = segs[a]
-        for b in range(a + 1, len(segs)):
-            cib, ib, nb, pc, pd = segs[b]
-            if cia == cib:
-                circular_gap = min(abs(ia - ib), na - abs(ia - ib))
-                if circular_gap <= 1:
-                    continue
-            if _seg_intersect(pa, pb, pc, pd):
-                false += 1
-    return false
-
-
-def _seg_intersect_point(p1, p2, p3, p4):
-    """Return the intersection point of segments p1p2 and p3p4, or None."""
-    p1 = np.asarray(p1, float)
-    p2 = np.asarray(p2, float)
-    p3 = np.asarray(p3, float)
-    p4 = np.asarray(p4, float)
-    r = p2 - p1
-    s = p4 - p3
-    rxs = r[0] * s[1] - r[1] * s[0]
-    if abs(rxs) < 1.0e-12:
-        return None
-    qp = p3 - p1
-    t = (qp[0] * s[1] - qp[1] * s[0]) / rxs
-    u = (qp[0] * r[1] - qp[1] * r[0]) / rxs
-    if (1.0e-6 < t < 1.0 - 1.0e-6) and (1.0e-6 < u < 1.0 - 1.0e-6):
-        return p1 + t * r
-    return None
-
-
-def find_false_crossings_in_curves(dense_curves, true_centers_xy, exclude_radius):
-    """Locate false crossings among already-rendered curves.
-
-    ``dense_curves`` is a list of Nx2 arrays (one per component, in final drawing
-    coordinates).  Segment intersections that fall within ``exclude_radius`` of a
-    true crossing center are ignored, so only the accidental overlaps introduced
-    by the layout are reported.  Returns a list of dicts, each describing one
-    false crossing with the two participating strands::
-
-        {"point": (x, y),
-         "a": {"curve": ci_a, "index": i_a},
-         "b": {"curve": ci_b, "index": i_b}}
-    """
-    centers = [np.asarray(c, float) for c in (true_centers_xy or [])]
-    excl2 = float(exclude_radius) ** 2
-
-    def _near_true_center(pt):
-        for c in centers:
-            d = pt - c
-            if float(d[0] * d[0] + d[1] * d[1]) < excl2:
-                return True
-        return False
-
-    segs = []
-    for ci, dense in enumerate(dense_curves):
-        pts = np.asarray(dense, float)
-        n = len(pts)
-        if n < 3:
-            continue
-        for i in range(n):
-            a = pts[i]
-            b = pts[(i + 1) % n]
-            mid = 0.5 * (a + b)
-            if _near_true_center(a) or _near_true_center(b) or _near_true_center(mid):
-                continue
-            segs.append((ci, i, n, a, b))
-
-    found = []
-    for x in range(len(segs)):
-        cia, ia, na, pa, pb = segs[x]
-        for y in range(x + 1, len(segs)):
-            cib, ib, nb, pc, pd = segs[y]
-            if cia == cib:
-                circular_gap = min(abs(ia - ib), na - abs(ia - ib))
-                if circular_gap <= 1:
-                    continue
-            pt = _seg_intersect_point(pa, pb, pc, pd)
-            if pt is None:
-                continue
-            found.append({
-                "point": (float(pt[0]), float(pt[1])),
-                "a": {"curve": cia, "index": ia},
-                "b": {"curve": cib, "index": ib},
-            })
-    return found
+    """Number of drawing defects: false crossings (strands meeting away from
+    the DT's crossings, touches and overlaps included) plus DT crossings the
+    drawing does not show.  0 means the drawing is exactly the diagram.  See
+    ``audit_false_crossings_detail``."""
+    d = audit_false_crossings_detail(model, P, centers, samples)
+    return len(d["false"]) + len(d["missing"])
 
 
 # --------------------------------------------------------------------------- #
@@ -4973,11 +5633,36 @@ def render_diagram(
     # arbitrary; we pick it deterministically (higher (curve, index) goes over)
     # so each false crossing simply reads as a clean crossing.
     dense_curves = [info["dense"] for info in curve_infos]
-    false_exclude_radius = 0.06 * span * sc
-    false_crossings = find_false_crossings_in_curves(
-        dense_curves, list(crossing_xy.values()), false_exclude_radius
-    )
+    # The SAME exact audit as prepare_diagram (26 samples per control interval,
+    # in drawing coordinates; cached), so the [warn] lines, the red text and the
+    # saved metadata always agree.  Its events are mapped onto the 30-sample
+    # curves drawn here: both are the same spline through the same control
+    # points (an affine map does not change a Catmull-Rom / flattened-'D'
+    # curve), and sample index i of the 26-sample curve sits at i * 30 / 26.
+    _audit = audit_false_crossings_detail(model, P, centers)
+    _missing = list(_audit["missing"])
+    _j_of = {info["ci"]: j for j, info in enumerate(curve_infos)}
+    false_crossings = []
+    for _e in _audit["false"]:
+        _ends = []
+        for _p in (_e["a"], _e["b"]):
+            _j = _j_of.get(_p[0])
+            if _j is None:
+                break
+            _n = len(dense_curves[_j])
+            # the drawn sample nearest the contact, next to the mapped index
+            # (rounding i * 30 / 26 alone put some gaps a gap radius away)
+            _i0 = int(round(_p[2] * 30.0 / 26.0))
+            _pt = np.asarray(T(_e["point"]), float)
+            _best = min(((_i0 + _d) % _n for _d in range(-4, 5)),
+                        key=lambda _i: float(np.hypot(*(dense_curves[_j][_i] - _pt))))
+            _ends.append({"curve": _j, "index": int(_best)})
+        if len(_ends) == 2:
+            false_crossings.append({"point": _e["point"], "kind": _e["kind"],
+                                    "a": _ends[0], "b": _ends[1]})
     for fc in false_crossings:
+        if fc.get("kind", "cross") != "cross":
+            continue   # touches / overlaps have no over-under to draw
         a = fc["a"]
         b = fc["b"]
         over, under = (a, b) if (a["curve"], a["index"]) >= (b["curve"], b["index"]) else (b, a)
@@ -4999,10 +5684,11 @@ def render_diagram(
             lw=lw,
             zorder=4,
         )
-    n_false_crossings = len(false_crossings)
+    n_false_crossings = len(false_crossings) + len(_missing)
     # Expose the count so callers (file save, GUI log) can report it consistently
     # with what is actually drawn.
     setattr(ax, "_false_crossing_count", n_false_crossings)
+    setattr(ax, "_missing_crossings", list(_missing))
 
     if arrows:
         for info in curve_infos:
@@ -5111,8 +5797,11 @@ def render_diagram(
         ax.text(
             0.5,
             0.985,
-            "Warning: %d false crossing(s) present (layout artifact, not real DT crossings)"
-            % n_false_crossings,
+            ("Warning: %d false crossing(s) present (layout artifact, not real DT crossings)"
+             % len(false_crossings)
+             if not _missing else
+             "Warning: %d false crossing(s) and %d DT crossing(s) not drawn as crossings "
+             "(layout artifact)" % (len(false_crossings), len(_missing))),
             transform=ax.transAxes,
             ha="center",
             va="top",
@@ -5865,6 +6554,189 @@ def _build_stereo_xyz_components(
     return xyz_components
 
 
+# --------------------------------------------------------------------------
+# V5.7: --sphere-layout sheet -- the 2-D drawing lifted onto a ruled SHEET
+# along its own long axis instead of a sphere.
+#
+# Every earlier 3-D layout closes the diagram up on a sphere or a cube, so an
+# elongated link -- the 8-ring Brunnian chain -- comes out with its two ends
+# curled towards each other.  The sheet keeps the drawing's long (PCA) axis
+# straight: x runs along it, y across it, and each cross-section x = const is
+# a planar curve in the yz-plane -- a straight segment (flat sheet), an arc of
+# a circle of radius W / bend (a bent sheet; 360 degrees closes it into a
+# tube), rotated about the x-axis by a twist that grows linearly along the
+# length (a twisted ribbon).  Over / under is an offset WITHIN the
+# cross-section: along its normal for the flat sheet, radially for the bent
+# one, so the three layers are concentric curves in each cross-section
+# plane.  Because x is preserved and each cross-section curve is embedded,
+# the lift is correct by construction (like stereo-safe): the only points
+# that share x and y are the two strands of a crossing, and they sit on
+# different layers.  No smoothing or clearance repair touches it; the
+# topology audit runs as usual.  The 2-D drawing decides the proportions --
+# draw a chain with --layout shaped-tutte --tutte-shape ellipse and a large
+# --tutte-aspect -- and --sheet-aspect can stretch it further.
+# --------------------------------------------------------------------------
+
+def _sheet_frame(x, length, twist_rad):
+    """Cross-section basis at x: ``u`` (across the sheet) and ``m`` (its
+    normal), both in the yz-plane, rotated about x by the twist, which runs
+    from -twist/2 at one end to +twist/2 at the other."""
+    x = np.asarray(x, float)
+    phi = twist_rad * x / max(float(length), 1.0e-12)
+    u = np.column_stack([np.zeros_like(phi), np.cos(phi), np.sin(phi)])
+    m = np.column_stack([np.zeros_like(phi), -np.sin(phi), np.cos(phi)])
+    return u, m
+
+
+def _sheet_map(xs, ys, offsets, params):
+    """Points (x, y) of the straightened drawing with layer offsets ``offsets``
+    -> Nx3 on the sheet.  ``params``: length (full, along x), width (full,
+    across), bend (radians the cross-section arc subtends; 0 = flat), twist
+    (radians over the length)."""
+    xs = np.asarray(xs, float)
+    ys = np.asarray(ys, float)
+    off = np.asarray(offsets, float)
+    L = float(params["length"])
+    W = float(params["width"])
+    bend = float(params["bend"])
+    u, m = _sheet_frame(xs, L, float(params["twist"]))
+    out = np.zeros((len(xs), 3), float)
+    out[:, 0] = xs
+    if bend <= 1.0e-9:
+        out += ys[:, None] * u + off[:, None] * m
+        return out
+    Rc = W / bend
+    ang = ys / Rc
+    # arc centre at -Rc m, so the sheet passes through y = 0 with normal +m
+    out += (-Rc) * m + ((Rc + off)[:, None]) * (np.sin(ang)[:, None] * u + np.cos(ang)[:, None] * m)
+    return out
+
+
+def _sheet_signed_offset(P, params):
+    """Signed distance of points from the base sheet, exact: x is preserved by
+    the lift, so the cross-section frame is known and the offset is read off
+    in it (height above the flat sheet, or radial distance from the arc)."""
+    P = np.asarray(P, float)
+    L = float(params["length"])
+    W = float(params["width"])
+    bend = float(params["bend"])
+    u, m = _sheet_frame(P[:, 0], L, float(params["twist"]))
+    yz = P.copy()
+    yz[:, 0] = 0.0
+    a = np.sum(yz * u, axis=1)
+    b = np.sum(yz * m, axis=1)
+    if bend <= 1.0e-9:
+        return b
+    Rc = W / bend
+    return np.hypot(a, b + Rc) - Rc
+
+
+def _open_grid_tris(nu, nv):
+    """Triangles of an open ``nv`` x ``nu`` vertex grid (vertex = row * nu +
+    column), wound so the front face is d/du x d/dv."""
+    col = np.arange(nu - 1)
+    tris = []
+    for r in range(nv - 1):
+        a, b = r * nu + col, r * nu + col + 1
+        c, d = (r + 1) * nu + col, (r + 1) * nu + col + 1
+        tris.append(np.column_stack([a, b, c]))
+        tris.append(np.column_stack([b, d, c]))
+    return np.vstack(tris)
+
+
+def _build_sheet_xyz_components(model, P, centers, sphere_radius, sphere_offset,
+                                sphere_bump_frac, xyz_spacing, sheet_bend=0.0,
+                                sheet_twist=0.0, sheet_aspect=0.0, info_out=None,
+                                status_messages=None):
+    """The 2-D drawing lifted onto the sheet.  The drawing is rotated so its
+    PCA major axis is x and scaled so that axis spans [-R, R]; y keeps the
+    drawing's own proportions unless ``sheet_aspect`` > 0 (length / width).
+    Over / under is the stereographic layout's cosine bump along each strand,
+    taken as the offset within the cross-section.  Returns one Nx3 array per
+    component; ``info_out`` receives the sheet parameters for the shells."""
+    R = float(sphere_radius)
+    internal_samples = _internal_samples_per_span_for_xyz(sphere_radius, sphere_offset, xyz_spacing)
+    samples = _sample_planar_components_for_sphere(model, P, centers, internal_samples)
+    arrays = [item["xy"] for item in samples if len(item["xy"])]
+    if not arrays:
+        return [np.zeros((0, 3), float) for _ in samples]
+    pts = np.vstack(arrays)
+    centre = 0.5 * (pts.min(axis=0) + pts.max(axis=0))
+    cov = np.cov((pts - centre).T)
+    evals, evecs = np.linalg.eigh(cov)
+    major = evecs[:, int(np.argmax(evals))]
+    if major[0] < 0.0:
+        major = -major
+    minor = np.array([-major[1], major[0]])
+    rot = np.column_stack([major, minor])            # columns: new x, new y
+    q = (pts - centre) @ rot
+    half_x = max(float(np.max(np.abs(q[:, 0]))), 1.0e-9)
+    half_y = max(float(np.max(np.abs(q[:, 1]))), 1.0e-9)
+    sx = R / half_x
+    sy = sx if not sheet_aspect or float(sheet_aspect) <= 0.0 else (R / float(sheet_aspect)) / half_y
+    L = 2.0 * R
+    W = 2.0 * half_y * sy
+    params = {"length": L, "width": W, "bend": math.radians(float(sheet_bend or 0.0)),
+              "twist": math.radians(float(sheet_twist or 0.0)),
+              "aspect": L / max(W, 1.0e-9), "drawing_aspect": half_x / half_y}
+    span = _diagram_span_from_samples(samples)
+    bump_radius = float(sphere_bump_frac) * 0.04 * span
+    out = []
+    for item in samples:
+        xy = item["xy"]
+        if len(xy) == 0:
+            out.append(np.zeros((0, 3), float))
+            continue
+        offsets = _crossing_radial_offsets(xy, item["marks"], item["starts"],
+                                           bump_radius=bump_radius, sphere_offset=sphere_offset)
+        q = (xy - centre) @ rot
+        xyz = _sheet_map(q[:, 0] * sx, q[:, 1] * sy, offsets, params)
+        out.append(_geom_resample_closed_3d(xyz, xyz_spacing))
+    if info_out is not None:
+        info_out.update(params)
+        info_out["centre"] = centre
+        info_out["rot"] = rot
+        info_out["scale"] = (sx, sy)
+        cps = np.array([np.asarray(centers[k], float)[:2] for k in range(len(model["crossings"]))], float)
+        if len(cps):
+            qc = (cps - centre) @ rot
+            info_out["crossing_points"] = _sheet_map(qc[:, 0] * sx, qc[:, 1] * sy,
+                                                     np.zeros(len(qc)), params)
+    if status_messages is not None:
+        bend_txt = ("flat" if params["bend"] <= 1.0e-9 else
+                    "bent through %.0f degrees (cross-section arc radius %.2f%s)"
+                    % (float(sheet_bend), W / params["bend"],
+                       "; a closed tube" if float(sheet_bend) >= 359.5 else ""))
+        twist_txt = ("no twist" if abs(params["twist"]) <= 1.0e-9
+                     else "twisted by %.0f degrees over the length" % float(sheet_twist))
+        status_messages.append(
+            "[sheet] 2-D drawing lifted onto a sheet along its long axis: length %.1f, "
+            "width %.1f (length / width %.2f%s); %s; %s; over / under at %+.3f / %+.3f within "
+            "each cross-section.  Correct by construction, so no smoothing or clearance repair."
+            % (L, W, params["aspect"],
+               "" if not sheet_aspect or float(sheet_aspect) <= 0.0
+               else ", stretched from the drawing's %.2f" % params["drawing_aspect"],
+               bend_txt, twist_txt, float(sphere_offset), -float(sphere_offset)))
+        if params["aspect"] < 1.6 and len(model["comp_positions"]) >= 3:
+            status_messages.append(
+                "[hint] the drawing is nearly as wide as it is long (%.2f); for an elongated "
+                "chain draw it with --layout shaped-tutte --tutte-shape ellipse "
+                "--no-tutte-auto-aspect --tutte-aspect 3 (or more), or set --sheet-aspect."
+                % params["aspect"])
+        if abs(float(sphere_offset)) > 0.12 * W:
+            status_messages.append(
+                "[hint] the crossing offset %.2f is %.0f%% of the sheet's width %.1f, so the "
+                "over / under bumps are steep; a larger --sphere-radius (the sheet's length is "
+                "2 x radius) or a smaller --crossing-offset gives smoother strands."
+                % (abs(float(sphere_offset)), 100.0 * abs(float(sphere_offset)) / W, W))
+        if params["bend"] > 1.0e-9 and abs(float(sphere_offset)) >= W / params["bend"]:
+            status_messages.append(
+                "[warn] the crossing offset %.2f is not smaller than the cross-section arc "
+                "radius %.2f, so the inner layer folds through the arc's centre; lower the "
+                "bend or the offset." % (abs(float(sphere_offset)), W / params["bend"]))
+    return out
+
+
 def _fibonacci_sphere_directions(n):
     """Deterministic, well-spaced unit vectors used as a 3D layout seed."""
     n = int(n)
@@ -6302,11 +7174,18 @@ def _build_spherical_kamada_xyz_components(
     refine_report=None,
     raw_radii=False,
     radii_report=None,
+    dirs_override=None,
 ):
-    """Sphere-native method: distribute the diagram directly on S^2."""
+    """Sphere-native method: distribute the diagram directly on S^2.
+    ``dirs_override`` (node -> unit direction) replaces the Kamada-Kawai
+    direction step (used by the capped cylinder); radii are then all 1."""
     if G is None:
         G = build_gadget_graph(model)
-    raw_dirs, _node_radii = _kamada_3d_directions_and_radii(G)
+    if dirs_override is not None:
+        raw_dirs = {v: np.asarray(dirs_override[v], float) for v in G.nodes()}
+        _node_radii = {v: 1.0 for v in G.nodes()}
+    else:
+        raw_dirs, _node_radii = _kamada_3d_directions_and_radii(G)
     # V5.6: optionally re-minimise the stress ON the sphere (great-circle
     # distances, points constrained to S^2), warm-started from the projection
     # above.  Done here, before the gadgets are compacted, so shaped-kamada and
@@ -6359,6 +7238,12 @@ def _build_spherical_kamada_xyz_components(
         skeleton_out["points"] = np.array(
             [centers3[k] for k in range(_ncross)], float
         )
+        # V5.7: the pass tangents at every crossing (cubic-kamada angled
+        # needs them to give each pass a face axis and to read the port order)
+        skeleton_out["ports"] = {
+            k: (P3[(k, "out_o")] - P3[(k, "in_o")],
+                P3[(k, "out_e")] - P3[(k, "in_e")])
+            for k in range(_ncross)}
         _segs = []
         _seg_comps = []
         for _ci, cp in enumerate(model["comp_positions"]):
@@ -6503,7 +7388,7 @@ def _build_spherical_kamada_xyz_components(
     return xyz_components
 
 
-SURFACE_SHAPES = ("ellipsoid", "cylinder", "torus")
+SURFACE_SHAPES = ("ellipsoid", "cylinder", "torus", "capped-cylinder")
 
 
 def _normalize_surface_shape(shape):
@@ -7031,7 +7916,16 @@ def _cube_orientation_frame(model, anchors, dirs_all):
 
 def _cube_warp_fn(sphere_radius, M):
     """warp(dirs, offsets) -> Nx3 mapping unit directions onto the cube surface
-    (L-infinity projection) with over/under applied along the local face normal."""
+    (L-infinity projection), with the over/under offset taken on the CONCENTRIC
+    cube of half-side R + offset: (R + o) * d / |d|_inf.
+
+    On a face that is the usual bump along the face normal.  Across an edge it
+    stays continuous, whereas lifting along the dominant face normal (V5.5)
+    flipped the lift direction at the edge, so an inner-layer strand zig-zagged
+    across it and lay outside the inner cube, between it and the base.  The
+    map x -> x * |x|_2 / |x|_inf is a homeomorphism of space minus the origin,
+    so the cube curve is ambient-isotopic to the sphere curve it comes from
+    and the three shells of the .glb export are exactly the layers it rides."""
     R = float(sphere_radius)
     Mrot = np.asarray(M, float)
 
@@ -7041,16 +7935,9 @@ def _cube_warp_fn(sphere_radius, M):
             return np.zeros((0, 3), float)
         d = d @ Mrot
         o = np.asarray(offsets, float)
-        adx = np.abs(d)
-        s = np.max(adx, axis=1)
+        s = np.max(np.abs(d), axis=1)
         s[s < 1.0e-12] = 1.0
-        base = R * d / s[:, None]
-        dom = np.argmax(adx, axis=1)
-        nn = np.zeros_like(d)
-        rows = np.arange(len(d))
-        nn[rows, dom] = np.sign(d[rows, dom])
-        nn[nn[rows, dom] == 0.0, :] = 0.0
-        return base + o[:, None] * nn
+        return (R + o)[:, None] * d / s[:, None]
 
     return warp
 
@@ -7087,62 +7974,6 @@ def _warp_components_to_cube(xyz_components, sphere_radius, M, xyz_spacing,
             return warp(d, r - R)
         return out, _wp
     return out
-
-
-def _clean_ortho_path(points, grid):
-    """Tidy an axis-aligned closed path: drop repeated points, merge collinear
-    runs, and undo immediate backtracks (A -> B -> A)."""
-    pts = [np.asarray(p, float) for p in points]
-    if len(pts) < 2:
-        return pts
-    tol = 0.25 * float(grid)
-
-    # remove consecutive duplicates (cyclically)
-    dedup = [pts[0]]
-    for p in pts[1:]:
-        if np.max(np.abs(p - dedup[-1])) > tol:
-            dedup.append(p)
-    if len(dedup) > 1 and np.max(np.abs(dedup[0] - dedup[-1])) <= tol:
-        dedup.pop()
-    pts = dedup
-    n = len(pts)
-    if n < 3:
-        return pts
-
-    changed = True
-    while changed and len(pts) >= 3:
-        changed = False
-        m = len(pts)
-        out = []
-        i = 0
-        skip = set()
-        # merge collinear triples and cancel backtracks in one cyclic pass
-        result = []
-        keep = [True] * m
-        for i in range(m):
-            a = pts[(i - 1) % m]
-            b = pts[i]
-            c = pts[(i + 1) % m]
-            d1 = b - a
-            d2 = c - b
-            n1 = np.linalg.norm(d1)
-            n2 = np.linalg.norm(d2)
-            if n1 < tol or n2 < tol:
-                keep[i] = False
-                changed = True
-                continue
-            u1 = d1 / n1
-            u2 = d2 / n2
-            if np.dot(u1, u2) > 0.999:            # collinear: b is redundant
-                keep[i] = False
-                changed = True
-            elif np.dot(u1, u2) < -0.999:          # backtrack: drop b
-                keep[i] = False
-                changed = True
-        pts = [p for p, k in zip(pts, keep) if k]
-        if len(pts) < 3:
-            break
-    return pts
 
 
 def _seg_seg_distance(p1, p2, q1, q2):
@@ -7186,181 +8017,529 @@ def _rot_about_unit_axis(axis, angle):
     return np.eye(3) + math.sin(angle) * K + (1.0 - math.cos(angle)) * (K @ K)
 
 
-def _cube_point(u, radius):
-    """L-infinity projection of direction ``u`` onto the cube of the given
-    (half-)radius -- i.e. the point on that cube shell in direction ``u``."""
-    u = np.asarray(u, float)
-    s = float(np.max(np.abs(u)))
-    return radius * u / (s if s > 1.0e-12 else 1.0)
+# --------------------------------------------------------------------------
+# V5.7: cubic-kamada 'angled' -- orthogonal routing on the cube's SURFACE grid.
+#
+# The V5.5 router drew each connector as a straight axis-aligned path between
+# two crossing points on the cube shells.  Those paths ran THROUGH the cube,
+# and because they were never routed around each other they could realise a
+# different diagram altogether (the figure-eight knot audited as an UNLINK);
+# every multi-component test link fell back to a 100-400-corner staircase; and
+# it took abs(offset), so a negative offset did not invert the crossings.
+#
+# The router below places every crossing on a face-interior node of an N x N
+# grid per face and fixes the direction each of its two strands passes
+# through it so that the cyclic order of the four ports, seen from outside the
+# cube, is the diagram's own (the rotation system, read from the planar
+# embedding of the gadget graph; the 3-D layout only picks the global
+# orientation).  Every connector is then routed as a NODE-DISJOINT path on the
+# surface grid by a negotiated-congestion (PathFinder) A* search that
+# penalises in-face bends, so strands turn only at right angles and never
+# meet.  A cellular embedding in the sphere is determined by its rotation
+# system (Heffter-Edmonds), so a crossing-free routing with these ports IS the
+# diagram -- whichever way round the cube the paths run -- and the result is
+# correct by construction; the topology audit remains as the check.
+# Over/under is a right-angle bridge at the crossing: the strand steps off the
+# base cube by the SIGNED offset along the face normal, runs over (under) the
+# crossing point and steps back, so the curve rides the base cube and the two
+# concentric offset cubes, and a negative offset inverts every crossing like
+# the other layouts (Invariant 12).
+# --------------------------------------------------------------------------
+
+CUBE_GRID_MIN = 6            # cells per face side: floor of the automatic choice
+CUBE_GRID_MAX = 72           # cells per face side: ceiling of the refinement loop
+CUBE_GRID_SPAN = 12.0        # automatic grid: about this many cells between the closest crossings
+CUBE_BEND_PENALTY = 4.0      # an in-face 90-degree bend costs this many grid steps
+CUBE_EDGE_PENALTY = 2.0      # extra cost of a step along a cube edge or corner
+CUBE_LANE_PENALTY = 1.0      # per occupied neighbour: keeps a free lane between strands
+CUBE_ROUTE_ROUNDS = 40       # negotiation rounds before giving up on a grid
+_CUBE_DIRS = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
 
 
-def _ortho_connector(A, B):
-    """Axis-aligned path from A to B using at most three segments -- one per cube
-    axis, largest displacement first (equivariant under cube rotations)."""
-    A = np.asarray(A, float)
-    B = np.asarray(B, float)
-    d = B - A
-    order = sorted(range(3), key=lambda ax: -abs(d[ax]))
-    pts = [A.copy()]
-    cur = A.copy()
-    for ax in order:
-        if abs(d[ax]) > 1.0e-9:
-            cur = cur.copy()
-            cur[ax] = B[ax]
-            pts.append(cur)
-    if len(pts) == 1:
-        pts.append(B.copy())
-    return pts
+def _cube_surface_grid(N):
+    """The surface grid of the cube of half-side ``N`` in lattice units: every
+    integer triple of max-norm N (an N x N grid on each face; edge and corner
+    nodes are shared).  Returns ``(coords, index, nbr, sat)``: the node
+    coordinates, their index, the 6 neighbours of each node by ``_CUBE_DIRS``
+    (-1 where the step leaves the surface), per node which of its three
+    coordinates sit at +-N (two or three = an edge or corner node), and its
+    lattice distance to the nearest cube edge."""
+    N = int(N)
+    coords = []
+    index = {}
+    rng = range(-N, N + 1)
+    for x in rng:
+        for y in rng:
+            if abs(x) == N or abs(y) == N:
+                for z in rng:
+                    index[(x, y, z)] = len(coords)
+                    coords.append((x, y, z))
+            else:
+                for z in (-N, N):
+                    index[(x, y, z)] = len(coords)
+                    coords.append((x, y, z))
+    nbr = []
+    sat = []
+    edist = []
+    for (x, y, z) in coords:
+        nbr.append(tuple(index.get((x + dx, y + dy, z + dz), -1)
+                         for (dx, dy, dz) in _CUBE_DIRS))
+        s_ = (abs(x) == N, abs(y) == N, abs(z) == N)
+        sat.append(s_)
+        # lattice distance to the nearest cube edge (0 on an edge or corner)
+        edist.append(min(N - abs(v) for v, sv in zip((x, y, z), s_) if not sv) if sum(s_) == 1 else 0)
+    return coords, index, nbr, sat, edist
 
 
-def _components_self_intersect(components, tol):
-    """True if any two non-adjacent segments of the closed polylines come within
-    ``tol`` -- i.e. the 3D curve is not a valid embedding."""
-    segs = []
-    for ci, P in enumerate(components):
-        P = np.asarray(P, float)
-        n = len(P)
-        for k in range(n):
-            segs.append((ci, k, n, P[k], P[(k + 1) % n]))
-    for i in range(len(segs)):
-        ci, ki, ni, a, b = segs[i]
-        for j in range(i + 1, len(segs)):
-            cj, kj, nj, c, d = segs[j]
-            if ci == cj and (abs(ki - kj) <= 1 or abs(ki - kj) >= ni - 1):
-                continue
-            if _seg_seg_distance(a, b, c, d) < tol:
-                return True
-    return False
+def _cube_face_axes(normal_axis, sign):
+    """Tangent axes (b, c) of the face whose outward normal is sign * e_axis,
+    ordered so that e_b x e_c is that normal: +b, +c, -b, -c is then
+    counter-clockwise seen from outside the cube."""
+    b, c = (normal_axis + 1) % 3, (normal_axis + 2) % 3
+    return (b, c) if sign > 0 else (c, b)
 
 
-def _orthogonalize_cube_curve(pts, grid):
-    """Axis-aligned staircase hugging a closed cube curve: snap to a grid finer
-    than the over/under offset, Manhattan-connect (x-then-y-then-z).  It stays
-    within one grid cell of the disjoint smooth curve, so it cannot self-cross."""
-    pts = np.asarray(pts, float)
-    if len(pts) < 4 or grid <= 0.0:
-        return pts
-    snap = np.round(pts / grid) * grid
-    cells = [snap[0]]
-    for p in snap[1:]:
-        if np.max(np.abs(p - cells[-1])) > 1.0e-9:
-            cells.append(p)
-    if len(cells) > 1 and np.max(np.abs(cells[0] - cells[-1])) <= 1.0e-9:
-        cells.pop()
-    if len(cells) < 3:
-        return pts
-    cells = np.array(cells, float)
-    n = len(cells)
+def _cube_crossing_rotations(model, G, anchors, ports):
+    """Per crossing, the cyclic order of its four ports seen from outside the
+    cube: +1 when in_o -> in_e -> out_o -> out_e runs counter-clockwise, -1
+    when clockwise.
+
+    The order is read from the planar embedding of the gadget graph (each
+    gadget 4-cycle bounds a face, whichever way networkx embeds it), so it is
+    the diagram's own rotation system up to ONE global flip, and the 3-D layout
+    only chooses that flip, by majority over the crossings' geometric port
+    arrangement.  Returns ``(signs, disagreements)``; ``disagreements`` counts
+    the crossings whose 3-D gadget is embedded the other way round -- non-zero
+    only for layouts the sphere construction itself gets wrong.
+    """
+    ncr = len(model["crossings"])
+    geo = []
+    for k in range(ncr):
+        c = np.asarray(anchors[k], float)
+        a = int(np.argmax(np.abs(c)))
+        n = np.zeros(3)
+        n[a] = 1.0 if c[a] >= 0.0 else -1.0
+        t_o = np.asarray(ports[k][0], float)
+        t_e = np.asarray(ports[k][1], float)
+        t_o = t_o - float(t_o[a]) * n
+        t_e = t_e - float(t_e[a]) * n
+        geo.append(1 if float(np.dot(np.cross(t_o, t_e), n)) >= 0.0 else -1)
+    comb = None
+    try:
+        ok, emb = nx.check_planarity(G)
+        if ok:
+            comb = []
+            for k in range(ncr):
+                cyc = [(k, "in_o"), (k, "in_e"), (k, "out_o"), (k, "out_e")]
+                f = list(emb.traverse_face(cyc[0], cyc[1]))
+                if len(f) == 4 and set(f) == set(cyc):
+                    i = f.index(cyc[0])
+                    comb.append(1 if [f[(i + j) % 4] for j in range(4)] == cyc else -1)
+                else:
+                    f2 = list(emb.traverse_face(cyc[1], cyc[0]))
+                    if len(f2) == 4 and set(f2) == set(cyc):
+                        comb.append(-1)
+                    else:
+                        comb = None
+                        break
+    except Exception:  # noqa: BLE001
+        comb = None
+    if comb is None:
+        return geo, 0
+    g = 1 if sum(a * b for a, b in zip(geo, comb)) >= 0 else -1
+    signs = [g * c for c in comb]
+    return signs, sum(1 for a, b in zip(geo, signs) if a != b)
+
+
+def _cube_face_of(anchor):
+    """(normal axis, sign) of the cube face a unit direction points at."""
+    c = np.asarray(anchor, float)
+    a = int(np.argmax(np.abs(c)))
+    return a, (1 if c[a] >= 0.0 else -1)
+
+
+def _cube_place_crossings(anchors, ports, rotations, N, margin=1,
+                          over_axis=None, over_pass=None):
+    """Snap the unit anchor directions (cube frame) to face-interior nodes of
+    the N-grid, at least ``margin`` cells from every edge, and give each pass
+    the face axis it travels along.
+
+    ``ports[k] = (t_odd, t_even)`` are the pass tangents from the gadget layout
+    and ``rotations[k]`` the port order from ``_cube_crossing_rotations``.
+    Angled style (``over_axis`` None): the odd pass takes whichever face axis
+    its tangent is closest to (both assignments are scored).  Grid style:
+    ``over_axis[face]`` is the face's over axis and ``over_pass[k]`` ('o' or
+    'e') the pass that is over at crossing k, which takes that axis.  Either
+    way the other pass takes the perpendicular axis with the sign that
+    reproduces the rotation.  Returns, per crossing, ``(node coords, normal
+    axis, normal sign, dir_odd, dir_even)`` with the directions indexing
+    ``_CUBE_DIRS``.  Rounding is sign-symmetric, so a symmetric set of anchors
+    snaps symmetrically."""
     out = []
-    for i in range(n):
-        a = cells[i]
-        b = cells[(i + 1) % n]
-        out.append(a.copy())
-        cur = a.copy()
-        for ax in (0, 1, 2):
-            if abs(b[ax] - cur[ax]) > 0.5 * grid:
-                cur = cur.copy()
-                cur[ax] = b[ax]
-                out.append(cur.copy())
-    cleaned = _clean_ortho_path(out, grid)
-    return np.array(cleaned) if len(cleaned) >= 3 else np.array(cells)
-
-
-def _reduce_ortho_turns(components, pin_points_per_comp, grid, min_clear,
-                        max_passes=80):
-    """Collapse staircases into single L-bends, keeping every collapse clear of the
-    other strands (so no crossing is created or destroyed) and pinning the crossing
-    vertices.  Collinear segments are merged immediately so a whole staircase
-    between two crossings flattens; the result is collision-free by construction."""
-    def merge_collinear(verts):
-        changed = True
-        while changed and len(verts) > 3:
-            changed = False
-            n = len(verts)
-            for i in range(n):
-                if verts[i][1]:
-                    continue
-                a = verts[(i - 1) % n][0]
-                b = verts[i][0]
-                c = verts[(i + 1) % n][0]
-                d1 = b - a
-                d2 = c - b
-                n1 = np.linalg.norm(d1)
-                n2 = np.linalg.norm(d2)
-                if n1 < 0.25 * grid or n2 < 0.25 * grid or \
-                        float((d1 / max(n1, 1e-12)) @ (d2 / max(n2, 1e-12))) > 0.999:
-                    del verts[i]
-                    changed = True
-                    break
-
-    comps = []
-    for c, pinpts in zip(components, pin_points_per_comp):
+    lim = max(1, N - int(margin))
+    for k, c in enumerate(anchors):
         c = np.asarray(c, float)
-        verts = [[c[i].copy(), False] for i in range(len(c))]
-        for pp in (pinpts or []):
-            if len(c):
-                verts[int(np.argmin(np.linalg.norm(c - pp, axis=1)))][1] = True
-        pin_ids = [i for i, v in enumerate(verts) if v[1]]
-        if pin_ids:
-            verts = verts[pin_ids[0]:] + verts[:pin_ids[0]]   # seam at a pin
-        comps.append(verts)
+        a, sgn = _cube_face_of(c)
+        P = c / max(abs(float(c[a])), 1.0e-12)
+        g = [0, 0, 0]
+        g[a] = sgn * N
+        for ax in range(3):
+            if ax != a:
+                g[ax] = max(-lim, min(lim, int(round(float(P[ax]) * N))))
+        b, cc = _cube_face_axes(a, sgn)
+        n = np.zeros(3)
+        n[a] = sgn
+        u = np.zeros(3)
+        u[b] = 1.0
+        v = np.zeros(3)
+        v[cc] = 1.0
+        t_o = np.asarray(ports[k][0], float)
+        t_e = np.asarray(ports[k][1], float)
+        t_o = t_o - float(t_o[a]) * n
+        t_e = t_e - float(t_e[a]) * n
+        sigma = 1 if rotations[k] >= 0 else -1
+        if over_axis is not None:
+            # grid style: the over pass runs along the face's over axis
+            first_is_odd = (over_pass[k] == "o")
+            first_on_u = (over_axis[(a, sgn)] == b)
+        else:
+            first_is_odd = True
+            first_on_u = (abs(float(t_o @ u)) + abs(float(t_e @ v))
+                          >= abs(float(t_o @ v)) + abs(float(t_e @ u)))
+        t1, t2 = (t_o, t_e) if first_is_odd else (t_e, t_o)
+        # sigma is the rotation odd -> even; for even -> odd it is reversed
+        sig = sigma if first_is_odd else -sigma
+        if first_on_u:
+            s1 = 1 if float(t1 @ u) >= 0.0 else -1
+            s2 = sig * s1                         # (s1 u) x (s2 v) . n = s1 s2
+            d1, d2 = 2 * b + (0 if s1 > 0 else 1), 2 * cc + (0 if s2 > 0 else 1)
+        else:
+            s1 = 1 if float(t1 @ v) >= 0.0 else -1
+            s2 = -sig * s1                        # (s1 v) x (s2 u) . n = -s1 s2
+            d1, d2 = 2 * cc + (0 if s1 > 0 else 1), 2 * b + (0 if s2 > 0 else 1)
+        d_o, d_e = (d1, d2) if first_is_odd else (d2, d1)
+        out.append((tuple(g), a, sgn, d_o, d_e))
+    return out
 
-    def clear_ok(ci, i, P, A, D):
-        n = len(comps[ci])
-        skip = {(i - 1) % n, i % n, (i + 1) % n, (i + 2) % n, (i + 3) % n}
-        for cj, vv in enumerate(comps):
-            m = len(vv)
-            for k in range(m):
-                if cj == ci and k in skip:
+
+def _cube_axis_image(axis, Rk_int):
+    """The axis that an integer cube rotation sends ``axis`` to."""
+    return int(np.argmax(np.abs(np.asarray(Rk_int, int)[:, axis])))
+
+
+def _cube_face_image(face, Rk_int):
+    """The face an integer cube rotation sends ``face`` = (axis, sign) to."""
+    a, sgn = face
+    col = np.asarray(Rk_int, int)[:, a]
+    a2 = int(np.argmax(np.abs(col)))
+    return a2, int(sgn * np.sign(col[a2]))
+
+
+def _cube_choose_over_axes(anchors, ports, over_pass, Rk_int=None):
+    """Grid style: per face, the tangent axis along which the OVER strands run
+    (the other carries the under strands), chosen so that the crossings on
+    the face agree with their gadget tangents as far as possible.  With a cube
+    rotation ``Rk_int`` the choice is made equivariant where the rotation
+    allows it (a face it maps to itself with its axes swapped cannot be, and
+    the symmetric routing then falls back to routing net by net)."""
+    faces = [(a, s) for a in range(3) for s in (1, -1)]
+    score = {f: {ax: 0.0 for ax in _cube_face_axes(*f)} for f in faces}
+    for k, c in enumerate(anchors):
+        f = _cube_face_of(c)
+        n = np.zeros(3)
+        n[f[0]] = f[1]
+        t_over, t_under = ((ports[k][0], ports[k][1]) if over_pass[k] == "o"
+                           else (ports[k][1], ports[k][0]))
+        t_over = np.asarray(t_over, float) - float(t_over[f[0]]) * n
+        t_under = np.asarray(t_under, float) - float(t_under[f[0]]) * n
+        b, cc = _cube_face_axes(*f)
+        score[f][b] += abs(float(t_over[b])) + abs(float(t_under[cc]))
+        score[f][cc] += abs(float(t_over[cc])) + abs(float(t_under[b]))
+    if Rk_int is None:
+        return {f: max(score[f], key=score[f].get) for f in faces}
+    # pool the scores over each orbit of faces, then propagate one choice
+    out = {}
+    seen = set()
+    for f in faces:
+        if f in seen:
+            continue
+        orbit, g = [], f
+        while g not in orbit:
+            orbit.append(g)
+            g = _cube_face_image(g, Rk_int)
+        seen.update(orbit)
+        pooled = {ax: 0.0 for ax in _cube_face_axes(*f)}
+        g, axis_map = f, {ax: ax for ax in range(3)}
+        for _ in orbit:                       # map every member's scores back to f's axes
+            inv = {axis_map[ax]: ax for ax in axis_map}
+            for ax, v in score[g].items():
+                if inv.get(ax) in pooled:
+                    pooled[inv[ax]] += v
+            axis_map = {ax: _cube_axis_image(axis_map[ax], Rk_int) for ax in axis_map}
+            g = _cube_face_image(g, Rk_int)
+        choice = max(pooled, key=pooled.get)
+        g, ax = f, choice
+        for _ in orbit:
+            out[g] = ax
+            ax = _cube_axis_image(ax, Rk_int)
+            g = _cube_face_image(g, Rk_int)
+    return out
+
+
+def _cube_route_astar(start, start_dir, goal, goal_dir, goal_port, blocked,
+                      node_cost, grid, bend, min_bend_dist=0):
+    """Cheapest path on the surface grid from the state (start node, arriving
+    along start_dir) into the crossing node ``goal``, which may only be entered
+    from ``goal_port`` along ``goal_dir``.  Cost = the node costs of the nodes
+    entered + ``bend`` per 90-degree turn that is not a fold over a cube edge
+    (a turn between two axes that are both saturated at that node), doubled
+    for a turn at either port node so wires leave crossings straight; no turn
+    at all at nodes nearer than ``min_bend_dist`` cells to a cube edge.  The
+    Manhattan distance is an admissible heuristic (each step changes one
+    coordinate by one and costs at least one).  Returns the node list from the
+    start to the goal, or None."""
+    coords, _index, nbr, sat, edist = grid
+    gx, gy, gz = coords[goal]
+    s0 = start * 6 + start_dir
+    g = {s0: node_cost[start]}
+    parent = {s0: -1}
+    x, y, z = coords[start]
+    heap = [(g[s0] + abs(x - gx) + abs(y - gy) + abs(z - gz), s0)]
+    closed = set()
+    while heap:
+        _f, st = heapq.heappop(heap)
+        if st in closed:
+            continue
+        closed.add(st)
+        n, d = divmod(st, 6)
+        if n == goal:
+            path = []
+            while st != -1:
+                path.append(st // 6)
+                st = parent[st]
+            path.reverse()
+            return path
+        gcur = g[st]
+        a_in = d >> 1
+        satn = sat[n]
+        row = nbr[n]
+        for d2 in range(6):
+            if d2 == (d ^ 1):                     # no U-turns
+                continue
+            m = row[d2]
+            if m < 0:
+                continue
+            if m == goal:
+                if n != goal_port or d2 != goal_dir:
                     continue
-                q1 = vv[k][0]
-                q2 = vv[(k + 1) % m][0]
-                if _seg_seg_distance(A, P, q1, q2) < min_clear or \
-                        _seg_seg_distance(P, D, q1, q2) < min_clear:
-                    return False
-        return True
+                step = 1.0
+            elif m in blocked:
+                continue
+            else:
+                step = node_cost[m]
+            a_out = d2 >> 1
+            if a_out != a_in and not (satn[a_in] and satn[a_out]):
+                # an in-face bend; twice the price at the two port nodes, so
+                # a wire leaves and enters its crossings straight when it can
+                if edist[n] < min_bend_dist:
+                    continue                      # grid style: no post this close to an edge
+                step += bend * (2.0 if (n == start or m == goal) else 1.0)
+            ng = gcur + step
+            st2 = m * 6 + d2
+            if ng < g.get(st2, math.inf):
+                g[st2] = ng
+                parent[st2] = st
+                mx, my, mz = coords[m]
+                heapq.heappush(heap, (ng + abs(mx - gx) + abs(my - gy) + abs(mz - gz), st2))
+    return None
 
-    for _ in range(max_passes):
-        changed = False
-        for ci in range(len(comps)):
-            merge_collinear(comps[ci])
-            again = True
-            while again:
-                again = False
-                verts = comps[ci]
-                for i in range(len(verts) - 3):
-                    if verts[i + 1][1] or verts[i + 2][1]:
-                        continue
-                    A, B, C, D = (verts[i][0], verts[i + 1][0],
-                                  verts[i + 2][0], verts[i + 3][0])
-                    dAB, dCD, dBC = B - A, D - C, C - B
-                    if (np.linalg.norm(dAB) < 1e-9 or np.linalg.norm(dCD) < 1e-9
-                            or np.linalg.norm(dBC) < 1e-9):
-                        continue
-                    axAB = int(np.argmax(np.abs(dAB)))
-                    if (int(np.argmax(np.abs(dCD))) != axAB
-                            or np.sign(dAB[axAB]) != np.sign(dCD[axAB])
-                            or int(np.argmax(np.abs(dBC))) == axAB):
-                        continue
-                    P = A.copy()
-                    P[axAB] = D[axAB]
-                    if not clear_ok(ci, i, P, A, D):
-                        continue
-                    verts[i + 1:i + 3] = [[P, False]]
-                    merge_collinear(verts)
-                    changed = True
-                    again = True
-                    break
-        if not changed:
+
+def _cube_route_nets(model, placement, grid, symmetry=None,
+                     bend=CUBE_BEND_PENALTY, edge_penalty=CUBE_EDGE_PENALTY,
+                     lane_penalty=CUBE_LANE_PENALTY, rounds=CUBE_ROUTE_ROUNDS,
+                     min_bend_dist=0, restarts=8):
+    """Route every connector (position p -> nextpos[p]) as a node-disjoint
+    path on the surface grid.
+
+    Each crossing reserves its node and its four port nodes (the node a pass
+    enters from and the one it leaves to); a connector starts at its pass's
+    out-port and must enter the next crossing through that pass's in-port.
+    Negotiated congestion: all nets are routed, nodes used by more than one
+    net get a present-sharing penalty that doubles every round and a history
+    penalty that accumulates, and the nets are re-routed until no node is
+    shared.  ``symmetry`` = (integer cube rotation, position step) routes one
+    net per symmetry orbit and copies it by the rotation, so the wiring is
+    exactly symmetric.  Returns ``(routes, nets, report)`` -- ``routes[p]`` the
+    node list from the out-port to the in-port -- or None when the placement
+    is invalid (two crossings claim one node) or the negotiation does not
+    converge."""
+    coords, index, nbr, sat, _edist = grid
+    pos_cross, pos_role, nextpos = model["pos_cross"], model["pos_role"], model["nextpos"]
+    positions = [p for cp in model["comp_positions"] for p in cp]
+    centre = {k: index[pl[0]] for k, pl in enumerate(placement)}
+    pdir = {p: (placement[pos_cross[p]][3] if pos_role[p] == "o"
+                else placement[pos_cross[p]][4]) for p in positions}
+
+    def step_node(node, d, back=False):
+        x, y, z = coords[node]
+        dx, dy, dz = _CUBE_DIRS[d]
+        if back:
+            dx, dy, dz = -dx, -dy, -dz
+        return index.get((x + dx, y + dy, z + dz), -1)
+
+    nets = {}
+    owner = {}
+    for k, node in centre.items():
+        owner.setdefault(node, set()).add(("c", k))
+    for p in positions:
+        q = nextpos[p]
+        s = step_node(centre[pos_cross[p]], pdir[p])
+        t = step_node(centre[pos_cross[q]], pdir[q], back=True)
+        if s < 0 or t < 0:
+            return None
+        nets[p] = (s, pdir[p], centre[pos_cross[q]], pdir[q], t)
+        owner.setdefault(s, set()).add(("n", p))
+        owner.setdefault(t, set()).add(("n", p))
+    if any(len(v) > 1 for v in owner.values()):
+        return None                                # ports collide: grid too coarse
+    reserved = set(owner)
+
+    map_node = None
+    if symmetry is not None:
+        Rk, pos_step = symmetry
+        Rk = np.asarray(Rk, int)
+
+        def map_node(node):
+            x, y, z = coords[node]
+            v = Rk @ np.array([x, y, z], int)
+            return index.get((int(v[0]), int(v[1]), int(v[2])), -1)
+        seen = set()
+        orbits = []
+        for p in positions:
+            if p in seen:
+                continue
+            orb = [p]
+            seen.add(p)
+            q = pos_step(p)
+            while q != p and q not in seen:
+                orb.append(q)
+                seen.add(q)
+                q = pos_step(q)
+            orbits.append(orb)
+    else:
+        orbits = [[p] for p in positions]
+
+    nnodes = len(coords)
+    base = [1.0 + (edge_penalty if sum(sat[i]) >= 2 else 0.0) for i in range(nnodes)]
+    # Negotiated congestion only ever moves a net that SHARES a node.  A net
+    # that took the single free lane first and thereby walled off another
+    # net's port is never penalised, and the walled-off net is driven round
+    # the whole drawing for ever (the Hopf link's four connectors on a flat
+    # grid).  So the negotiation is restarted from scratch, with the nets in
+    # a different (seeded) order and a little cost noise, up to ``restarts``
+    # times; the first attempt is exactly the original procedure, so every
+    # case that converged before converges identically.
+    import random as _random
+    _rnd = _random.Random(20261002)
+    for attempt in range(max(1, int(restarts))):
+        result = _negotiate_routes(nets, orbits, reserved, coords, nbr, sat, grid, base, bend,
+                                   lane_penalty, rounds, min_bend_dist, map_node, _rnd,
+                                   shuffle_first=(attempt > 0))
+        if result is not None:
+            routes, it = result
             break
-    return [np.array([v[0] for v in verts]) for verts in comps]
+    else:
+        return None
+    for p in positions:                             # symmetric copies must land on their own ports
+        s, _sd, _gc, _gd, gp = nets[p]
+        if not routes[p] or routes[p][0] != s or routes[p][-1] != gp:
+            return None
+    return routes, nets, {"rounds": it + 1, "attempt": attempt + 1}
 
 
-def _symmetrize_cube_anchors(model, anchors, cube_order, cube_axis):
-    """Snap crossing anchor directions to EXACT ``cube_order``-fold symmetry about
-    ``cube_axis`` by orbit-averaging, so the routed angled diagram is exactly
-    symmetric.  Returns the symmetrized unit anchors, or None if the DT has no
-    matching cyclic symmetry."""
+def _negotiate_routes(nets, orbits, reserved, coords, nbr, sat, grid, base, bend, lane_penalty,
+                      rounds, min_bend_dist, map_node, _rnd, shuffle_first=False):
+    """One run of the PathFinder negotiation; (routes, last round) or None."""
+    nnodes = len(coords)
+    hist = [0.0] * nnodes
+    occ = [0] * nnodes
+    routes = {}
+    pres_fac = 0.0
+    best = None
+    stagnant = 0
+    # From the second round on, the nets are routed in a shuffled order and
+    # every node cost carries a little noise (deterministic: seeded), so two
+    # nets whose detours are mirror images of each other do not swap sides
+    # every round for ever.
+    order = list(orbits)
+    noise = [0.0] * nnodes
+    if shuffle_first:
+        _rnd.shuffle(order)
+        noise = [1.0e-3 * _rnd.random() for _ in range(nnodes)]
+    for it in range(int(rounds)):
+        if it > 0:
+            _rnd.shuffle(order)
+            noise = [1.0e-3 * _rnd.random() for _ in range(nnodes)]
+        for orb in order:
+            for p in orb:
+                for n in routes.get(p, ()):
+                    occ[n] -= 1
+            s, sd, gc, gd, gp = nets[orb[0]]
+            blocked = reserved - {s, gp}
+            node_cost = [base[i] * (1.0 + hist[i]) * (1.0 + pres_fac * occ[i]) + noise[i]
+                         for i in range(nnodes)]
+            if lane_penalty > 0.0:
+                for i in range(nnodes):
+                    near = 0
+                    for m in nbr[i]:
+                        if m >= 0 and (occ[m] > 0 or m in reserved):
+                            near += 1
+                    if near:
+                        node_cost[i] += lane_penalty * near
+            path = _cube_route_astar(s, sd, gc, gd, gp, blocked, node_cost, grid, bend,
+                                     min_bend_dist=min_bend_dist)
+            if path is None:
+                return None
+            path = path[:-1]                        # drop the crossing node
+            routes[orb[0]] = path
+            cur = path
+            for p in orb[1:]:
+                cur = [map_node(n) for n in cur]
+                if any(n < 0 for n in cur):
+                    return None
+                routes[p] = cur
+            for p in orb:
+                for n in routes[p]:
+                    occ[n] += 1
+        shared = [i for i in range(nnodes) if occ[i] > 1]
+        if not shared:
+            break
+        if best is None or len(shared) < best:
+            best = len(shared)
+            stagnant = 0
+        else:
+            stagnant += 1
+            if stagnant >= 12:
+                return None
+        for i in shared:
+            hist[i] += 1.0 * (occ[i] - 1)
+        pres_fac = 0.5 if pres_fac == 0.0 else 2.0 * pres_fac
+    else:
+        return None
+    return routes, it
+
+
+def _cube_symmetry_action(model, anchors, cube_order, cube_axis):
+    """The exact cube symmetry matching the DT's cyclic symmetry, for the
+    angled router: ``(anchors_sym, ports_perm, Rk_int, pos_step)`` or None.
+
+    ``cube_order``-fold rotation about ``cube_axis`` (a face normal, body
+    diagonal or edge axis, so the rotation is an integer matrix on the
+    lattice).  The crossing permutation of one cube step is the DT step applied
+    kk/cube_order times; the rotation's SENSE is chosen by residual against
+    that permutation (the detected axis has a free sign), and the anchors are
+    orbit-averaged so the symmetry is exact.  ``pos_step`` maps a position to
+    its image under one cube step."""
     sym = _detect_dt_rotational_symmetry(model)
     if not sym or cube_order < 2:
         return None
@@ -7374,134 +8553,1314 @@ def _symmetrize_cube_anchors(model, anchors, cube_order, cube_axis):
         return None
     if sorted(step1) != list(range(ncr)):
         return None
-    # permutation for ONE cube-fold step = the kk-fold step applied kk/cube_order times
     perm = list(range(ncr))
     for _ in range(kk // cube_order):
         perm = [step1[perm[i]] for i in range(ncr)]
-    if sorted(perm) != list(range(ncr)):
+    if sorted(perm) != list(range(ncr)) or any(perm[i] == i for i in range(ncr)):
         return None
-    Rk = _rot_about_unit_axis(cube_axis, 2.0 * math.pi / cube_order)
+    anchors = np.asarray(anchors, float)
+    best = None
+    for sense in (1.0, -1.0):
+        Rk = _rot_about_unit_axis(cube_axis, sense * 2.0 * math.pi / cube_order)
+        resid = float(np.sum((anchors @ Rk.T - anchors[perm]) ** 2))
+        if best is None or resid < best[0]:
+            best = (resid, Rk)
+    Rk = best[1]
+    Rk_int = np.rint(Rk).astype(int)
+    if not np.allclose(Rk, Rk_int, atol=1.0e-9):
+        return None
     out = np.zeros_like(anchors)
     for i in range(ncr):
         acc = np.zeros(3, float)
         idx = i
         Rj = np.eye(3)
         for _j in range(cube_order):
-            acc += Rj.T @ anchors[idx]           # Rk^{-j} @ anchors[perm^j(i)]
+            acc += Rj.T @ anchors[idx]             # Rk^{-j} @ anchors[perm^j(i)]
             idx = perm[idx]
             Rj = Rj @ Rk
         out[i] = acc / float(cube_order)
-    return _normalize_rows(out)
+    out = _normalize_rows(out)
+    twon = int(model["twon"])
+    shift = (twon // kk) * (kk // cube_order)
+
+    def pos_step(p, _s=shift, _n=twon):
+        return (p - 1 + _s) % _n + 1
+    return out, perm, Rk_int, pos_step
 
 
-def _build_cubic_angled_components(xyz_components, model, sphere_radius,
+def _drop_collinear_closed(points, tol=1.0e-9):
+    """Remove the vertices of a closed polyline that lie on the straight line
+    through their neighbours (and repeated points)."""
+    arr = np.asarray(points, float)
+    m = len(arr)
+    if m < 4:
+        return arr
+    keep = []
+    for i in range(m):
+        d1 = arr[i] - arr[i - 1]
+        d2 = arr[(i + 1) % m] - arr[i]
+        n1 = float(np.linalg.norm(d1))
+        n2 = float(np.linalg.norm(d2))
+        if n1 <= tol or n2 <= tol:
+            continue
+        if float(d1 @ d2) / (n1 * n2) > 1.0 - tol:
+            continue
+        keep.append(i)
+    return arr[keep] if len(keep) >= 3 else arr
+
+
+def _densify_closed_polyline(points, spacing):
+    """Points every ~``spacing`` along each straight segment of a closed
+    polyline, the corners kept exactly (each segment is cut into equal
+    pieces, so the spacing is exact within a segment)."""
+    arr = np.asarray(points, float)
+    spacing = float(spacing)
+    m = len(arr)
+    if m < 2 or spacing <= 0.0:
+        return arr
+    out = []
+    for i in range(m):
+        a = arr[i]
+        b = arr[(i + 1) % m]
+        n = max(1, int(round(float(np.linalg.norm(b - a)) / spacing)))
+        for j in range(n):
+            out.append(a + (b - a) * (j / float(n)))
+    return np.asarray(out, float)
+
+
+def _cube_assemble_wires(model, placement, routes, grid, N, sphere_radius,
+                         sphere_offset):
+    """Turn the routed grid paths into closed corner polylines in XYZ units,
+    one per component, with a right-angle bridge at every crossing pass.
+
+    Pitch = sphere_radius / N, so the base cube has half-side sphere_radius.
+    At a crossing the pass leaves the base cube at a post, runs at
+    +offset (over) or -offset (under) along the face normal across the
+    crossing point and steps back at a second post.  Each post stands 45% of
+    the way to the next corner or crossing along the strand (never farther
+    than |offset| from the crossing), so two bridges on one straight connector
+    stay apart and the plateau is widest where there is room.  Route nodes
+    that fall under a bridge (collinear nodes closer to the crossing than its
+    post) are dropped, otherwise the wire would double back from the post to
+    them.  Returns ``(components, wires, stats)``: ``wires[p]`` is the
+    connector of position p from crossing node to crossing node, and
+    ``stats`` counts the corners."""
+    pitch = float(sphere_radius) / float(N)
+    coords, index, _nbr, sat, _edist = grid
+    pos_cross, pos_role, over_at = model["pos_cross"], model["pos_role"], model["over_at"]
+    nextpos = model["nextpos"]
+    off = float(sphere_offset)
+
+    def real(node):
+        return np.asarray(coords[node], float) * pitch
+
+    def pass_dir(p):
+        pl = placement[pos_cross[p]]
+        return pl[3] if pos_role[p] == "o" else pl[4]
+
+    def on_ray(route, g, d):
+        """How many leading nodes of ``route`` lie on the ray g + j*d, j = 1, 2, ..."""
+        n = 0
+        for node in route:
+            x, y, z = coords[node]
+            j = n + 1
+            if (x, y, z) != (g[0] + j * d[0], g[1] + j * d[1], g[2] + j * d[2]):
+                return n
+            n = j
+        return n
+
+    # per pass: post distances, and how many leading/trailing route nodes they cover
+    w_out, w_in, cut_lead, cut_trail = {}, {}, {}, {}
+    for cp in model["comp_positions"]:
+        for p in cp:
+            q = nextpos[p]
+            route = routes[p]
+            g_p, g_q = placement[pos_cross[p]][0], placement[pos_cross[q]][0]
+            d_p = _CUBE_DIRS[pass_dir(p)]
+            d_q = tuple(-c for c in _CUBE_DIRS[pass_dir(q)])
+            lead = on_ray(route, g_p, d_p)
+            trail = on_ray(list(reversed(route)), g_q, d_q)
+            m1 = len(route) + 1
+            # one straight line from crossing to crossing: every route node on
+            # p's ray AND the next crossing on it too (a wire that runs straight
+            # to a cube edge and folds there has all its nodes on the ray but
+            # not the crossing -- its run ends at the fold)
+            straight = (lead == len(route)
+                        and tuple(g_p[i] + m1 * d_p[i] for i in range(3)) == tuple(g_q))
+            L_out = m1 * pitch if straight else lead * pitch
+            L_in = m1 * pitch if straight else trail * pitch
+            w_out[p] = min(abs(off), 0.45 * L_out)
+            w_in[q] = min(abs(off), 0.45 * L_in)
+            cut_lead[p] = sum(1 for j in range(1, lead + 1) if j * pitch <= w_out[p] + 1.0e-9)
+            cut_trail[p] = sum(1 for j in range(1, trail + 1) if j * pitch <= w_in[q] + 1.0e-9)
+
+    comps = []
+    wires = {}
+    bends = folds = 0
+    for cp in model["comp_positions"]:
+        pts = []
+        for p in cp:
+            k = pos_cross[p]
+            g, a, sgn, _d_o, _d_e = placement[k]
+            C = np.asarray(g, float) * pitch
+            e = np.asarray(_CUBE_DIRS[pass_dir(p)], float)
+            nrm = np.zeros(3)
+            nrm[a] = sgn
+            lift = off if over_at[p] else -off
+            pts.extend([C - w_in[p] * e, C - w_in[p] * e + lift * nrm,
+                        C + w_out[p] * e + lift * nrm, C + w_out[p] * e])
+            route = routes[p]
+            kept = route[cut_lead[p]:len(route) - cut_trail[p]]
+            pts.extend(real(node) for node in kept)
+            kq = pos_cross[nextpos[p]]
+            wires[p] = np.vstack([C[None, :], np.array([real(n) for n in route]).reshape(-1, 3),
+                                  (np.asarray(placement[kq][0], float) * pitch)[None, :]])
+            # count the turns of the connector (its crossing nodes included)
+            full = [index[g]] + list(route) + [index[placement[kq][0]]]
+            for i in range(1, len(full) - 1):
+                d1 = np.asarray(coords[full[i]]) - np.asarray(coords[full[i - 1]])
+                d2 = np.asarray(coords[full[i + 1]]) - np.asarray(coords[full[i]])
+                a1 = int(np.argmax(np.abs(d1)))
+                a2 = int(np.argmax(np.abs(d2)))
+                if a1 != a2:
+                    if sat[full[i]][a1] and sat[full[i]][a2]:
+                        folds += 1
+                    else:
+                        bends += 1
+        comps.append(_drop_collinear_closed(np.asarray(pts, float)))
+    stats = {"corners": sum(len(c) for c in comps), "bends": bends, "folds": folds,
+             "bridges": sum(len(cp) for cp in model["comp_positions"])}
+    return comps, wires, stats
+
+
+def _cube_assemble_grid_wires(model, placement, routes, grid, N, sphere_radius,
+                              sphere_offset, over_axis):
+    """Grid-diagram lift of the routed wires: every segment along a face's
+    over axis runs on the OUTER concentric cube (+offset along the face
+    normal), every segment along its other axis on the INNER one (-offset),
+    so each crossing is simply the outer strand passing the inner one at a
+    right angle, with no bridge -- a grid diagram in 3-D, face by face.
+
+    A strand changes level with a radial POST wherever it turns within a face.
+    Over a cube edge it folds at the corner of the concentric cube it is on
+    when both faces keep its level, and DIVES through the base cube's edge
+    (post in, post out) when the levels differ.  Fold corners sit |offset|
+    from the edge, so in-face turns and crossings are kept at least
+    ceil(|offset| / pitch) cells from every edge (the router's min_bend_dist
+    and the placement margin), otherwise a post could land behind a fold.
+    Returns ``(components, wires, stats)`` like ``_cube_assemble_wires``."""
+    pitch = float(sphere_radius) / float(N)
+    coords, index, _nbr, sat, _edist = grid
+    pos_cross = model["pos_cross"]
+    off = float(sphere_offset)
+
+    def normal_vec(face):
+        n = np.zeros(3)
+        n[face[0]] = face[1]
+        return n
+
+    comps = []
+    wires = {}
+    posts = folds = dives = 0
+    for cp in model["comp_positions"]:
+        nodes = []
+        for p in cp:
+            k = pos_cross[p]
+            nodes.append(index[placement[k][0]])
+            nodes.extend(routes[p])
+            kq = pos_cross[model["nextpos"][p]]
+            wires[p] = np.vstack([
+                (np.asarray(placement[k][0], float) * pitch)[None, :],
+                np.array([np.asarray(coords[n], float) * pitch for n in routes[p]]).reshape(-1, 3),
+                (np.asarray(placement[kq][0], float) * pitch)[None, :]])
+        m = len(nodes)
+        segs = []
+        prev_face = None
+        for i in range(m):
+            c1, c2 = coords[nodes[i]], coords[nodes[(i + 1) % m]]
+            axis = [ax for ax in range(3) if c1[ax] != c2[ax]][0]
+            faces = [(ax, 1 if c1[ax] > 0 else -1) for ax in range(3)
+                     if ax != axis and abs(c1[ax]) == N and abs(c2[ax]) == N]
+            face = prev_face if prev_face in faces else faces[0]
+            segs.append((axis, face, off if axis == over_axis[face] else -off))
+            prev_face = face
+        if m and segs[0][1] != segs[-1][1]:
+            # the first segment's face was chosen blind; prefer continuity round the loop
+            c1, c2 = coords[nodes[0]], coords[nodes[1 % m]]
+            faces = [(ax, 1 if c1[ax] > 0 else -1) for ax in range(3)
+                     if ax != segs[0][0] and abs(c1[ax]) == N and abs(c2[ax]) == N]
+            if segs[-1][1] in faces:
+                f = segs[-1][1]
+                segs[0] = (segs[0][0], f, off if segs[0][0] == over_axis[f] else -off)
+        pts = []
+        for i in range(m):
+            a1, f1, l1 = segs[i - 1]
+            a2, f2, l2 = segs[i]
+            node = np.asarray(coords[nodes[i]], float) * pitch
+            if f1 == f2:
+                if a1 == a2:
+                    continue                      # straight on (crossings included)
+                n1 = normal_vec(f1)
+                pts.append(node + l1 * n1)
+                pts.append(node + l2 * n1)
+                posts += 1
+            else:
+                n1, n2 = normal_vec(f1), normal_vec(f2)
+                if l1 * l2 > 0.0:
+                    pts.append(node + l1 * n1 + l2 * n2)   # fold on the concentric cube
+                    folds += 1
+                else:
+                    pts.extend([node + l1 * n1, node, node + l2 * n2])
+                    dives += 1
+        comps.append(_drop_collinear_closed(np.asarray(pts, float)))
+    stats = {"corners": sum(len(c) for c in comps), "posts": posts, "folds": folds,
+             "dives": dives}
+    return comps, wires, stats
+
+
+def _build_cubic_angled_components(xyz_components, model, G, sphere_radius,
                                    sphere_offset, M, xyz_spacing, skeleton=None,
-                                   status_messages=None, return_warp=False,
-                                   cube_info=None):
-    """Route the diagram as axis-aligned 90-degree wires on a 3-shell cube.
+                                   status_messages=None, cube_info=None,
+                                   cube_grid=0, densify=True, style="angled"):
+    """Route the diagram as axis-aligned wires on the cube's surface grid --
+    see the section comment above -- and lift them as ``style`` 'angled'
+    (right-angle bridges at the crossings, _cube_assemble_wires) or 'grid'
+    (a grid diagram in 3-D: outer / inner level by face axis, posts at the
+    turns, _cube_assemble_grid_wires).  Returns ``(components, warp_pts,
+    info)``; ``info["routed"]`` is False when no grid up to CUBE_GRID_MAX
+    could be routed, in which case the smooth cube map is returned instead
+    (with a [warn]), so the export is always a valid embedding.
 
-    Three concentric cube shells carry the diagram: crossings sit on the MIDDLE
-    shell (radius R); the over-pass rides the OUTER shell (R+off) and the
-    under-pass the INNER shell (R-off), so the two strands are radially separated
-    and cross at 90 degrees.  Each connector between consecutive crossings is at
-    most three axis-aligned segments (one per cube axis).  When the DT has a
-    cyclic symmetry the crossing anchors are snapped to exact k-fold symmetry
-    about the aligned cube axis and the connector rule is equivariant, so the
-    routing is exactly symmetric; local backtracks and tiny loops are removed.
-
-    Multi-strand orthogonal routing is not yet collision-free: for a link where
-    the minimal wires would self-cross (typically denser multi-component links)
-    the routing falls back to the smooth cube map, with a warning, so the exported
-    curve is always a valid embedding.
+    The crossing anchors and pass tangents come from the gadget layout
+    (``skeleton["points"]`` / ``skeleton["ports"]``), rotated into the cube
+    frame ``M``.  With a detected cube symmetry the anchors are snapped to
+    exact symmetry and one connector per orbit is routed and copied, so the
+    wiring is exactly symmetric.  The grid is N x N per face: ``cube_grid`` if
+    given, else about CUBE_GRID_SPAN cells between the two closest crossings
+    (at least CUBE_GRID_MIN); it is refined by 30% whenever the placement
+    collides or the routing does not converge.
     """
-    _, warp_pts = _warp_components_to_cube(
+    smooth, warp_pts = _warp_components_to_cube(
         xyz_components, sphere_radius=sphere_radius, M=M,
         xyz_spacing=xyz_spacing, return_warp=True)
     R = float(sphere_radius)
-    off = abs(float(sphere_offset))
+    off = float(sphere_offset)
     Mrot = np.asarray(M, float)
+    info = {"routed": False}
 
-    def _smooth_fallback(msg):
-        smooth = _warp_components_to_cube(xyz_components, R, M, xyz_spacing)
+    def _fallback(msg):
         if status_messages is not None:
             status_messages.append(msg)
-        return (smooth, warp_pts) if return_warp else smooth
+        return smooth, warp_pts, info
 
     if skeleton is None or skeleton.get("points") is None \
-            or not len(skeleton.get("points", [])):
-        return _smooth_fallback("[info] cubic-kamada angled: no gadget anchors; "
-                                "smooth map used.")
+            or not len(skeleton.get("points", [])) or not skeleton.get("ports"):
+        return _fallback("[warn] cubic-kamada angled: no gadget anchors; smooth map used.")
 
-    anchors = np.asarray(skeleton["points"], float) @ Mrot     # unit dirs, cube frame
+    anchors = _normalize_rows(np.asarray(skeleton["points"], float) @ Mrot)
+    ports = {k: (np.asarray(v[0], float) @ Mrot, np.asarray(v[1], float) @ Mrot)
+             for k, v in skeleton["ports"].items()}
+    ncr = len(anchors)
+    if any(k not in ports for k in range(ncr)):
+        return _fallback("[warn] cubic-kamada angled: incomplete gadget ports; smooth map used.")
 
+    symmetry = None
     k_sym = 0
     if cube_info is not None and cube_info[0] == "symmetry":
-        cube_order = int(cube_info[2])
+        order = int(cube_info[2])
         target, _ = _cube_target_axis(int(cube_info[1]))
         if target is not None:
-            sym_anchors = _symmetrize_cube_anchors(model, anchors, cube_order, target)
-            if sym_anchors is not None:
-                anchors = sym_anchors
-                k_sym = cube_order
+            act = _cube_symmetry_action(model, anchors, order, target)
+            if act is not None:
+                anchors, perm, Rk_int, pos_step = act
+                Rk = Rk_int.astype(float)
+                # exact ports too: copy each orbit representative's tangents round
+                done = set()
+                for i in range(ncr):
+                    if i in done:
+                        continue
+                    idx, t_o, t_e = i, ports[i][0], ports[i][1]
+                    while True:
+                        done.add(idx)
+                        ports[idx] = (t_o, t_e)
+                        idx, t_o, t_e = perm[idx], Rk @ t_o, Rk @ t_e
+                        if idx == i:
+                            break
+                symmetry = (Rk_int, pos_step)
+                k_sym = order
 
-    pos_cross = model["pos_cross"]
-    over_at = model["over_at"]
+    rotations, disagree = _cube_crossing_rotations(model, G, anchors, ports)
+    grid_style = (str(style).lower() == "grid")
+    over_pass = ["o" if model["over_at"][c["odd"]] else "e" for c in model["crossings"]]
+    over_axes = None
+    if grid_style:
+        over_axes = _cube_choose_over_axes(
+            anchors, ports, over_pass, Rk_int=(symmetry[0] if symmetry is not None else None))
+    label = "cubic-kamada %s" % ("grid" if grid_style else "angled")
 
-    def pass_point(p):
-        k = pos_cross[p]
-        radius = R + (off if over_at[p] else -off)     # outer for over, inner for under
-        return _cube_point(anchors[k], radius)
+    # grid resolution: ~CUBE_GRID_SPAN cells between the two closest crossings
+    P = anchors / np.max(np.abs(anchors), axis=1)[:, None]      # on the unit cube
+    if ncr >= 2:
+        dm = np.linalg.norm(P[:, None, :] - P[None, :, :], axis=2)
+        dmin = float(np.min(dm[np.triu_indices(ncr, 1)]))
+    else:
+        dmin = 2.0
+    requested = int(cube_grid or 0)
+    N = requested if requested > 0 else max(CUBE_GRID_MIN, int(math.ceil(CUBE_GRID_SPAN / max(dmin, 1.0e-6))))
+    N0 = N
+    result = None
+    sym_used = False
+    skipped = []
+    while result is None and N <= CUBE_GRID_MAX:
+        pitch = R / float(N)
+        if grid_style and abs(off) > 0.0:
+            # a fold corner sits |offset| from the edge: never let that be a
+            # grid lane (a strand on it would run through the corners)
+            frac = (abs(off) / pitch) % 1.0
+            if min(frac, 1.0 - frac) < 0.15:
+                skipped.append(N)
+                N += 1
+                continue
+        margin = (int(math.floor(abs(off) / pitch)) + 1) if grid_style else 1
+        grid = _cube_surface_grid(N)
+        placement = _cube_place_crossings(anchors, ports, rotations, N, margin=margin,
+                                          over_axis=over_axes, over_pass=over_pass)
+        kw = {"min_bend_dist": margin} if grid_style else {}
+        if symmetry is not None:
+            result = _cube_route_nets(model, placement, grid, symmetry=symmetry, **kw)
+            sym_used = result is not None
+        if result is None:
+            result = _cube_route_nets(model, placement, grid, symmetry=None, **kw)
+        if result is None:
+            N = int(math.ceil(1.3 * N))
+    if result is None:
+        return _fallback(
+            "[warn] %s: could not route the diagram on a surface "
+            "grid up to %d x %d per face (%d crossings%s); smooth cube map used "
+            "instead.  The sphere layout's crossing arrangement needs strands to "
+            "cross where the diagram has no crossing, which the audit of the "
+            "smooth build will also report." % (
+                label, CUBE_GRID_MAX, CUBE_GRID_MAX, ncr,
+                ", %d gadgets embedded the wrong way round" % disagree if disagree else ""))
 
-    out = []
-    for cp in model["comp_positions"]:
-        pts = [pass_point(p) for p in cp]
-        n = len(pts)
-        path = []
-        for i in range(n):
-            seg = _ortho_connector(pts[i], pts[(i + 1) % n])
-            path.extend(seg[:-1])                  # B is the next segment's start
-        cleaned = _clean_ortho_path(path, grid=max(1.0, 0.5 * off))
-        out.append(np.asarray(cleaned, float) if len(cleaned) >= 3
-                   else np.asarray(path, float))
-
-    if not _components_self_intersect(out, tol=0.5 * off):
-        if status_messages is not None:
-            corners = sum(len(c) for c in out)
-            sym_txt = (" (exact %d-fold symmetry)" % k_sym) if k_sym else ""
-            status_messages.append(
-                "[info] cubic-kamada angled: 3-shell wires, %d corners, <=3 "
-                "segments per connector%s." % (corners, sym_txt))
-        return (out, warp_pts) if return_warp else out
-
-    # The minimal free wires would self-cross (denser multi-component links).
-    # Fall back to a COLLISION-FREE orthogonalisation of the disjoint smooth cube
-    # curve: it hugs that curve (so it cannot self-cross) and its staircases are
-    # then collapsed as far as the inter-strand clearance allows.  Over/under is
-    # still the radial bump built into the smooth curve; crossings are pinned.
-    smooth, warp_pts2 = _warp_components_to_cube(
-        xyz_components, sphere_radius=R, M=M, xyz_spacing=xyz_spacing,
-        return_warp=True)
-    grid = max(0.5, 0.6 * off) if off > 1.0e-6 else max(0.5, 0.5 * float(xyz_spacing))
-    ortho = [_orthogonalize_cube_curve(c, grid) for c in smooth]
-    # crossing anchors on the cube (for pinning): over-layer point per crossing
-    anchors_cube = np.array([_cube_point(anchors[k], R + off) for k in range(len(anchors))])
-    pins = [[] for _ in ortho]
-    for ci, cp in enumerate(model["comp_positions"]):
-        if ci < len(pins):
-            for p in cp:
-                k = pos_cross[p]
-                if 0 <= k < len(anchors_cube):
-                    pins[ci].append(anchors_cube[k])
-    reduced = _reduce_ortho_turns(ortho, pins, grid, min_clear=0.8 * grid)
-    if _components_self_intersect(reduced, tol=0.35 * off):
-        reduced = ortho              # keep the un-collapsed (still collision-free) staircase
+    routes, _nets, rep = result
+    if grid_style:
+        comps, wires, stats = _cube_assemble_grid_wires(model, placement, routes, grid, N, R, off,
+                                                        over_axes)
+    else:
+        comps, wires, stats = _cube_assemble_wires(model, placement, routes, grid, N, R, off)
+    pitch = R / float(N)
+    disp = [float(np.linalg.norm(np.asarray(pl[0], float) * pitch - P[k] * R))
+            for k, pl in enumerate(placement)]
+    info.update({
+        "routed": True, "style": "grid" if grid_style else "angled",
+        "grid": N, "pitch": pitch, "requested": requested,
+        "corners": stats["corners"], "symmetry": k_sym if sym_used else 0,
+        "rounds": rep["rounds"], "max_displacement": max(disp) if disp else 0.0,
+        "crossing_points": np.array([np.asarray(pl[0], float) * pitch for pl in placement]),
+        "wires": [wires[p] for cp in model["comp_positions"] for p in cp],
+        "rotation_disagreements": disagree, "over_axes": over_axes,
+    })
+    info.update({k: v for k, v in stats.items() if k != "corners"})
     if status_messages is not None:
-        corners = sum(len(c) for c in reduced)
+        sym_txt = ""
+        if k_sym and sym_used:
+            sym_txt = ", exactly %d-fold symmetric about the aligned cube axis" % k_sym
+        elif k_sym:
+            sym_txt = ", symmetric copies did not fit so the connectors were routed one by one"
         status_messages.append(
-            "[info] cubic-kamada angled: minimal wires self-cross for this link; "
-            "used collision-free orthogonalised wires (%d corners). Exact-symmetry "
-            "minimal routing for multi-component links is still limited." % corners)
-    return (reduced, warp_pts2) if return_warp else reduced
+            "[info] %s: %d x %d grid per face (pitch %.2f), %d crossings "
+            "placed within %.2f of their layout positions, %d connectors routed "
+            "node-disjoint in %d negotiation round%s%s."
+            % (label, N, N, pitch, ncr, info["max_displacement"], len(routes), rep["rounds"],
+               "" if rep["rounds"] == 1 else "s", sym_txt))
+        if grid_style:
+            axis_names = "xyz"
+            face_txt = ", ".join(
+                "%s%s:%s" % ("+" if sgn > 0 else "-", axis_names[a], axis_names[over_axes[(a, sgn)]])
+                for a in range(3) for sgn in (1, -1))
+            status_messages.append(
+                "[info] %s: %d corners -- %d posts at in-face turns, %d folds on the "
+                "concentric cubes and %d dives through the base cube's edges; strands "
+                "along a face's over axis run at %+.3f, the others at %+.3f from the "
+                "base cube, so every crossing is the outer strand passing the inner "
+                "one (over axis per face: %s)."
+                % (label, stats["corners"], stats["posts"], stats["folds"], stats["dives"],
+                   off, -off, face_txt))
+        else:
+            status_messages.append(
+                "[info] %s: %d corners -- %d right-angle bridges (4 each), "
+                "%d in-face bends and %d folds over cube edges; every segment is parallel "
+                "to a cube axis and the over-strand is at %+.3f, the under-strand at "
+                "%+.3f from the base cube." % (label, stats["corners"], stats["bridges"],
+                                                stats["bends"], stats["folds"], off, -off))
+        if requested > 0 and N != requested:
+            status_messages.append(
+                "[note] --cube-grid %d was too coarse to place and route this diagram%s; "
+                "refined to %d." % (requested,
+                                    " (or put a grid lane |offset| from the edges, where "
+                                    "the grid style's fold corners sit)" if skipped else "",
+                                    N))
+        elif requested <= 0 and N != N0:
+            status_messages.append(
+                "[note] the automatic %d x %d grid could not be %s; refined to %d x %d."
+                % (N0, N0, "used (a grid lane would sit |offset| from the edges, on the "
+                           "fold corners)" if (skipped and N0 in skipped) else "routed", N, N))
+        if disagree:
+            status_messages.append(
+                "[note] %d of %d crossing gadgets are embedded the other way round in the "
+                "sphere layout; the wiring follows the diagram's planar embedding, so it "
+                "is correct, but those connectors take detours around the cube." % (disagree, ncr))
+    if densify:
+        comps = [_densify_closed_polyline(c, xyz_spacing) for c in comps]
+    return comps, warp_pts, info
+
+
+# --------------------------------------------------------------------------
+# V5.7: --sphere-layout grid-diagram -- the 3-D lift of a MINIMAL grid diagram.
+#
+# A grid diagram (KnotInfo's "grid notation", an arc presentation) is an n x n
+# grid with one X and one O in every row and column; vertical segments join
+# the X and O of a column, horizontal ones those of a row, and the vertical
+# always passes OVER.  grid_diagram.py builds one from the DT code (via the
+# braid closure), shrinks it by grid moves and certifies the size against the
+# Morton-Beltrami bound.  The lift puts every vertical segment on the plane
+# z = +offset, every horizontal one on z = -offset, and a post at each X and O:
+# a lattice polygon whose every edge is parallel to an axis, with every
+# crossing the upper strand passing the lower one at a right angle -- a grid
+# diagram in 3-D.  No smoothing or clearance repair touches it (it is exact);
+# the topology audit runs as usual.
+# --------------------------------------------------------------------------
+
+GRID_DIAGRAM_STEPS = 20000      # default simplification steps
+GRID_DIAGRAM_TIME_LIMIT = 90.0  # seconds, per diagram
+
+
+def _import_grid_diagram():
+    """grid_diagram.py next to this file (unversioned on purpose, like
+    dt_converter), imported once."""
+    import importlib.util
+    here = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(here, "grid_diagram.py")
+    if not os.path.exists(path):
+        raise RuntimeError("grid_diagram.py is missing next to %s" % os.path.basename(__file__))
+    spec = importlib.util.spec_from_file_location("grid_diagram", path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules.setdefault("grid_diagram", mod)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _import_chain_layout():
+    """chain_layout.py next to this file (unversioned on purpose, like
+    grid_diagram), imported once.  It finds this script by itself (newest
+    draw_dt_original_labels*.py, or the running program), so a version bump
+    needs no edit there."""
+    if "chain_layout" in sys.modules:
+        return sys.modules["chain_layout"]
+    import importlib.util
+    here = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(here, "chain_layout.py")
+    if not os.path.exists(path):
+        raise RuntimeError("chain_layout.py is missing next to %s" % os.path.basename(__file__))
+    spec = importlib.util.spec_from_file_location("chain_layout", path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["chain_layout"] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def dt_string_from_model(model):
+    """The signed DT code the model was built from, in the project spelling
+    (a one-crossing component keeps its trailing comma)."""
+    comps = []
+    for cp in model["comp_positions"]:
+        comps.append(tuple(model["crossings"][model["pos_cross"][p]]["even_signed"]
+                           for p in cp if p % 2 == 1))
+    return "DT: [%s]" % ", ".join(repr(tuple(int(v) for v in c)) for c in comps)
+
+
+def _build_grid_diagram_xyz_components(model, sphere_radius, sphere_offset, xyz_spacing,
+                                       densify=True, steps=GRID_DIAGRAM_STEPS, seed=0,
+                                       status_messages=None, same_diagram=True):
+    """Minimal grid diagram of the model's link, lifted to 3-D.  Returns
+    ``(components, info)``; the grid spans [-R, R] in x and y (pitch
+    2R / (n - 1)), verticals at z = +offset, horizontals at z = -offset."""
+    gd = _import_grid_diagram()
+    dt = dt_string_from_model(model)
+    msgs = status_messages if status_messages is not None else []
+    G, info = gd.minimal_grid_for_dt(dt, steps=int(steps), seed=int(seed),
+                                     time_limit=GRID_DIAGRAM_TIME_LIMIT, messages=msgs,
+                                     same_diagram=bool(same_diagram))
+    R = float(sphere_radius)
+    off = float(sphere_offset)
+    n = G.n
+    pitch = 2.0 * R / max(1, n - 1)
+    comps = gd.lift_3d(G, pitch=pitch, level=off)
+    corners = sum(len(c) for c in comps)
+    info = dict(info)
+    info.update({"pitch": pitch, "corners": corners, "notation": G.notation(),
+                 "knotinfo": G.knotinfo_notation(),
+                 "crossing_points": np.array([[(c - (n - 1) / 2.0) * pitch,
+                                               ((n - 1) / 2.0 - r) * pitch, 0.0]
+                                              for (r, c, _s) in G.crossings()], float)
+                 if G.crossings() else np.zeros((0, 3), float)})
+    msgs.append(
+        "[grid] 3-D lift: %d x %d grid at pitch %.3f spanning [%.1f, %.1f]; the %d vertical "
+        "segments lie on z = %+.3f, the %d horizontal ones on z = %+.3f, joined by %d posts "
+        "at the X and O cells -- %d corners, every edge parallel to an axis, every crossing "
+        "the %s strand passing the %s one at a right angle."
+        % (n, n, pitch, -R, R, n, off, n, -off, 2 * n, corners,
+           "upper" if off >= 0 else "lower", "lower" if off >= 0 else "upper"))
+    if off < 0.0:
+        msgs.append("[grid] the crossing offset is negative, so the horizontal segments are the "
+                    "upper ones: this is the MIRROR image, as for every other layout.")
+    if densify:
+        comps = [gd.densify_closed(c, xyz_spacing) for c in comps]
+    return comps, info
+
+
+# --------------------------------------------------------------------------
+# V5.7: shaped-kamada on a CLOSED cylinder (--surface-shape capped-cylinder).
+#
+# The open-cylinder warp maps the finished spherical curve by Archimedes'
+# projection, which is one-to-one, so the cylinder curve has whatever link the
+# spherical Kamada-Kawai directions realise -- and for an elongated chain those
+# are folded in both end clasps (the end ring tucked inside its neighbour, seen
+# edge-on from the centre), the chain sweeps 266 deg round the sphere, and no
+# choice of axis can straighten it.  The closed cylinder instead gets its own
+# direction step, computed for the can with the chain along its axis:
+#   1. POLES: a point inside the first end ring (and not inside any other
+#      ring) and one inside the last end ring, each as far from every curve
+#      as possible, chosen in the 2-D drawing.  'auto' takes the end
+#      components of a path-shaped component-adjacency graph (a chain);
+#      otherwise the deepest interior point and infinity.
+#   2. LIFT: the Moebius map w = s (z - b) / (z - a) and the inverse
+#      stereographic projection send the two poles to the south and north
+#      poles -- an orientation-preserving homeomorphism, so an embedding.
+#   3. KAMADA ON THE CAN: the Kamada-Kawai stress between the CAN points of
+#      all gadget-graph nodes (plus two fixed hubs at the poles), with
+#      penalties that keep the end rings' nodes on the end discs and the rest
+#      on the wall, a barrier keeping vertices off non-incident edges, gadget
+#      conditioning for the compaction, and a STEP-REJECTION certificate: a
+#      step is taken only if every face keeps its orientation, no two
+#      geodesic edges cross and no vertex touches a non-incident edge.  The
+#      layout therefore stays an embedding all the way (prototype measured
+#      on the chain: 0 rejected certificate checks).
+# The spherical builder then runs on these directions unchanged, and the
+# finished curve is projected from the centre onto the concentric cans
+# (radius rad + o, half-height H + o):  p = d * min((rad + o) / rho, (H + o) / |d_z|).
+# For each offset that is a bijection of the sphere onto that can, and it
+# increases with o, so the can curve is ambient-isotopic to the spherical
+# curve -- same link, same handedness.  Axis = z by construction.
+# --------------------------------------------------------------------------
+
+_CAPPED_CYLINDER_CACHE = {}
+_CC_ROLES = ("in_o", "in_e", "out_o", "out_e")
+
+
+def _cc_nearest_distance(pts, curve_pts):
+    """Distance from every point of ``pts`` to the nearest of ``curve_pts``
+    (scipy's cKDTree when available, else a chunked brute force)."""
+    try:
+        from scipy.spatial import cKDTree
+        return cKDTree(curve_pts).query(pts)[0]
+    except Exception:  # noqa: BLE001
+        out = np.empty(len(pts))
+        cp = np.asarray(curve_pts, float)
+        for s in range(0, len(pts), 512):
+            q = np.asarray(pts[s:s + 512], float)
+            out[s:s + 512] = np.sqrt(((q[:, None, :] - cp[None, :, :]) ** 2).sum(-1)).min(axis=1)
+        return out
+
+
+CAPPED_CYLINDER_DEFAULTS = dict(h=3.0, inflate=1.5, mus=(1e2, 1e3, 1e4), beta=10.0, delta=0.2,
+                beta2=1e3, sigma_deg=2.5, sigma_hub_deg=9.0, nu=30.0, rho0=0.5,
+                sin0=0.7, cap_margin_deg=2.0, wall_margin_deg=1.0, maxit=4000,
+                max_step_deg=1.0, mem=12, tol=1e-7, patience=40, eps_deg=0.05)
+
+
+# =========================================================== small helpers
+def _cc_unit_rows(A):
+    A = np.asarray(A, float)
+    return A / np.linalg.norm(A, axis=1, keepdims=True)
+
+
+def _cc_inverse_stereographic(uv):
+    """The library's lift: (0,0) -> (0,0,1), infinity -> (0,0,-1)."""
+    uv = np.asarray(uv, float)
+    r2 = (uv ** 2).sum(1)
+    out = np.c_[2 * uv[:, 0], 2 * uv[:, 1], 1 - r2] / (1 + r2)[:, None]
+    return _cc_unit_rows(out)
+
+
+def _cc_node_component(model):
+    out = {}
+    for k, cr in enumerate(model["crossings"]):
+        co = model["comp_of"][cr["odd"]]; ce = model["comp_of"][cr["even"]]
+        out[(k, "in_o")] = co; out[(k, "out_o")] = co
+        out[(k, "in_e")] = ce; out[(k, "out_e")] = ce
+    for ci, cp in enumerate(model["comp_positions"]):
+        for p in cp:
+            out[("seg", p)] = ci
+    return out
+
+
+def _cc_crossing_components(model):
+    return [(model["comp_of"][cr["odd"]], model["comp_of"][cr["even"]])
+            for cr in model["crossings"]]
+
+
+def _cc_auto_ends(model):
+    """End components of a path-shaped component-adjacency graph, else None."""
+    k = len(model["comp_positions"])
+    if k < 3:
+        return None
+    A = nx.Graph()
+    A.add_nodes_from(range(k))
+    for i, j in _cc_crossing_components(model):
+        if i != j:
+            A.add_edge(i, j)
+    deg = dict(A.degree())
+    if nx.is_connected(A) and A.number_of_edges() == k - 1 and max(deg.values()) <= 2:
+        e = sorted(v for v, d in deg.items() if d == 1)
+        return (e[0], e[1])
+    return None
+
+
+# =========================================================== 1. poles
+def _cc_component_curves(model, P, centers, samples=24):
+    return [s["xy"] for s in _sample_planar_components_for_sphere(model, P, centers, samples)]
+
+
+def _cc_winding(curve, pts, chunk=4000):
+    c = np.asarray(curve, float); c1 = np.roll(c, -1, axis=0)
+    out = np.zeros(len(pts))
+    for s in range(0, len(pts), chunk):
+        q = pts[s:s + chunk][:, None, :]
+        a = c[None] - q; b = c1[None] - q
+        out[s:s + chunk] = np.arctan2(a[..., 0] * b[..., 1] - a[..., 1] * b[..., 0],
+                                      (a * b).sum(-1)).sum(1) / (2 * math.pi)
+    return np.rint(out).astype(int)
+
+
+def _cc_choose_poles(model, P, centers, ends=None, grid=(240, 120), report=None):
+    curves = _cc_component_curves(model, P, centers)
+    allc = np.vstack(curves)
+    lo, hi = allc.min(0), allc.max(0)
+    pad = 0.02 * (hi - lo)
+    X, Y = np.meshgrid(np.linspace(lo[0] + pad[0], hi[0] - pad[0], grid[0]),
+                       np.linspace(lo[1] + pad[1], hi[1] - pad[1], grid[1]))
+    pts = np.c_[X.ravel(), Y.ravel()]
+    clear = _cc_nearest_distance(pts, allc)
+    Wn = np.array([_cc_winding(c, pts) for c in curves])
+    rep = {}
+
+    def best(mask, what):
+        if not mask.any():
+            return None
+        i = int(np.argmax(np.where(mask, clear, -1)))
+        rep[what] = dict(xy=[round(float(pts[i, 0]), 4), round(float(pts[i, 1]), 4)],
+                         clearance=round(float(clear[i]), 4))
+        return complex(*pts[i])
+
+    if ends is None:
+        a = best((Wn != 0).any(0), "a"); b = None; rep["b"] = "infinity"
+    else:
+        i, j = ends
+        others = [c for c in range(len(curves)) if c not in (i, j)]
+        mi = (Wn[i] != 0) & (Wn[j] == 0)
+        mj = (Wn[j] != 0) & (Wn[i] == 0)
+        mo = (Wn[others] == 0).all(0) if others else np.ones(len(pts), bool)
+        a = best(mi & mo, "a") or best(mi, "a")
+        b = best(mj & mo, "b") or best(mj, "b")
+    if report is not None:
+        report.update(rep)
+    if a is None or (ends is not None and b is None):
+        raise ValueError("no pole position found for ends=%r" % (ends,))
+    return a, b
+
+
+# =========================================================== 2. lift
+def _cc_mobius(xy, a, b, s):
+    z = xy[:, 0] + 1j * xy[:, 1]
+    return s / (z - a) if b is None else s * (z - b) / (z - a)
+
+
+def _cc_pole_lift(P, nodes, a, b, model):
+    XY = np.array([P[v] for v in nodes], float)
+    C = np.array([np.mean([P[(k, r)] for r in _CC_ROLES], axis=0)
+                  for k in range(len(model["crossings"]))])
+    s = float(np.exp(-np.median(np.log(np.abs(_cc_mobius(C, a, b, 1.0))))))
+    w = _cc_mobius(XY, a, b, s)
+    return _cc_inverse_stereographic(np.c_[w.real, w.imag]), s
+
+
+# =========================================================== embedding
+def _cc_drawing_faces(G, P):
+    """Faces of the straight-line drawing P (its own rotation system)."""
+    emb = nx.PlanarEmbedding()
+    for v in G.nodes():
+        pv = np.asarray(P[v], float)
+        prev = None
+        for w in sorted(G.neighbors(v), key=lambda w: math.atan2(P[w][1] - pv[1], P[w][0] - pv[0])):
+            if prev is None:
+                emb.add_half_edge_first(v, w)
+            else:
+                emb.add_half_edge_ccw(v, w, prev)
+            prev = w
+    emb.check_structure()
+    seen = set(); faces = []
+    for v in emb.nodes():
+        for w in emb.neighbors_cw_order(v):
+            if (v, w) not in seen:
+                faces.append(emb.traverse_face(v, w, mark_half_edges=seen))
+    return faces
+
+
+def _cc_face_containing(face_list, P, pt):
+    areas = []
+    for f in face_list:
+        xy = np.array([P[v] for v in f], float)
+        areas.append(0.5 * float(np.sum(xy[:, 0] * np.roll(xy[:, 1], -1) - np.roll(xy[:, 0], -1) * xy[:, 1])))
+    areas = np.array(areas)
+    outer = int(np.argmax(-np.sign(np.median(areas)) * areas))
+    if pt is None:
+        return outer
+    best = None
+    for i, f in enumerate(face_list):
+        if i != outer and Path(np.array([P[v] for v in f], float)).contains_point((pt.real, pt.imag)):
+            if best is None or abs(areas[i]) < abs(areas[best]):
+                best = i
+    return best
+
+
+class _CanCertificate:
+    """Geodesic drawing of a graph on S^2 is an embedding with the reference
+    rotation system iff (checked here): no two non-adjacent geodesic edges
+    cross, every face but the largest keeps its reference orientation sign,
+    and no vertex is within eps of a non-incident edge."""
+
+    def __init__(self, n, edges, faces, U_ref, eps_deg=0.05):
+        self.E = np.asarray(edges, int)
+        self.faces = faces
+        tf, ta, tb = [], [], []
+        for fi, f in enumerate(faces):
+            for j in range(len(f)):
+                tf.append(fi); ta.append(f[j]); tb.append(f[(j + 1) % len(f)])
+        self.tf, self.ta, self.tb = np.array(tf), np.array(ta), np.array(tb)
+        self.nf = len(faces)
+        self.fmat = np.zeros((self.nf, n))
+        for fi, f in enumerate(faces):
+            for v in f:
+                self.fmat[fi, v] += 1.0
+        A = self.areas(U_ref)
+        self.big = int(np.argmax(np.abs(A)))
+        self.sign_ref = np.sign(A)
+        self.eps = math.radians(eps_deg)
+        self.inc = np.zeros((n, len(self.E)), bool)
+        self.inc[self.E[:, 0], np.arange(len(self.E))] = True
+        self.inc[self.E[:, 1], np.arange(len(self.E))] = True
+        i, j = np.triu_indices(len(self.E), 1)
+        Ei, Ej = self.E[i], self.E[j]
+        share = ((Ei[:, 0] == Ej[:, 0]) | (Ei[:, 0] == Ej[:, 1]) |
+                 (Ei[:, 1] == Ej[:, 0]) | (Ei[:, 1] == Ej[:, 1]))
+        self.pi, self.pj = i[~share], j[~share]
+
+    def areas(self, U):
+        c = _cc_unit_rows(self.fmat @ U)
+        C = c[self.tf]; A = U[self.ta]; B = U[self.tb]
+        num = np.einsum("ij,ij->i", C, np.cross(A, B))
+        den = 1.0 + (C * A).sum(1) + (A * B).sum(1) + (B * C).sum(1)
+        return np.bincount(self.tf, weights=2.0 * np.arctan2(num, den), minlength=self.nf)
+
+    def edge_crossings(self, U):
+        A = U[self.E[:, 0]]; B = U[self.E[:, 1]]
+        N = np.cross(A, B)
+        mid = _cc_unit_rows(A + B)
+        half = 0.5 * np.arccos(np.clip((A * B).sum(1), -1, 1))
+        i, j = self.pi, self.pj
+        keep = np.arccos(np.clip((mid[i] * mid[j]).sum(1), -1, 1)) <= half[i] + half[j] + 1e-9
+        i, j = i[keep], j[keep]
+        if len(i) == 0:
+            return 0
+        s1 = (N[i] * A[j]).sum(1); s2 = (N[i] * B[j]).sum(1)
+        s3 = (N[j] * A[i]).sum(1); s4 = (N[j] * B[i]).sum(1)
+        hit = (s1 * s2 < 0) & (s3 * s4 < 0) & (((A[i] + B[i]) * (A[j] + B[j])).sum(1) > 0)
+        return int(hit.sum())
+
+    def min_vertex_edge(self, U):
+        d = _cc_vertex_edge_dist(U, self.E)[0]
+        d = np.where(self.inc, np.inf, d)
+        return float(np.arcsin(np.clip(d.min(), 0, 1)))
+
+    def check(self, U):
+        A = self.areas(U)
+        bad = np.nonzero((np.sign(A) != self.sign_ref) & (np.arange(self.nf) != self.big))[0]
+        out = {"bad_faces": int(len(bad))}
+        if len(bad):
+            out["ok"] = False; return out
+        out["edge_x"] = self.edge_crossings(U)
+        if out["edge_x"]:
+            out["ok"] = False; return out
+        out["min_ve_deg"] = math.degrees(self.min_vertex_edge(U))
+        out["ok"] = out["min_ve_deg"] > math.degrees(self.eps)
+        return out
+
+
+def _cc_vertex_edge_dist(U, E):
+    """(n, m) sine/chord distance from every vertex to every geodesic edge, and
+    the pieces needed for its gradient."""
+    A = U[E[:, 0]]; B = U[E[:, 1]]
+    c = np.cross(A, B)
+    cn = np.maximum(np.linalg.norm(c, axis=1), 1e-15)
+    N = c / cn[:, None]
+    s = U @ N.T                                                  # (n, m)
+    c1 = np.einsum("mk,nmk->nm", N, np.cross(A[None], U[:, None, :]))
+    c2 = np.einsum("mk,nmk->nm", N, np.cross(U[:, None, :], B[None]))
+    inside = (c1 > 0) & (c2 > 0)
+    dA = np.linalg.norm(U[:, None, :] - A[None], axis=-1)
+    dB = np.linalg.norm(U[:, None, :] - B[None], axis=-1)
+    useA = dA <= dB
+    d = np.where(inside, np.abs(s), np.where(useA, dA, dB))
+    return d, (A, B, N, cn, s, inside, useA, dA, dB)
+
+
+# =========================================================== 3. the objective
+class _CanObjective:
+    """f(U) = stress_can + mu * cap/wall + beta * barrier + nu * gadget, with
+    an analytic gradient (checked against autograd: see e15_gradcheck.py)."""
+
+    def __init__(self, Dm, h, bot, top, wall, E, inc, gadgets, hubs, p):
+        n = len(Dm)
+        self.n = n
+        self.iu = np.triu_indices(n, 1)
+        self.invd = np.zeros((n, n)); m = Dm > 0
+        self.invd[m] = 1.0 / Dm[m]
+        self.h = float(h)
+        self.gc = math.atan(1.0 / self.h)
+        self.bot = np.asarray(bot, int); self.top = np.asarray(top, int); self.wall = np.asarray(wall, int)
+        self.mc = math.radians(p["cap_margin_deg"]); self.mw = math.radians(p["wall_margin_deg"])
+        self.mu = 0.0
+        self.beta = p["beta"]; self.delta = p["delta"]; self.beta2 = p["beta2"]
+        self.E = np.asarray(E, int); self.inc = inc
+        sig = 2 * math.sin(math.radians(p["sigma_deg"]) / 2)
+        self.sigv = np.full(n, sig)
+        for hb in hubs:
+            self.sigv[hb] = max(sig, 2 * math.sin(math.radians(p["sigma_hub_deg"]) / 2))
+        self.G4 = np.asarray(gadgets, int)
+        self.nu = p["nu"]; self.lrho = math.log(1.0 / p["rho0"]); self.sin0 = p["sin0"]
+        deg = np.zeros(n)
+        np.add.at(deg, self.E[:, 0], 1); np.add.at(deg, self.E[:, 1], 1)
+        self.deg = np.maximum(deg, 1)
+
+    # -- can map at o = 0 and its vector-Jacobian product
+    def can(self, U):
+        rho = np.sqrt(np.maximum(U[:, 0] ** 2 + U[:, 1] ** 2, 1e-18))
+        az = np.maximum(np.abs(U[:, 2]), 1e-12)
+        wall = (1.0 / rho) <= (self.h / az)
+        f = np.where(wall, 1.0 / rho, self.h / az)
+        return U * f[:, None], (rho, az, wall)
+
+    def can_vjp(self, U, aux, gp):
+        rho, az, wall = aux
+        ug = (U * gp).sum(1)
+        gw = gp / rho[:, None]
+        gw[:, 0] -= ug * U[:, 0] / rho ** 3
+        gw[:, 1] -= ug * U[:, 1] / rho ** 3
+        gc = self.h * gp / az[:, None]
+        gc[:, 2] -= self.h * np.sign(U[:, 2]) * ug / az ** 2
+        return np.where(wall[:, None], gw, gc)
+
+    def stress(self, U, grad=True):
+        p, aux = self.can(U)
+        diff = p[:, None, :] - p[None, :, :]
+        dist = np.sqrt(np.maximum((diff ** 2).sum(-1), 1e-30))
+        a = dist * self.invd
+        au = a[self.iu]
+        t = au.sum() / (au * au).sum()
+        R = t * a - 1.0
+        np.fill_diagonal(R, 0.0)
+        S = 0.5 * float((R[self.iu] ** 2).sum())
+        if not grad:
+            return S, t, None
+        Wm = R * t * self.invd / dist
+        np.fill_diagonal(Wm, 0.0)
+        gp = Wm.sum(1)[:, None] * p - Wm @ p
+        return S, t, self.can_vjp(U, aux, gp)
+
+    def penalty(self, U):
+        uz = np.clip(U[:, 2], -1 + 1e-12, 1 - 1e-12)
+        ths = np.arccos(-uz); thn = np.arccos(uz)
+        dths = 1.0 / np.sqrt(1 - uz ** 2)        # d ths / d uz
+        dthn = -dths
+        g = np.zeros_like(U); P = 0.0
+        if len(self.bot):
+            v = np.maximum(ths[self.bot] - (self.gc - self.mc), 0)
+            P += float((v ** 2).sum()); g[self.bot, 2] += 2 * v * dths[self.bot]
+        if len(self.top):
+            v = np.maximum(thn[self.top] - (self.gc - self.mc), 0)
+            P += float((v ** 2).sum()); g[self.top, 2] += 2 * v * dthn[self.top]
+        if len(self.wall):
+            v1 = np.maximum((self.gc + self.mw) - ths[self.wall], 0)
+            v2 = np.maximum((self.gc + self.mw) - thn[self.wall], 0)
+            P += float((v1 ** 2).sum() + (v2 ** 2).sum())
+            g[self.wall, 2] += -2 * v1 * dths[self.wall] - 2 * v2 * dthn[self.wall]
+        return P, g
+
+    def barrier(self, U):
+        E = self.E
+        d, (A, B, N, cn, s, inside, useA, dA, dB) = _cc_vertex_edge_dist(U, E)
+        d = np.where(self.inc, 1e9, d)
+        le = np.linalg.norm(A - B, axis=1)
+        lv = np.zeros(self.n)
+        np.add.at(lv, E[:, 0], le); np.add.at(lv, E[:, 1], le)
+        lv /= self.deg
+        dl = self.delta * np.minimum(le[None, :], lv[:, None])
+        SG = np.broadcast_to(self.sigv[:, None], d.shape)
+        m1 = d < dl; m2 = d < SG
+        dd = np.maximum(d, 1e-12)
+        val = np.where(m1, (dl / dd - 1.0) ** 2, 0.0) + \
+            np.where(m2, (self.beta2 / self.beta) * ((SG - d) / SG) ** 2, 0.0)
+        Bv = float(val.sum())
+        dphi = np.where(m1, -2.0 * (dl / dd - 1.0) * dl / dd ** 2, 0.0) + \
+            np.where(m2, -2.0 * (self.beta2 / self.beta) * (SG - d) / SG ** 2, 0.0)
+        g = np.zeros_like(U)
+        vi, ei = np.nonzero(dphi != 0.0)
+        if len(vi):
+            w = dphi[vi, ei]
+            ins = inside[vi, ei]
+            # inside the arc: d = |s|, s = U_v . (A x B)/|A x B|
+            if ins.any():
+                v_, e_, w_ = vi[ins], ei[ins], w[ins]
+                sg = np.sign(s[v_, e_])
+                Nv = N[e_]; Uv = U[v_]; ss = s[v_, e_]
+                q = (Uv - ss[:, None] * Nv) / cn[e_][:, None]          # d s / d c
+                np.add.at(g, v_, (w_ * sg)[:, None] * Nv)
+                np.add.at(g, E[e_, 0], (w_ * sg)[:, None] * np.cross(B[e_], q))
+                np.add.at(g, E[e_, 1], (w_ * sg)[:, None] * np.cross(q, A[e_]))
+            out = ~ins
+            if out.any():
+                v_, e_, w_ = vi[out], ei[out], w[out]
+                ua = useA[v_, e_]
+                endp = np.where(ua, E[e_, 0], E[e_, 1])
+                dv = U[v_] - U[endp]
+                dn = np.maximum(np.where(ua, dA[v_, e_], dB[v_, e_]), 1e-15)
+                gv = (w_ / dn)[:, None] * dv
+                np.add.at(g, v_, gv)
+                np.add.at(g, endp, -gv)
+        return Bv, g
+
+    def gadget(self, U):
+        Q = U[self.G4]
+        c = Q.sum(1); cn = np.linalg.norm(c, axis=1); ch = c / cn[:, None]
+        a = Q[:, 2] - Q[:, 0]; b = Q[:, 3] - Q[:, 1]
+        la = np.linalg.norm(a, axis=1); lb = np.linalg.norm(b, axis=1)
+        r = np.log(la / lb)
+        ab = np.cross(a, b)
+        T = (ab * ch).sum(1)
+        sn = np.abs(T) / (la * lb)
+        v1 = np.maximum(np.abs(r) - self.lrho, 0); v2 = np.maximum(self.sin0 - sn, 0)
+        Gv = float((v1 ** 2).sum() + (v2 ** 2).sum())
+        # gradients w.r.t. a, b, c
+        gr = 2 * v1 * np.sign(r)
+        ga = gr[:, None] * a / la[:, None] ** 2
+        gb = -gr[:, None] * b / lb[:, None] ** 2
+        gs = -2 * v2
+        sT = np.sign(T)
+        dT_da = np.cross(b, ch); dT_db = np.cross(ch, a)
+        dT_dc = (ab - T[:, None] * ch) / cn[:, None]
+        ga += gs[:, None] * (sT[:, None] * dT_da / (la * lb)[:, None] - sn[:, None] * a / la[:, None] ** 2)
+        gb += gs[:, None] * (sT[:, None] * dT_db / (la * lb)[:, None] - sn[:, None] * b / lb[:, None] ** 2)
+        gcv = gs[:, None] * sT[:, None] * dT_dc / (la * lb)[:, None]
+        g = np.zeros_like(U)
+        for j in range(4):
+            np.add.at(g, self.G4[:, j], gcv)
+        np.add.at(g, self.G4[:, 2], ga); np.add.at(g, self.G4[:, 0], -ga)
+        np.add.at(g, self.G4[:, 3], gb); np.add.at(g, self.G4[:, 1], -gb)
+        return Gv, g
+
+    def fg(self, U):
+        S, t, gS = self.stress(U)
+        Pn, gP = self.penalty(U)
+        Bv, gB = self.barrier(U)
+        Gv, gG = self.gadget(U)
+        f = S + self.mu * Pn + self.beta * Bv + self.nu * Gv
+        g = gS + self.mu * gP + self.beta * gB + self.nu * gG
+        return f, g, dict(stress=S, pen=Pn, bar=Bv, gad=Gv, t=t)
+
+
+def _cc_relax(U0, cert, obj, fixed, p, log=None):
+    """L-BFGS on S^2 (tangent gradients, renormalised iterates), Armijo line
+    search, and the certificate as a step-rejection rule."""
+    def tang(U, g):
+        g = g - (g * U).sum(1, keepdims=True) * U
+        g[fixed] = 0.0
+        return g
+    U = _cc_unit_rows(U0)
+    f, g, info = obj.fg(U); g = tang(U, g)
+    S, Y = [], []
+    stall = 0; rej = 0; it_done = 0
+    for it in range(1, p["maxit"] + 1):
+        q = -g.ravel().copy(); al = []
+        for sv, yv in reversed(list(zip(S, Y))):
+            r = 1.0 / float(yv @ sv); a_ = r * float(sv @ q); al.append((a_, r, sv, yv)); q -= a_ * yv
+        if S:
+            q *= float(S[-1] @ Y[-1]) / float(Y[-1] @ Y[-1])
+        for a_, r, sv, yv in reversed(al):
+            q += (a_ - r * float(yv @ q)) * sv
+        d = tang(U, q.reshape(-1, 3))
+        if float((d * g).sum()) >= 0:
+            d = -g; S, Y = [], []
+        alpha = min(1.0, math.radians(p["max_step_deg"]) / max(np.linalg.norm(d, axis=1).max(), 1e-15))
+        acc = False
+        for _ in range(40):
+            Un = _cc_unit_rows(U + alpha * d)
+            fn, gn, infon = obj.fg(Un)
+            if fn <= f + 1e-4 * alpha * float((g * d).sum()):
+                if cert.check(Un)["ok"]:
+                    acc = True; break
+                rej += 1
+            alpha *= 0.5
+        if not acc:
+            if S:
+                S, Y = [], []; continue
+            break
+        gn = tang(Un, gn)
+        sv = (Un - U).ravel(); yv = (gn - g).ravel()
+        if float(sv @ yv) > 1e-14:
+            S.append(sv); Y.append(yv)
+            if len(S) > p["mem"]:
+                S.pop(0); Y.pop(0)
+        rel = (f - fn) / max(abs(f), 1e-12)
+        U, f, g, info = Un, fn, gn, infon
+        it_done = it
+        stall = stall + 1 if rel < p["tol"] else 0
+        if stall >= p["patience"]:
+            break
+    return U, dict(iters=it_done, rejected_by_certificate=rej, **info)
+
+
+# =========================================================== the function
+def capped_cylinder_directions(model, P, G, ends="auto", centers=None, report=None, **kw):
+    """Unit directions for every node of the gadget graph G, from the 2-D
+    drawing P (node -> (x, y), an embedded straight-line drawing such as
+    shaped-tutte), for a closed cylinder of radius rad = 1 and half-height
+    H = h about the z axis.  Returns (dirs, rad, H)."""
+    p = dict(CAPPED_CYLINDER_DEFAULTS); p.update(kw)
+    rep = report if report is not None else {}
+    t0 = time.time()
+    if centers is None:
+        centers = crossing_centers(model, P)
+    if ends == "auto":
+        ends = _cc_auto_ends(model)
+    rep["ends"] = ends
+    nodes = sorted(G.nodes(), key=repr)
+    n = len(nodes)
+    idx = {v: i for i, v in enumerate(nodes)}
+    prep = {}
+    a, b = _cc_choose_poles(model, P, centers, ends=ends, report=prep)
+    rep["poles"] = prep
+    U0, s = _cc_pole_lift(P, nodes, a, b, model)
+    rep["s"] = s
+    # graph + hubs
+    faces = _cc_drawing_faces(G, P)
+    fa = _cc_face_containing(faces, P, a); fb = _cc_face_containing(faces, P, b)
+    G2 = nx.Graph(); G2.add_edges_from(G.edges(), weight=1.0)
+    faces2 = [[idx[v] for v in f] for i, f in enumerate(faces) if i not in (fa, fb)]
+    hubs = {n: fa, n + 1: fb}
+    for hub, fi in hubs.items():
+        f = faces[fi]
+        lam = max(1.0, p["inflate"] * len(f) / (2 * math.pi))
+        for v in set(f):
+            G2.add_edge(hub, idx[v], weight=lam)
+        for j in range(len(f)):
+            faces2.append([hub, idx[f[j]], idx[f[(j + 1) % len(f)]]])
+    G2 = nx.relabel_nodes(G2, {v: idx[v] for v in G.nodes()})
+    E2 = np.array([(u, v) for u, v in G2.edges()], int)
+    Uh = np.vstack([U0, [0, 0, -1.0], [0, 0, 1.0]])
+    cert = _CanCertificate(n + 2, E2, faces2, Uh, eps_deg=p["eps_deg"])
+    c0 = cert.check(Uh)
+    rep["certificate_lift"] = c0
+    if not c0["ok"]:
+        raise RuntimeError("the pole lift is not an embedding: %s" % c0)
+    dd = dict(nx.all_pairs_dijkstra_path_length(G2, weight="weight"))
+    Dm = np.array([[dd[i][j] for j in range(n + 2)] for i in range(n + 2)], float)
+    # cap / wall roles
+    bot, top, wall = [], [], []
+    if ends is not None:
+        i0, j0 = ends
+        cc = _cc_crossing_components(model); comp = _cc_node_component(model)
+        for v in nodes:
+            ix = idx[v]
+            if v[0] == "seg":
+                c = comp[v]; q = v[1]
+                if c == i0:
+                    bot.append(ix)
+                elif c == j0:
+                    top.append(ix)
+                else:
+                    k1 = model["pos_cross"][q]; k2 = model["pos_cross"][model["nextpos"][q]]
+                    if not (set(cc[k1]) & {i0, j0}) and not (set(cc[k2]) & {i0, j0}):
+                        wall.append(ix)
+            else:
+                k = v[0]
+                if i0 in cc[k]:
+                    bot.append(ix)
+                elif j0 in cc[k]:
+                    top.append(ix)
+                else:
+                    wall.append(ix)
+    G4 = [[idx[(k, r)] for r in _CC_ROLES] for k in range(len(model["crossings"]))]
+    obj = _CanObjective(Dm, p["h"], bot, top, wall, E2, cert.inc, G4, [n, n + 1], p)
+    S0 = _cc_plain_stress(U0, G, nodes, p["h"])
+    U = Uh
+    runs = []
+    for mu in p["mus"]:
+        obj.mu = mu
+        U, r = _cc_relax(U, cert, obj, [n, n + 1], p)
+        runs.append(dict(mu=mu, **{k: (round(v, 6) if isinstance(v, float) else v) for k, v in r.items()}))
+    U1 = U[:n]
+    rep["runs"] = runs
+    rep["certificate_final"] = cert.check(U)
+    rep["stress_before"] = S0
+    rep["stress_after"] = _cc_plain_stress(U1, G, nodes, p["h"])
+    rep["moved_deg_rms"] = float(np.sqrt((np.degrees(np.arccos(np.clip((U1 * U0).sum(1), -1, 1))) ** 2).mean()))
+    rep["moved_deg_max"] = float(np.degrees(np.arccos(np.clip((U1 * U0).sum(1), -1, 1))).max())
+    rep["secs"] = round(time.time() - t0, 1)
+    rep["nodes"] = nodes; rep["U0"] = U0; rep["U1"] = U1
+    return {v: U1[i] for i, v in enumerate(nodes)}, 1.0, float(p["h"])
+
+
+def _cc_plain_stress(U, G, nodes, h):
+    """The reported number: KK stress between the can points of the REAL nodes
+    (hop distances, weights 1/d^2, optimal scale), no hubs, no penalties."""
+    spl = dict(nx.shortest_path_length(G))
+    n = len(nodes)
+    Dm = np.array([[spl[a][b] for b in nodes] for a in nodes], float)
+    obj = _CanObjective.__new__(_CanObjective)
+    obj.h = float(h); obj.iu = np.triu_indices(n, 1)
+    obj.invd = np.zeros((n, n)); m = Dm > 0; obj.invd[m] = 1.0 / Dm[m]
+    return obj.stress(np.asarray(U, float), grad=False)[0]
+
+
+# =========================================================== the can map
+def _can_points(U, rad, H, o=0.0):
+    U = np.asarray(U, float)
+    rho = np.hypot(U[:, 0], U[:, 1]); az = np.abs(U[:, 2])
+    with np.errstate(divide="ignore", invalid="ignore"):
+        f1 = np.where(rho > 0, (rad + o) / np.where(rho > 0, rho, 1), np.inf)
+        f2 = np.where(az > 0, (H + o) / np.where(az > 0, az, 1), np.inf)
+    return U * np.minimum(f1, f2)[:, None]
+
+
+def _cc_densify_shell_curve(c, max_deg=0.25):
+    c = np.asarray(c, float)
+    r = np.linalg.norm(c, axis=1); U = c / r[:, None]
+    U1 = np.roll(U, -1, axis=0); r1 = np.roll(r, -1)
+    th = np.arccos(np.clip((U * U1).sum(1), -1, 1))
+    out = []
+    for i in range(len(c)):
+        m = max(1, int(math.ceil(math.degrees(th[i]) / max_deg)))
+        t = np.arange(m) / m
+        if th[i] < 1e-9:
+            uu = np.repeat(U[i][None], m, 0)
+        else:
+            uu = (np.sin((1 - t) * th[i])[:, None] * U[i] + np.sin(t * th[i])[:, None] * U1[i]) / math.sin(th[i])
+        out.append(uu * ((1 - t) * r[i] + t * r1[i])[:, None])
+    return np.vstack(out)
+
+
+def _can_map_components(sphere_comps, R, rad, H, spacing=1.8, even=False):
+    """Spherical-shell curve (radius R + offset) -> concentric cans; densified
+    first (the map bends straight chords), then re-spaced like the toolkit's
+    last step."""
+    out = []
+    for c in sphere_comps:
+        d = _cc_densify_shell_curve(c)
+        r = np.linalg.norm(d, axis=1)
+        q = _can_points(d / r[:, None], rad, H, o=r - R)
+        out.append(_geom_resample_closed_3d(q, spacing))
+    if even:
+        out, _ = _even_space_components(out)
+    return out
+
+
+def parse_surface_end_rings(text, n_components):
+    """'auto' -> 'auto'; 'none' -> None; 'i,j' -> (i, j) (0-based component
+    indices, distinct, in range)."""
+    t = str(text if text is not None else "auto").strip().lower()
+    if t in ("", "auto"):
+        return "auto"
+    if t in ("none", "off", "infinity"):
+        return None
+    parts = [p for p in re.split(r"[,\s]+", t) if p]
+    if len(parts) != 2:
+        raise ValueError("--surface-end-rings must be 'auto', 'none' or two component indices like 0,7.")
+    try:
+        i, j = (int(parts[0]), int(parts[1]))
+    except ValueError:
+        raise ValueError("--surface-end-rings %r: the two end rings must be component indices "
+                         "(0-based integers) like 0,7." % (text,))
+    if i == j or not (0 <= i < n_components and 0 <= j < n_components):
+        raise ValueError("--surface-end-rings %r: need two different component indices in 0..%d."
+                         % (text, n_components - 1))
+    return (i, j)
+
+
+def _capped_cylinder_dirs_cached(model, P, G, centers, ends, h, report):
+    """capped_cylinder_directions with a per-process cache (the relaxation
+    takes tens of seconds; --save-projections rebuilds the curve)."""
+    keyP = tuple(sorted((repr(v), round(float(P[v][0]), 9), round(float(P[v][1]), 9)) for v in G.nodes()))
+    key = (dt_string_from_model(model), repr(ends), round(float(h), 9), hash(keyP))
+    if key in _CAPPED_CYLINDER_CACHE:
+        dirs, rep0 = _CAPPED_CYLINDER_CACHE[key]
+        report.update(rep0)
+        report["cached"] = True
+        return dirs
+    rep = {}
+    dirs, _rad, _H = capped_cylinder_directions(model, P, G, ends=ends, centers=centers, report=rep, h=h)
+    keep = {k: v for k, v in rep.items() if k not in ("U0", "U1", "nodes")}
+    _CAPPED_CYLINDER_CACHE[key] = (dirs, keep)
+    report.update(keep)
+    return dirs
+
+
+def _capped_cylinder_geometry_report(components, rad, H, offset, order=None):
+    """Alignment and cap numbers of a finished can curve: the components'
+    centroid heights along the axis (in chain order when ``order`` is given),
+    whether they are strictly monotone, and per component the share of its
+    points on the bottom disc, the top disc and the wall."""
+    o = abs(float(offset))
+    rows = []
+    for c in components:
+        c = np.asarray(c, float)
+        rho = np.hypot(c[:, 0], c[:, 1])
+        az = np.abs(c[:, 2])
+        on_cap = (az >= H - o - 0.5) & (rho <= rad + o)
+        rows.append({"zc": float(c[:, 2].mean()),
+                     "bottom": float(np.mean(on_cap & (c[:, 2] < 0))),
+                     "top": float(np.mean(on_cap & (c[:, 2] > 0))),
+                     "wall": float(np.mean(np.abs(rho - rad) <= o + 0.5))})
+    seq = [rows[i]["zc"] for i in (order if order else range(len(rows)))]
+    mono = (all(seq[i] < seq[i + 1] for i in range(len(seq) - 1))
+            or all(seq[i] > seq[i + 1] for i in range(len(seq) - 1)))
+    return rows, seq, mono
+
+
+def _cc_chain_order(model, ends):
+    """Component order along a path-shaped adjacency from ends[0] to ends[1]."""
+    if not ends:
+        return None
+    A = nx.Graph()
+    A.add_nodes_from(range(len(model["comp_positions"])))
+    for i, j in _cc_crossing_components(model):
+        if i != j:
+            A.add_edge(i, j)
+    try:
+        return nx.shortest_path(A, ends[0], ends[1])
+    except Exception:  # noqa: BLE001
+        return None
 
 
 # --------------------------------------------------------------------------
@@ -7688,13 +10047,68 @@ def _run_xyz_repair_stage(xyz_components, clearance, stage, messages,
     return comps, rep
 
 
-def audit_xyz_components(xyz_components, dt_string):
-    """Deep topology audit via audit_xyz.py (needs spherogram + snappy)."""
+def dt_flips_from_embedding(model, G=None):
+    """The DT flip vector (one bool per crossing, in DT-label order) of a
+    planar realisation of the code, or None.
+
+    The realisation is `crossing_face_embedding`'s (every crossing square a
+    face).  Each crossing's bit is the orientation of its square in that
+    embedding XOR (its even label is the smaller of the pair) -- spherogram's
+    DTFatGraph convention, in which a crossing is negative exactly when
+    flip XOR (the even visit is over) XOR (the even label is smaller); so the
+    vector describes this realisation up to mirror image.  Without the
+    label-order term every vector fails to build.
+
+    Why: spherogram's DT decoder must search for an embedding when it is given
+    no flips, and that search fails on most codes with kinks or other
+    two-point cuts (`DTcodec.embed` -> `bridge`: "not enough values to
+    unpack") -- 126 of 132 backtrack diagrams measured -- so the xyz audit had
+    no reference link and reported every such build inconclusive.  Measured on
+    those 132: every vector built a planar diagram of the link the diagram was
+    made from (72 hyperbolic: isometric; 30 torus knots: Jones equal up to
+    mirror; 30 torus links: simplify back to the original)."""
+    if G is None:
+        G = build_gadget_graph(model)
+    emb = crossing_face_embedding(G)
+    if emb is None:
+        return None
+    cycles = _gadget_cycles(G)
+    flips = []
+    for k, cr in enumerate(model["crossings"]):
+        cyc = cycles.get(k)
+        if cyc is None:
+            return None
+        f = emb.traverse_face(cyc[0], cyc[1])
+        square_on_this_side = len(f) == 4 and set(f) == set(cyc)
+        flips.append(bool(square_on_this_side) ^ bool(cr["even"] < cr["odd"]))
+    return flips
+
+
+def audit_xyz_components(xyz_components, dt_string, model=None, G=None):
+    """Deep topology audit via audit_xyz.py (needs spherogram + snappy).
+    With ``model`` given, a flip vector of a planar realisation of the code
+    (`dt_flips_from_embedding`) is offered for when spherogram cannot read the
+    bare code; it is computed only then."""
     try:
         import audit_xyz as _ax
     except Exception as e:
         return {"status": "unavailable", "detail": str(e)[:80]}
-    return _ax.audit_components_against_dt(xyz_components, dt_string)
+    if model is None:
+        return _ax.audit_components_against_dt(xyz_components, dt_string)
+    def _flips():
+        # the components the model was built from, rebuilt from the model
+        # itself (not by re-parsing the string), so components and flips can
+        # never be read differently
+        comps = [tuple(model["crossings"][model["pos_cross"][p]]["even_signed"]
+                       for p in cp if p % 2 == 1)
+                 for cp in model["comp_positions"]]
+        return comps, dt_flips_from_embedding(model, G)
+    try:
+        return _ax.audit_components_against_dt(
+            xyz_components, dt_string, flips=_flips,
+            flips_source="the drawing's planar embedding")
+    except TypeError:          # an audit_xyz.py without the flips argument
+        return _ax.audit_components_against_dt(xyz_components, dt_string)
 
 
 def build_spherical_xyz_components(
@@ -7723,6 +10137,21 @@ def build_spherical_xyz_components(
     surface_orient=0.0,
     surface_tilt=0.0,
     cube_style="smooth",
+    cube_grid=0,
+    grid_steps=GRID_DIAGRAM_STEPS,
+    grid_seed=0,
+    grid_same_diagram=True,
+    sheet_bend=0.0,
+    sheet_twist=0.0,
+    sheet_aspect=0.0,
+    surface_end_rings="auto",
+    chain_twist=90.0,
+    chain_rounds=40,
+    chain_symmetrize="auto",
+    chain_form="perpendicular",
+    chain_fold_preset="elongated",
+    chain_fold_band=0.0,
+    chain_fold_ring=0.0,
     skeleton_out=None,
     skeleton_grid=24,
     xyz_repair=True,
@@ -7771,6 +10200,12 @@ def build_spherical_xyz_components(
       xyz_even_spacing (default on) re-spaces every finished component, as
       the last step before the audit, so all its segments -- the closing one
       included -- have the component's average length (_even_closed_polyline).
+      chain_twist / chain_rounds / chain_symmetrize apply to sphere_layout
+      'chain' only (chain_layout.build_chain_xyz_components): the turn per
+      clasp slab in degrees, the global relaxation rounds and 'auto' / 'none'
+      for the certified D2 symmetrisation.  chain_form 'perpendicular'
+      (default) or 'folded' (the certified rubber-band relaxation, tubes of
+      diameter 2 |sphere_offset|; chain_fold_preset 'elongated' / 'tight').
     """
     sphere_radius = float(sphere_radius)
     sphere_extent = float(sphere_extent)
@@ -7814,7 +10249,62 @@ def build_spherical_xyz_components(
     _refine_rep = {}
     _radii_rep = {}
     _stereo_pins = {}
+    _grid_info = None
+    _grid_msgs = []
     _stereo_safe = (layout == "stereo-safe")
+    if layout == "grid-diagram":
+        # V5.7: an exact lattice; nothing may smooth or repair it
+        xyz_final_smooth = False
+        xyz_repair = False
+    _sheet_info = {}
+    _sheet_msgs = []
+    # V5.7: shaped-kamada on a closed cylinder gets its own direction step
+    _can_capped = (layout == "shaped-kamada"
+                   and _normalize_surface_shape(surface_shape) == "capped-cylinder")
+    _can_rep = {}
+    _can_dirs = None
+    _can_h = None
+    _can_ends = None
+    if _can_capped:
+        if P is None:
+            raise ValueError("--surface-shape capped-cylinder places the chain from the 2-D "
+                             "drawing, so it needs the drawing's node positions (P).")
+        if G is None:
+            G = build_gadget_graph(model)
+        _can_h = 3.0 if surface_auto_aspect else float(surface_aspect)
+        if not np.isfinite(_can_h) or _can_h <= 0.2:
+            raise ValueError("capped-cylinder: --surface-aspect (half-height / radius) must be > 0.2.")
+        _can_ends = parse_surface_end_rings(surface_end_rings, len(model["comp_positions"]))
+        if _can_ends == "auto":
+            _can_ends = _cc_auto_ends(model)
+        _t_can = time.time()
+        try:
+            _can_dirs = _capped_cylinder_dirs_cached(model, P, G, centers, _can_ends, _can_h, _can_rep)
+        except Exception as _exc:  # noqa: BLE001
+            if _can_ends is None:
+                raise
+            _sheet_msgs.append("[warn] capped-cylinder: no valid pole placement inside end rings %s "
+                               "(%s); using the deepest point of the drawing and infinity instead."
+                               % (list(_can_ends), str(_exc)[:120]))
+            _can_ends = None
+            _can_rep = {}
+            _can_dirs = _capped_cylinder_dirs_cached(model, P, G, centers, None, _can_h, _can_rep)
+        _can_rep["seconds"] = time.time() - _t_can
+        if sphere_refine:
+            _sheet_msgs.append("[info] --sphere-refine is ignored for the capped cylinder: its "
+                               "directions come from a Kamada-Kawai relaxation on the can that is "
+                               "certified to stay an embedding, and the spherical refinement is not.")
+            sphere_refine = False
+    if layout == "sheet":
+        # V5.7: correct by construction (x preserved, embedded cross-sections)
+        xyz_final_smooth = False
+        xyz_repair = False
+    _chain_rep = {}
+    if layout == "chain":
+        # V5.7: every step of the segment-and-reunite build is exact or
+        # certified; nothing may smooth or repair it without a certificate
+        xyz_final_smooth = False
+        xyz_repair = False
     if _stereo_safe:
         # V5.4 correct-by-construction mode: lift the AUDITED planar layout
         # stereographically with radial crossing bumps and do not move
@@ -7837,6 +10327,50 @@ def build_spherical_xyz_components(
             xyz_spacing=(0.6 * xyz_spacing if _stereo_safe else xyz_spacing),
             pins_out=_stereo_pins,
         )
+    elif layout == "sheet":
+        xyz_components = _build_sheet_xyz_components(
+            model, P, centers, sphere_radius=sphere_radius, sphere_offset=sphere_offset,
+            sphere_bump_frac=sphere_bump_frac, xyz_spacing=xyz_spacing,
+            sheet_bend=sheet_bend, sheet_twist=sheet_twist, sheet_aspect=sheet_aspect,
+            info_out=_sheet_info, status_messages=_sheet_msgs)
+        if skeleton_out is not None:
+            skeleton_out.clear()
+            _wires = []
+            _Ls, _Ws = _sheet_info["length"], _sheet_info["width"]
+            for _xv in np.linspace(-0.5 * _Ls, 0.5 * _Ls, 13):
+                _yy = np.linspace(-0.5 * _Ws, 0.5 * _Ws, 25)
+                _wires.append(_sheet_map(np.full_like(_yy, _xv), _yy, np.zeros_like(_yy), _sheet_info))
+            for _yv in np.linspace(-0.5 * _Ws, 0.5 * _Ws, 7):
+                _xx = np.linspace(-0.5 * _Ls, 0.5 * _Ls, 49)
+                _wires.append(_sheet_map(_xx, np.full_like(_xx, _yv), np.zeros_like(_xx), _sheet_info))
+            skeleton_out.update({"points": _sheet_info.get("crossing_points", np.zeros((0, 3))),
+                                 "segments": [], "segment_comps": [], "surface_wires": _wires,
+                                 "unit": False})
+    elif layout == "chain":
+        if P is None:
+            raise _import_chain_layout().ChainLayoutError(
+                "--sphere-layout chain segments the 2-D drawing, so it needs the "
+                "drawing's node positions (P).")
+        xyz_components = _import_chain_layout().build_chain_xyz_components(
+            model, P, centers, sphere_radius=sphere_radius, sphere_offset=sphere_offset,
+            xyz_spacing=xyz_spacing, twist=chain_twist, rounds=chain_rounds,
+            symmetrize=chain_symmetrize, status_messages=_sheet_msgs, report_out=_chain_rep,
+            form=chain_form, fold_preset=chain_fold_preset,
+            fold_band=chain_fold_band, fold_ring=chain_fold_ring)
+        if skeleton_out is not None:
+            skeleton_out.clear()
+            skeleton_out.update({"points": np.zeros((0, 3)), "segments": [], "segment_comps": [],
+                                 "surface_wires": [], "unit": False})
+    elif layout == "grid-diagram":
+        xyz_components, _grid_info = _build_grid_diagram_xyz_components(
+            model, sphere_radius=sphere_radius, sphere_offset=sphere_offset,
+            xyz_spacing=xyz_spacing, densify=bool(xyz_even_spacing),
+            steps=grid_steps, seed=grid_seed, status_messages=_grid_msgs,
+            same_diagram=bool(grid_same_diagram))
+        if skeleton_out is not None:
+            skeleton_out.clear()
+            skeleton_out.update({"points": _grid_info["crossing_points"], "segments": [],
+                                 "segment_comps": [], "surface_wires": [], "unit": False})
     elif layout in ("spherical-kamada", "shaped-kamada", "cubic-kamada", "raw-kk"):
         # All three use the sphere-native construction; shaped-kamada warps the
         # finished spherical curve onto a shaped surface below, and cubic-kamada
@@ -7856,18 +10390,21 @@ def build_spherical_xyz_components(
             refine_report=_refine_rep,
             raw_radii=(layout == "raw-kk"),
             radii_report=_radii_rep,
+            dirs_override=_can_dirs,
         )
     else:
         raise ValueError("Unknown --sphere-layout %r." % sphere_layout)
 
     _msgs = status_messages if status_messages is not None else []
+    _msgs.extend(_grid_msgs)
+    _msgs.extend(_sheet_msgs)
     # A NEGATIVE crossing offset inverts the over/under layering (see below);
     # these two are radial DISTANCES, so they take its magnitude -- otherwise
     # _clr goes negative and silently switches the whole clearance repair off.
     _clr = float(xyz_clearance) if xyz_clearance else 0.8 * abs(float(sphere_offset))
     _excl = max(2.4 * abs(float(sphere_offset)),
                 float(sphere_radius) * math.sin(sphere_crossing_angle))
-    if sphere_offset < 0.0:
+    if sphere_offset < 0.0 and layout != "chain":
         _msgs.append(
             "[info] crossing offset is NEGATIVE (%.3f): the over-strand runs "
             "INSIDE the base surface and the under-strand outside, so every "
@@ -8028,7 +10565,53 @@ def build_spherical_xyz_components(
 
     _warp_pts = None
     _surf_info = {}
-    if layout == "shaped-kamada":
+    _angled_info = None
+    if _can_capped:
+        _can_rad = float(sphere_radius)
+        _can_H = float(_can_h) * _can_rad
+        xyz_components = _can_map_components(xyz_components, float(sphere_radius), _can_rad,
+                                             _can_H, spacing=xyz_spacing)
+
+        def _warp_pts(pts, _R=float(sphere_radius), _rad=_can_rad, _H=_can_H):
+            pts = np.asarray(pts, float)
+            if len(pts) == 0:
+                return pts
+            r = np.linalg.norm(pts, axis=1)
+            r = np.where(r > 1.0e-12, r, 1.0)
+            return _can_points(pts / r[:, None], _rad, _H, o=r - _R)
+        _surf_info = {"kind": "can", "resolved": {"radius": 1.0, "height": float(_can_h)}}
+        _order = _cc_chain_order(model, _can_ends)
+        _rows, _seq, _mono = _capped_cylinder_geometry_report(
+            xyz_components, _can_rad, _can_H, sphere_offset, order=_order)
+        if _can_ends:
+            _ends_txt = "end rings %d and %d" % (_can_ends[0], _can_ends[1])
+        else:
+            _ends_txt = "no chain ends (the deepest point of the drawing and infinity)"
+        _msgs.append(
+            "[can] shaped-kamada on a closed cylinder of radius %.2f and half-height %.2f "
+            "(axis z): poles inside %s; Kamada-Kawai stress on the can %.1f -> %.1f, "
+            "nodes moved %.1f deg rms from the pole lift; embedding certificate %s%s (%.1f s)."
+            % (_can_rad, _can_H, _ends_txt, float(_can_rep.get("stress_before", float("nan"))),
+               float(_can_rep.get("stress_after", float("nan"))),
+               float(_can_rep.get("moved_deg_rms", float("nan"))),
+               "ok" if (_can_rep.get("certificate_final") or {}).get("ok") else
+               "FAILED -- %s" % (_can_rep.get("certificate_final"),),
+               " (cached)" if _can_rep.get("cached") else "", float(_can_rep.get("seconds", 0.0))))
+        if _can_ends:
+            _e0, _e1 = _rows[_can_ends[0]], _rows[_can_ends[1]]
+            _msgs.append(
+                "[can] alignment: component centres along the axis in chain order %s -- %s; "
+                "end ring %d on its disc %.0f%%, end ring %d on its disc %.0f%%."
+                % (", ".join("%.1f" % z for z in _seq), "strictly monotone" if _mono else "NOT monotone",
+                   _can_ends[0], 100.0 * max(_e0["bottom"], _e0["top"]),
+                   _can_ends[1], 100.0 * max(_e1["bottom"], _e1["top"])))
+            if not _mono:
+                _msgs.append("[warn] capped-cylinder: the components are not in chain order along "
+                             "the axis.")
+        if surface_orient or surface_tilt:
+            _msgs.append("[info] surface orient / tilt are ignored for the capped cylinder: its axis "
+                         "is the chain's axis by construction.")
+    elif layout == "shaped-kamada":
         xyz_components, _warp_pts = _warp_components_to_surface(
             xyz_components,
             sphere_radius=sphere_radius,
@@ -8044,7 +10627,7 @@ def build_spherical_xyz_components(
             surface_info=_surf_info,
         )
 
-    if xyz_repair and _clr > 0.0 and layout == "shaped-kamada":
+    if xyz_repair and _clr > 0.0 and layout == "shaped-kamada" and not _can_capped:
         _anch_w = _anch
         if _anch is not None and _warp_pts is not None:
             _anch_w = _warp_pts(np.asarray(_anch, float))
@@ -8071,19 +10654,24 @@ def build_spherical_xyz_components(
             _anch_unit if _anch_unit is not None else np.zeros((0, 3), float))
         M_cube, _cube_info = _cube_orientation_frame(model, _anch_unit, _dirs_all)
         _style = str(cube_style or "smooth").strip().lower()
-        if _style == "angled":
-            xyz_components, _warp_pts = _build_cubic_angled_components(
+        if _style in ("angled", "grid"):
+            xyz_components, _warp_pts, _angled_info = _build_cubic_angled_components(
                 xyz_components,
                 model=model,
+                G=(G if G is not None else build_gadget_graph(model)),
                 sphere_radius=sphere_radius,
                 sphere_offset=sphere_offset,
                 M=M_cube,
                 xyz_spacing=xyz_spacing,
                 skeleton=skeleton_out,
                 status_messages=_msgs,
-                return_warp=True,
                 cube_info=_cube_info,
+                cube_grid=cube_grid,
+                densify=bool(xyz_even_spacing),
+                style=_style,
             )
+            if not _angled_info.get("routed"):
+                _style = "smooth"      # fell back to the smooth map: repair and space it as such
         else:
             xyz_components, _warp_pts = _warp_components_to_cube(
                 xyz_components, sphere_radius=sphere_radius, M=M_cube,
@@ -8096,9 +10684,9 @@ def build_spherical_xyz_components(
                 if _cube_info[0] == "pca" else "identity"
         _msgs.append("[info] cubic-kamada (%s): oriented by %s." % (_style, _orient_desc))
         # Smooth curves may still pinch near cube edges; repair like the surface
-        # warp.  Angled routing is orthogonal by construction, so it is not
-        # repaired (repair would bend the 90-degree segments).
-        if xyz_repair and _clr > 0.0 and _style != "angled":
+        # warp.  Angled wires are node-disjoint grid paths, collision-free by
+        # construction, so they are not repaired (repair would bend them).
+        if xyz_repair and _clr > 0.0 and _style not in ("angled", "grid"):
             _anch_w = _anch
             if _anch is not None and _warp_pts is not None:
                 _anch_w = _warp_pts(np.asarray(_anch, float))
@@ -8111,11 +10699,43 @@ def build_spherical_xyz_components(
     # leaves uneven segments (and short closing ones) -- and before the audit,
     # so the written curve is the audited one.
     if xyz_even_spacing:
-        if layout == "cubic-kamada" and _style == "angled":
+        if layout == "grid-diagram":
             _msgs.append(
-                "[spacing] even point spacing skipped for the angled cube "
-                "style: its points are its corners, and re-spacing them would "
-                "cut the 90-degree corners.")
+                "[spacing] grid diagram: %d points placed every ~%.2f along the "
+                "lattice -- each segment cut into equal pieces, every one of the "
+                "%d corners kept exactly."
+                % (sum(len(c) for c in xyz_components), xyz_spacing, _grid_info["corners"]))
+        elif layout == "cubic-kamada" and _style in ("angled", "grid"):
+            _msgs.append(
+                "[spacing] %s cube: %d points placed every ~%.2f along the "
+                "wires -- each straight run cut into equal pieces, every one of "
+                "the %d corners kept exactly."
+                % (_style, sum(len(c) for c in xyz_components), xyz_spacing,
+                   _angled_info["corners"]))
+        elif layout == "chain":
+            # the chain is built from certified moves only, so the re-spacing
+            # must be certified too: every point moves along a straight line
+            # in steps of at most a third of the closest approach between
+            # non-adjacent segments, or the re-spacing is undone.
+            _spaced, _sp = _even_space_components(xyz_components)
+            _ok, _worst, _disp = _import_chain_layout().certified_move(xyz_components, _spaced)
+            if _ok:
+                xyz_components = _spaced
+                _msgs.append(
+                    "[spacing] chain: %d of %d components now have exactly equal segments, the "
+                    "closing one included (segments %.3f-%.3f before, %.3f-%.3f after); the move "
+                    "is certified (points moved at most %.3f, in steps under a third of the closest "
+                    "approach %.3f), so the link is unchanged%s."
+                    % (_sp["exact"], _sp["count"], _sp["before"][0], _sp["before"][1],
+                       _sp["after"][0], _sp["after"][1], _disp, _worst,
+                       "; this adds at most %.3f to the %s residual"
+                       % (2.0 * _disp, (_chain_rep.get("symmetry") or {}).get("group", "D2"))
+                       if (_chain_rep.get("symmetry") or {}).get("done") else ""))
+            else:
+                _msgs.append(
+                    "[warn] chain: even point spacing could not be certified (closest approach "
+                    "%.3g during the move), so the chain's own spacing is kept (segments "
+                    "%.3f-%.3f)." % (_worst, _sp["before"][0], _sp["before"][1]))
         else:
             xyz_components, _sp = _even_space_components(xyz_components)
             if _sp["count"] and _sp["exact"] == _sp["count"]:
@@ -8127,7 +10747,11 @@ def build_spherical_xyz_components(
                                          _sp["after"][0], _sp["after"][1]))
             elif _sp["count"]:
                 if layout == "cubic-kamada":
-                    _why = "where offset strands jump across a cube edge"
+                    _why = "where strands fold over a cube edge"
+                elif layout == "sheet":
+                    _why = "where a crossing bump or the sheet's curvature turns a strand sharply"
+                elif _can_capped:
+                    _why = "where strands pass over the cylinder's rim"
                 elif layout == "shaped-kamada" and _normalize_surface_shape(
                         surface_shape) in ("cylinder", "torus"):
                     _why = "where strands near the sphere's poles cut across the surface"
@@ -8148,9 +10772,20 @@ def build_spherical_xyz_components(
                        _why, "its" if _rest == 1 else "their",
                        100.0 * _sp["worst"], _sp["before"][0],
                        _sp["before"][1], _sp["after"][0], _sp["after"][1]))
+    elif layout == "grid-diagram":
+        _msgs.append(
+            "[spacing] grid diagram: even point spacing is off, so the XYZ holds "
+            "only the %d corners; turn it on to place points every %.2f along "
+            "the lattice." % (_grid_info["corners"], xyz_spacing))
+    elif layout == "cubic-kamada" and _style in ("angled", "grid"):
+        _msgs.append(
+            "[spacing] %s cube: even point spacing is off, so the XYZ holds "
+            "only the %d corners (one row per right-angle turn); turn it on to "
+            "place points every %.2f along the wires."
+            % (_style, _angled_info["corners"], xyz_spacing))
 
     if audit_dt:
-        _res = audit_xyz_components(xyz_components, audit_dt)
+        _res = audit_xyz_components(xyz_components, audit_dt, model=model, G=G)
         if _res["status"] == "ok":
             _msgs.append("[ok] xyz topology audit: %s" % _res["detail"])
         elif _res["status"] == "unavailable":
@@ -8167,6 +10802,12 @@ def build_spherical_xyz_components(
                         "this XYZ output. Recheck the DT code and audit "
                         "dependencies before investigating the curve."
                     )
+                elif layout == "chain":
+                    _msgs.append(
+                        "[hint] the chain layout is built from certified moves "
+                        "and passed its own Jones / linking-number check, so "
+                        "this FAIL is unexpected; do not use this XYZ output "
+                        "and compare the [chain] check line with the audit.")
                 else:
                     _msgs.append("[hint] dense diagrams overwhelm the kamada "
                                  "sphere layouts; re-run with --sphere-layout "
@@ -8193,6 +10834,10 @@ def build_spherical_xyz_components(
         skeleton_out["segments"] = _sk_segs
         skeleton_out["surface_wires"] = _sk_wires
         skeleton_out["unit"] = False
+    if _angled_info is not None and _angled_info.get("routed") and skeleton_out is not None:
+        # the angled wires ARE the mapped skeleton: snapped crossings + routed connectors
+        skeleton_out["points"] = np.asarray(_angled_info["crossing_points"], float)
+        skeleton_out["segments"] = [np.asarray(w, float) for w in _angled_info["wires"]]
 
     # V5.7: describe the base surface for the optional surface-shell export.
     # The shaped and cube warps leave the curve in the surface's own
@@ -8217,10 +10862,24 @@ def build_spherical_xyz_components(
         elif layout == "cubic-kamada":
             shells_out["kind"] = "cube"
             shells_out["params"] = {"style": _style}
+            if _angled_info is not None and _angled_info.get("routed"):
+                shells_out["params"].update({"grid": int(_angled_info["grid"]),
+                                             "pitch": float(_angled_info["pitch"])})
         elif layout == "raw-kk" and _radii_rep.get("base_scales") is not None:
             shells_out["kind"] = "radial"
             shells_out["params"] = {"dirs": _radii_rep["base_dirs"],
                                     "scales": _radii_rep["base_scales"]}
+        elif layout == "sheet":
+            shells_out["kind"] = "sheet"
+            shells_out["params"] = {k: _sheet_info[k] for k in ("length", "width", "bend", "twist", "aspect")}
+        elif layout == "chain":
+            # no base surface: write_surface_shells_glb writes rods only
+            shells_out["kind"] = "none"
+            shells_out["params"] = {}
+        elif layout == "grid-diagram":
+            shells_out["kind"] = "slab"
+            shells_out["params"] = {"half": 1.0 + float(_grid_info["pitch"]) / float(sphere_radius),
+                                    "grid": int(_grid_info["grid"]), "pitch": float(_grid_info["pitch"])}
 
     return xyz_components
 
@@ -8254,6 +10913,21 @@ def write_spherical_xyz(
     surface_orient=0.0,
     surface_tilt=0.0,
     cube_style="smooth",
+    cube_grid=0,
+    grid_steps=GRID_DIAGRAM_STEPS,
+    grid_seed=0,
+    grid_same_diagram=True,
+    sheet_bend=0.0,
+    sheet_twist=0.0,
+    sheet_aspect=0.0,
+    surface_end_rings="auto",
+    chain_twist=90.0,
+    chain_rounds=40,
+    chain_symmetrize="auto",
+    chain_form="perpendicular",
+    chain_fold_preset="elongated",
+    chain_fold_band=0.0,
+    chain_fold_ring=0.0,
     xyz_repair=True,
     xyz_clearance=None,
     sphere_refine=False,
@@ -8298,6 +10972,21 @@ def write_spherical_xyz(
         surface_orient=surface_orient,
         surface_tilt=surface_tilt,
         cube_style=cube_style,
+        cube_grid=cube_grid,
+        grid_steps=grid_steps,
+        grid_seed=grid_seed,
+        grid_same_diagram=grid_same_diagram,
+        sheet_bend=sheet_bend,
+        sheet_twist=sheet_twist,
+        sheet_aspect=sheet_aspect,
+        surface_end_rings=surface_end_rings,
+        chain_twist=chain_twist,
+        chain_rounds=chain_rounds,
+        chain_symmetrize=chain_symmetrize,
+        chain_form=chain_form,
+        chain_fold_preset=chain_fold_preset,
+        chain_fold_band=chain_fold_band,
+        chain_fold_ring=chain_fold_ring,
         xyz_repair=xyz_repair,
         xyz_clearance=xyz_clearance,
         sphere_refine=sphere_refine,
@@ -8507,6 +11196,13 @@ def _shell_signed_offsets(shells, pts):
                 - R * float(p.get("tube", 0.35)))
     if kind == "cube":
         return np.max(np.abs(P), axis=1) - R
+    if kind == "slab":
+        return P[:, 2]
+    if kind == "sheet":
+        return _sheet_signed_offset(P, p)
+    if kind == "can":
+        rad, Hh = R * float(p.get("radius", 1.0)), R * float(p.get("height", 3.0))
+        return np.maximum(np.hypot(P[:, 0], P[:, 1]) - rad, np.abs(P[:, 2]) - Hh)
     r = np.linalg.norm(P, axis=1)
     if kind == "radial":
         sd, sv = _radial_shell_samples(p)
@@ -8592,6 +11288,70 @@ def surface_shell_meshes(shells, segments=SHELL_MESH_SEGMENTS):
         tris = np.asarray(tris, int)
         base = R * unit
         shift = unit                # concentric: (R + o) * unit
+    elif kind == "can":
+        # side wall + two end discs, separate vertices per part (flat rim);
+        # shift = vertex / (rad, rad, H) makes base + o * shift the concentric
+        # can (rad + o, H + o) that the curve's layer o lies on
+        rad = R * float(params.get("radius", 1.0))
+        Hh = R * float(params.get("height", 3.0))
+        nv = max(2, int(round(nseg * Hh / (math.pi * rad)))) + 1
+        phi = np.linspace(0.0, 2.0 * math.pi, nseg, endpoint=False)
+        ring = np.column_stack([np.cos(phi), np.sin(phi), np.zeros(nseg)])
+        side = np.tile(ring * rad, (nv, 1))
+        side[:, 2] = np.repeat(np.linspace(-Hh, Hh, nv), nseg)
+        side_out = np.tile(ring, (nv, 1))
+        side_tris = _grid_tris(nseg, nv, wrap_v=False)
+        nr = max(2, nseg // 8)
+        parts_P, parts_O, parts_T = [side], [side_out], [side_tris]
+        offset_n = len(side)
+        for zsign in (1.0, -1.0):
+            radii = np.linspace(rad, 0.0, nr + 1)[:-1]
+            disc = np.vstack([np.column_stack([np.cos(phi) * r, np.sin(phi) * r, np.full(nseg, zsign * Hh)])
+                              for r in radii] + [np.array([[0.0, 0.0, zsign * Hh]])])
+            tris = []
+            for i in range(nr - 1):
+                a = offset_n + i * nseg + np.arange(nseg)
+                b = offset_n + i * nseg + (np.arange(nseg) + 1) % nseg
+                c = offset_n + (i + 1) * nseg + np.arange(nseg)
+                d = offset_n + (i + 1) * nseg + (np.arange(nseg) + 1) % nseg
+                tris.append(np.column_stack([a, b, c]))
+                tris.append(np.column_stack([b, d, c]))
+            last = offset_n + (nr - 1) * nseg
+            centre = offset_n + nr * nseg
+            tris.append(np.column_stack([last + np.arange(nseg), last + (np.arange(nseg) + 1) % nseg,
+                                         np.full(nseg, centre)]))
+            tris = np.vstack(tris)
+            if zsign < 0:
+                tris = tris[:, ::-1]
+            parts_P.append(disc)
+            parts_O.append(np.tile(np.array([[0.0, 0.0, zsign]]), (len(disc), 1)))
+            parts_T.append(tris)
+            offset_n += len(disc)
+        base = np.vstack(parts_P)
+        outward = normals = np.vstack(parts_O)
+        shift = base / np.array([rad, rad, Hh])
+        tris = np.vstack(parts_T)
+    elif kind == "sheet":
+        L, W = float(params["length"]), float(params["width"])
+        pad = 0.04 * max(L, W)
+        nx_ = max(24, int(round(nseg * 1.5)))
+        ny_ = max(8, int(round(nseg * W / max(L, 1.0e-9))) + 1)
+        xs = np.linspace(-0.5 * L - pad, 0.5 * L + pad, nx_)
+        ys = np.linspace(-0.5 * W - pad, 0.5 * W + pad, ny_)
+        X, Y = np.meshgrid(xs, ys)                      # rows = y, columns = x
+        xf, yf = X.ravel(), Y.ravel()
+        base = _sheet_map(xf, yf, np.zeros_like(xf), params)
+        up = _sheet_map(xf, yf, np.ones_like(xf), params)
+        outward = normals = _normalize_rows(up - base)
+        shift = outward
+        tris = _open_grid_tris(nx_, ny_)
+    elif kind == "slab":
+        half = R * float(params.get("half", 1.1))
+        unit = np.array([[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [1.0, 1.0, 0.0], [-1.0, 1.0, 0.0]])
+        base = unit * np.array([half, half, 1.0])
+        outward = normals = np.tile(np.array([[0.0, 0.0, 1.0]]), (4, 1))
+        shift = outward
+        tris = np.asarray([(0, 1, 2), (0, 2, 3)], int)
     else:
         raise ValueError("Unknown surface kind %r for the shell export." % kind)
 
@@ -8870,6 +11630,25 @@ def _describe_surface_shells(shells):
     if kind == "cube":
         return ("base cube of half-side %.3f; the inner / outer shells are "
                 "concentric cubes of half-side %.3f / %.3f" % (R, R - o, R + o))
+    if kind == "can":
+        rad, Hh = R * float(p.get("radius", 1.0)), R * float(p.get("height", 3.0))
+        return ("base closed cylinder of radius %.3f and half-height %.3f about z (side wall "
+                "and two end discs); the inner / outer shells are the concentric closed "
+                "cylinders of radius %.3f / %.3f and half-height %.3f / %.3f"
+                % (rad, Hh, rad - o, rad + o, Hh - o, Hh + o))
+    if kind == "sheet":
+        L, W = float(p["length"]), float(p["width"])
+        bend, twist = math.degrees(float(p["bend"])), math.degrees(float(p["twist"]))
+        shape = "flat" if bend <= 1.0e-6 else "bent through %.0f degrees" % bend
+        if abs(twist) > 1.0e-6:
+            shape += ", twisted by %.0f degrees" % twist
+        return ("base sheet %.3f long (x) and %.3f wide, %s; the inner / outer shells "
+                "are its offsets by -/+%.3f within each cross-section" % (L, W, shape, o))
+    if kind == "slab":
+        half = R * float(p.get("half", 1.1))
+        return ("base plane z = 0 (a %.3f x %.3f square); the inner / outer shells are the "
+                "planes z = %.3f / %.3f that the horizontal / vertical segments lie on"
+                % (2 * half, 2 * half, -o, o))
     if kind == "radial":
         sc = np.asarray(p["scales"], float)
         return ("raw-kk has no single base sphere: the base shell follows the "
@@ -8878,6 +11657,71 @@ def _describe_surface_shells(shells):
                 "radially" % (float(sc.min()), float(sc.max()), R, o))
     return ("base sphere of radius %.3f; the inner / outer shells are spheres "
             "of radius %.3f / %.3f" % (R, R - o, R + o))
+
+
+def _write_rods_only_glb(path, shells, extras=None, rod_diameter=0.0):
+    """--shells-glb for a layout without a base surface (the chain): the
+    curve as rods, or nothing.  Returns the status lines."""
+    rod_diameter = float(rod_diameter or 0.0)
+    layout = shells.get("layout") or "this"
+    if rod_diameter < 0.0:
+        raise ValueError("--glb-rod-diameter must be zero (no rods) or positive.")
+    if rod_diameter <= 0.0:
+        return ["[info] the %s layout has no base surface, so --shells-glb has nothing to "
+                "write without rods; give --glb-rod-diameter D (GUI 'rod diameter') to get "
+                "the curve as rods.  No .glb written." % layout]
+    rods = []
+    curve = [np.asarray(c, float) for c in (shells.get("curve") or [])]
+    for k, comp in enumerate(curve):
+        if len(comp) < 3:
+            continue
+        V, Nrm, tris = _rod_mesh(comp, rod_diameter)
+        rgb = [_srgb_to_linear(c) for c in _default_color_of(k)[:3]]
+        rods.append({"name": "component_%d" % (k + 1), "positions": V,
+                     "normals": Nrm, "indices": tris, "rgba": rgb + [1.0],
+                     "extras": {"component": k + 1, "rod_diameter": rod_diameter}})
+    if not rods:
+        return ["[info] no curve to write as rods; no .glb written."]
+    meta = {
+        "description": ("A draw_dt 3D curve as solid rods, in the coordinates and "
+                        "units of the XYZ file (the %s layout has no base surface)." % layout),
+        "sphere_layout": layout,
+        "surface": "none",
+        "sphere_radius": float(shells.get("radius", 0.0)),
+        "crossing_offset": float(shells.get("offset", 0.0)),
+        "rod_diameter": rod_diameter,
+    }
+    if extras:
+        meta.update(extras)
+    blob = _shells_glb_bytes(rods, meta)
+    ensure_parent_dir(path)
+    with open(path, "wb") as fh:
+        fh.write(blob)
+    msgs = ["[ok] wrote %s (%d rods of diameter %g; no surface shells -- the %s layout has no "
+            "base surface)" % (path, len(rods), rod_diameter, layout),
+            "[rods] %d watertight %d-sided rods of diameter %g, one per component "
+            "(component_1..component_%d), in the component colours."
+            % (len(rods), ROD_SIDES, rod_diameter, len(rods))]
+    fit = _rod_clearance(curve, rod_diameter)
+    if fit is not None and np.isfinite(fit["closest"]):
+        ci, cj = fit["where"]
+        msgs.append(
+            "[rods] the strands come within %.3f of each other (%s), so rods up to %.3f "
+            "across stay apart; the tightest bend has radius %.3f."
+            % (fit["closest"], "component %d against itself" % (ci + 1) if ci == cj
+               else "components %d and %d" % (ci + 1, cj + 1), fit["closest"], fit["bend"]))
+        if rod_diameter > fit["closest"]:
+            msgs.append(
+                "[warn] rods: diameter %g is more than the closest approach %.3f between "
+                "strands, so neighbouring rods overlap there (and would fuse in a print); use "
+                "--glb-rod-diameter %.3f or less."
+                % (rod_diameter, fit["closest"], math.floor(fit["closest"] * 1000.0) / 1000.0))
+        if fit["bend"] < 0.5 * rod_diameter:
+            msgs.append(
+                "[warn] rods: the curve bends with radius %.3f somewhere, under the rod radius "
+                "%g, so the rod's inner wall folds over itself there."
+                % (fit["bend"], 0.5 * rod_diameter))
+    return msgs
 
 
 def write_surface_shells_glb(path, shells, segments=SHELL_MESH_SEGMENTS, extras=None,
@@ -8896,6 +11740,8 @@ def write_surface_shells_glb(path, shells, segments=SHELL_MESH_SEGMENTS, extras=
     if not shells or "kind" not in shells:
         raise ValueError("No surface description: build the XYZ curve with "
                          "shells_out first.")
+    if shells["kind"] == "none":
+        return _write_rods_only_glb(path, shells, extras=extras, rod_diameter=rod_diameter)
     meshes = surface_shell_meshes(shells, segments=segments)
     kind = shells["kind"]
     along = "radially" if kind == "radial" else "along its outward normal"
@@ -8919,6 +11765,14 @@ def write_surface_shells_glb(path, shells, segments=SHELL_MESH_SEGMENTS, extras=
         meta["surface_params"] = {k: np.asarray(v, float).tolist() for k, v in params.items()}
     elif kind == "cube":
         meta["cube_style"] = params.get("style")
+        if params.get("grid"):
+            meta["cube_grid"] = int(params["grid"])
+    elif kind == "slab":
+        meta["grid_diagram"] = int(params.get("grid", 0))
+    elif kind == "sheet":
+        meta["sheet"] = {k: float(params[k]) for k in ("length", "width", "bend", "twist", "aspect")}
+    elif kind == "can":
+        meta["capped_cylinder"] = {k: float(params[k]) for k in ("radius", "height")}
     if extras:
         meta.update(extras)
     rod_diameter = float(rod_diameter or 0.0)
@@ -9000,10 +11854,6 @@ def write_surface_shells_glb(path, shells, segments=SHELL_MESH_SEGMENTS, extras=
                 why = ("the torus warp squeezes the sphere's poles onto the inner "
                        "ridge, so strands passing near a pole run as straight "
                        "chords across the hole")
-            elif kind == "cube" and params.get("style") == "angled":
-                why = ("the angled style's 90-degree connectors run straight "
-                       "through the cube between crossings; only the crossing "
-                       "passes sit on the shells")
             elif kind == "radial" and shells.get("smoothed"):
                 if shells.get("smooth_method") == "crossing-pinned":
                     why = ("crossing-pinned smoothing keeps every crossing on its "
@@ -9019,11 +11869,6 @@ def write_surface_shells_glb(path, shells, segments=SHELL_MESH_SEGMENTS, extras=
     if mag == 0.0:
         msgs.append("[note] the crossing offset is 0, so the inner and outer "
                     "shells coincide with the base surface.")
-    elif kind == "cube" and params.get("style") != "angled":
-        msgs.append(
-            "[note] cubic-kamada smooth lifts each strand along its own FACE "
-            "normal, so within %.3f of a cube edge an inner-layer strand lies "
-            "outside the inner cube, between it and the base." % mag)
     for m in meshes:
         if m["folded"] > 1.0e-6:
             msgs.append(
@@ -9944,18 +12789,39 @@ def prepare_diagram(args, status_stream=None):
         tutte_guides = {}
     centers = crossing_centers(model, P)
 
-    false = audit_false_crossings(model, P, centers)
+    _audit = audit_false_crossings_detail(model, P, centers)
+    false = len(_audit["false"]) + len(_audit["missing"])
     used_layout = args.layout
     # The chosen layout is kept as-is even when it introduces false crossings
     # (there is no automatic fallback to 'planar').  False crossings are drawn
     # with over/under gaps and flagged in red on the diagram, so the requested
     # layout -- including a "failed" kamada -- is preserved for inspection.
     if false > 0:
-        out.write(
-            "[warn] layout '%s' has %d false crossing(s); kept as requested. "
-            "They are drawn with gaps and flagged in red on the diagram.\n"
-            % (args.layout, false)
-        )
+        _nf = len(_audit["false"])
+        _kinds = {}
+        for _e in _audit["false"]:
+            _kinds[_e["kind"]] = _kinds.get(_e["kind"], 0) + 1
+        _extra = ""
+        if _kinds.get("touch") or _kinds.get("overlap"):
+            _extra = " (%s)" % ", ".join(
+                "%d %s" % (_kinds[_k], {"touch": "touching without crossing",
+                                        "overlap": "running along each other"}[_k])
+                for _k in ("touch", "overlap") if _kinds.get(_k))
+        if _nf:
+            out.write(
+                "[warn] layout '%s' has %d false crossing(s)%s; kept as requested. "
+                "They are flagged in red on the diagram (transversal ones drawn "
+                "with over/under gaps).\n"
+                % (args.layout, _nf, _extra)
+            )
+        if _audit["missing"]:
+            out.write(
+                "[warn] %d DT crossing(s) are not drawn as crossings -- their two strands "
+                "do not cross at the crossing centre: %s.\n"
+                % (len(_audit["missing"]),
+                   ", ".join(str(crossing_ids[k]) if k < len(crossing_ids) else str(k)
+                             for k in _audit["missing"]))
+            )
     else:
         out.write("[ok] audit: no false crossings.\n")
 
@@ -10225,6 +13091,21 @@ def run_pipeline(args, status_stream=None):
             surface_orient=getattr(args, "surface_orient", 0.0),
             surface_tilt=getattr(args, "surface_tilt", 0.0),
             cube_style=getattr(args, "cube_style", "smooth"),
+            cube_grid=getattr(args, "cube_grid", 0),
+            grid_steps=getattr(args, "grid_steps", GRID_DIAGRAM_STEPS),
+            grid_seed=getattr(args, "grid_seed", 0),
+            grid_same_diagram=bool(getattr(args, "grid_same_diagram", True)),
+            sheet_bend=getattr(args, "sheet_bend", 0.0),
+            sheet_twist=getattr(args, "sheet_twist", 0.0),
+            sheet_aspect=getattr(args, "sheet_aspect", 0.0),
+            surface_end_rings=getattr(args, "surface_end_rings", "auto"),
+            chain_twist=getattr(args, "chain_twist", 90.0),
+            chain_rounds=getattr(args, "chain_rounds", 40),
+            chain_symmetrize=getattr(args, "chain_symmetrize", "auto"),
+            chain_form=getattr(args, "chain_form", "perpendicular"),
+            chain_fold_preset=getattr(args, "chain_fold_preset", "elongated"),
+            chain_fold_band=getattr(args, "chain_fold_band", 0.0),
+            chain_fold_ring=getattr(args, "chain_fold_ring", 0.0),
             xyz_repair=not getattr(args, "no_xyz_repair", False),
             xyz_clearance=(getattr(args, "xyz_clearance", 0.0) or None),
             audit_dt=getattr(args, "dt", None),
@@ -10265,6 +13146,21 @@ def run_pipeline(args, status_stream=None):
                 surface_orient=getattr(args, "surface_orient", 0.0),
                 surface_tilt=getattr(args, "surface_tilt", 0.0),
                 cube_style=getattr(args, "cube_style", "smooth"),
+                cube_grid=getattr(args, "cube_grid", 0),
+                grid_steps=getattr(args, "grid_steps", GRID_DIAGRAM_STEPS),
+                grid_seed=getattr(args, "grid_seed", 0),
+                grid_same_diagram=bool(getattr(args, "grid_same_diagram", True)),
+                sheet_bend=getattr(args, "sheet_bend", 0.0),
+                sheet_twist=getattr(args, "sheet_twist", 0.0),
+                sheet_aspect=getattr(args, "sheet_aspect", 0.0),
+                surface_end_rings=getattr(args, "surface_end_rings", "auto"),
+                chain_twist=getattr(args, "chain_twist", 90.0),
+                chain_rounds=getattr(args, "chain_rounds", 40),
+                chain_symmetrize=getattr(args, "chain_symmetrize", "auto"),
+                chain_form=getattr(args, "chain_form", "perpendicular"),
+                chain_fold_preset=getattr(args, "chain_fold_preset", "elongated"),
+                chain_fold_band=getattr(args, "chain_fold_band", 0.0),
+                chain_fold_ring=getattr(args, "chain_fold_ring", 0.0),
                 skeleton_out=_skel,
                 skeleton_grid=getattr(args, "proj_grid_density", 24),
             )
@@ -10821,7 +13717,8 @@ def build_arg_parser():
         "--sphere-layout",
         type=str.lower,
         choices=["spherical-kamada", "shaped-kamada", "cubic-kamada",
-                 "raw-kk", "stereographic", "stereo-safe"],
+                 "raw-kk", "stereographic", "stereo-safe", "grid-diagram", "sheet"]
+        + ["chain"],
         default="spherical-kamada",
         help=(
             "XYZ sphere layout. 'spherical-kamada' spreads the graph directly "
@@ -10836,7 +13733,146 @@ def build_arg_parser():
             "'stereographic' uses the 2D diagram and inverse stereographic "
             "projection; 'stereo-safe' preserves the audited 2D angular "
             "positions and is the correct-by-construction choice after a "
-            "Kamada topology-audit failure."
+            "Kamada topology-audit failure; "
+            "'grid-diagram' is the 3-D lift of a MINIMAL grid diagram of the "
+            "link (grid_diagram.py): vertical segments on z = +offset, "
+            "horizontal ones on z = -offset, posts at the X and O cells, so "
+            "every edge is parallel to an axis (see --grid-steps); "
+            "'sheet' lifts the 2-D drawing onto a ruled sheet along its own "
+            "long axis instead of a sphere -- flat, bent (--sheet-bend) or "
+            "twisted (--sheet-twist) -- so an elongated link such as a chain "
+            "stays elongated; correct by construction like stereo-safe; "
+            "'chain' is for LINEAR chains only (each ring linked only with "
+            "its neighbours): segment-and-reunite (chain_layout.py) cuts an "
+            "elongated drawing into its clasps, lays each out in 3-D, "
+            "reunites them twisted by --chain-twist per slab and relaxes the "
+            "whole into a straight chain of rings in near-perpendicular "
+            "planes, every step certified; positive offset = spherogram's "
+            "reading of the DT code, negative = its mirror; anything else is "
+            "refused."
+        ),
+    )
+    ap.add_argument(
+        "--sheet-bend", dest="sheet_bend", type=float, default=0.0,
+        help=(
+            "For --sphere-layout sheet: angle in degrees that the sheet's "
+            "cross-section bends through about the long axis (0 = flat, 180 = "
+            "a half-cylinder, 360 = a closed tube). Default: 0."
+        ),
+    )
+    ap.add_argument(
+        "--sheet-twist", dest="sheet_twist", type=float, default=0.0,
+        help=(
+            "For --sphere-layout sheet: total twist of the cross-section about "
+            "the long axis from one end to the other, in degrees (a twisted "
+            "ribbon). Default: 0."
+        ),
+    )
+    ap.add_argument(
+        "--chain-twist", dest="chain_twist", type=float, default=90.0,
+        help=(
+            "For --sphere-layout chain: the STARTING turn of each clasp slab "
+            "about the chain's axis relative to the previous one, in degrees, "
+            "applied when the clasps are reunited; slab k is turned k x this "
+            "(always adding).  Default: 90.  It is not the final angle: the "
+            "first end ring is turned 90 deg in its own segment, and the "
+            "global relaxation (--chain-rounds > 0) pulls consecutive rings "
+            "toward perpendicular planes whatever the twist, so 0 does NOT "
+            "give a flat chain (the 8-ring chain at 0 still ends with "
+            "consecutive ring planes 73-80 deg apart)."
+        ),
+    )
+    ap.add_argument(
+        "--chain-rounds", dest="chain_rounds", type=int, default=40,
+        help=(
+            "For --sphere-layout chain: rounds (of 400 certified steps) of the "
+            "global relaxation after the reunite. Default: 40; 0 skips it."
+        ),
+    )
+    ap.add_argument(
+        "--chain-symmetrize", dest="chain_symmetrize", type=str.lower,
+        choices=["auto", "none"], default="auto",
+        help=(
+            "For --sphere-layout chain: 'auto' (default) applies a certified D2 "
+            "symmetrisation when the chain is close to D2 and it keeps the ring "
+            "planes perpendicular (with --chain-form folded: D2d, else D2, when "
+            "the relaxed chain is within 0.3 tube diameters of it); 'none' skips it."
+        ),
+    )
+    ap.add_argument(
+        "--chain-form", dest="chain_form", type=str.lower,
+        choices=["perpendicular", "folded"], default="perpendicular",
+        help=(
+            "For --sphere-layout chain: 'perpendicular' (default) builds the "
+            "segment-and-reunite chain (flat rings in nearly perpendicular "
+            "planes).  'folded' lifts the 2-D drawing flat and relaxes it by a "
+            "certified rubber-band energy into a straight chain with round end "
+            "rings and every middle band folded into a doubled loop (4 strands "
+            "for the Brunnian chain), clasps at ~90 deg, fold planes parallel; "
+            "strands are tubes of diameter 2 x |--crossing-offset| "
+            "(--sphere-radius is not used), --chain-twist / --chain-rounds do not "
+            "apply.  Needs a rubber-band chain (clasp crossings = 2 x bights x "
+            "bights, single-loop end rings); refused otherwise."
+        ),
+    )
+    ap.add_argument(
+        "--chain-fold-preset", dest="chain_fold_preset", type=str.lower,
+        choices=["elongated", "tight"], default="elongated",
+        help=(
+            "For --chain-form folded: 'elongated' (default) caps every band at 14 "
+            "tube diameters per cross-section strand (56 for a 4-strand band) "
+            "with end rings 10 per bight held (20); 'tight' at 8 and 6 (32 and 12)."
+        ),
+    )
+    ap.add_argument(
+        "--chain-band-length", dest="chain_fold_band", type=float, default=0.0,
+        help=(
+            "For --chain-form folded: rope per strand of each middle band, in "
+            "tube diameters -- about the band's length along the chain plus its "
+            "end bends, so it sets how far the middle rings span.  0 (default) = "
+            "the preset's: 14 (elongated) or 8 (tight).  4 to 40.  The 8-ring "
+            "Brunnian chain is about 68 tube diameters long at 14 and 29 at 8."
+        ),
+    )
+    ap.add_argument(
+        "--chain-ring-length", dest="chain_fold_ring", type=float, default=0.0,
+        help=(
+            "For --chain-form folded: rope per bight an end ring holds, in tube "
+            "diameters; the end ring's circumference is this times the bights it "
+            "holds (2 for the 8-ring Brunnian chain).  0 (default) = the "
+            "preset's: 10 (elongated) or 6 (tight).  4 to 30."
+        ),
+    )
+    ap.add_argument(
+        "--sheet-aspect", dest="sheet_aspect", type=float, default=0.0,
+        help=(
+            "For --sphere-layout sheet: length / width of the sheet; 0 (default) "
+            "keeps the 2-D drawing's own proportions (draw a chain elongated with "
+            "--layout shaped-tutte --tutte-shape ellipse --tutte-aspect N), a "
+            "value stretches or squeezes the drawing across to that ratio."
+        ),
+    )
+    ap.add_argument(
+        "--grid-steps", dest="grid_steps", type=int, default=GRID_DIAGRAM_STEPS,
+        help=(
+            "For --sphere-layout grid-diagram: steps of the random search that "
+            "shrinks the grid diagram (default %d; it stops early at the "
+            "HOMFLY-PT lower bound, which certifies the size minimal)."
+            % GRID_DIAGRAM_STEPS
+        ),
+    )
+    ap.add_argument(
+        "--grid-seed", dest="grid_seed", type=int, default=0,
+        help="For --sphere-layout grid-diagram: seed of that search (default 0).",
+    )
+    ap.add_argument(
+        "--grid-any-diagram", dest="grid_same_diagram", action="store_false", default=True,
+        help=(
+            "For --sphere-layout grid-diagram: minimise over ALL diagrams of the "
+            "link (the arc-index search from the braid closure) instead of keeping "
+            "THIS diagram.  By default the grid is built from the DT code's own 2-D "
+            "layout and simplified by planar isotopies only, so the drawn grid "
+            "diagram has the same DT code as the input."
         ),
     )
     ap.add_argument(
@@ -10845,19 +13881,52 @@ def build_arg_parser():
         default="ellipsoid",
         help=(
             "Target surface for --sphere-layout shaped-kamada: ellipsoid, "
-            "cylinder, or torus. Default: ellipsoid."
+            "cylinder, torus, or capped-cylinder (a CLOSED cylinder: side wall "
+            "and two end discs; the chain runs along its axis with its two end "
+            "rings on the discs, laid out by Kamada-Kawai on the can itself -- "
+            "see --surface-end-rings). Default: ellipsoid."
+        ),
+    )
+    ap.add_argument(
+        "--surface-end-rings", dest="surface_end_rings", default="auto",
+        help=(
+            "For --surface-shape capped-cylinder: the two components (0-based, "
+            "e.g. 0,7) that lie on the two end discs.  'auto' (default) takes the "
+            "end rings of a chain (components with one neighbour when the "
+            "components are linked in a path); otherwise, or with 'none', the "
+            "deepest point of the 2-D drawing and its outside become the disc "
+            "centres.  The half-height / radius of the can is 3 by default, or "
+            "--no-surface-auto-aspect --surface-aspect X."
         ),
     )
     ap.add_argument(
         "--cube-style",
         dest="cube_style",
-        choices=["smooth", "angled"],
+        choices=["smooth", "angled", "grid"],
         default="smooth",
         help=(
             "For --sphere-layout cubic-kamada: 'smooth' maps the strands onto "
-            "the cube as smooth curves (like the sphere); 'angled' routes them "
-            "as axis-aligned 90-degree segments (strands turn only 90 degrees "
-            "and over/under strands cross at 90 degrees). Default: smooth."
+            "the cube as smooth curves (like the sphere); 'angled' wires them "
+            "over the cube's faces as axis-aligned segments on a surface grid, "
+            "with a right-angle bridge at every crossing; 'grid' uses the same "
+            "wiring as a grid diagram in 3-D -- on each face strands along one "
+            "axis run on the outer shell and strands along the other on the "
+            "inner shell, changing level with a post where they turn, so every "
+            "crossing is outer-over-inner with no bridge (see --cube-grid). "
+            "Default: smooth."
+        ),
+    )
+    ap.add_argument(
+        "--cube-grid",
+        dest="cube_grid",
+        type=int,
+        default=0,
+        help=(
+            "For --cube-style angled: cells per cube face side of the routing "
+            "grid.  0 (default) chooses it from the diagram -- about 12 cells "
+            "between the two closest crossings, at least 6 -- and refines it "
+            "when the wires do not fit.  A coarser grid gives longer straight "
+            "runs and moves the crossings further from their layout positions."
         ),
     )
     ap.add_argument(
@@ -11135,7 +14204,9 @@ def build_arg_parser():
             "|--crossing-offset| -- as one binary glTF file with three meshes "
             "(inner_shell, base_surface, outer_shell) in the XYZ file's own "
             "coordinates.  Without PATH it is written next to the XYZ as "
-            "<xyz stem>_shells.glb."
+            "<xyz stem>_shells.glb.  The chain layout has no base surface: it "
+            "writes the curve as rods only (needs --glb-rod-diameter), and "
+            "nothing, with an [info] line, when the rod diameter is 0."
         ),
     )
     ap.add_argument(
@@ -11584,6 +14655,21 @@ def run_gui(initial_args):
     relax_strength_var = tk.StringVar(value=str(getattr(initial_args, "relax_strength", 0.5)))
     surface_shape_var = tk.StringVar(value=getattr(initial_args, "surface_shape", "ellipsoid"))
     cube_style_var = tk.StringVar(value=getattr(initial_args, "cube_style", "smooth"))
+    cube_grid_var = tk.StringVar(value=str(getattr(initial_args, "cube_grid", 0) or 0))
+    grid_steps_var = tk.StringVar(value=str(getattr(initial_args, "grid_steps", GRID_DIAGRAM_STEPS)))
+    grid_seed_var = tk.StringVar(value=str(getattr(initial_args, "grid_seed", 0)))
+    grid_same_var = tk.BooleanVar(value=bool(getattr(initial_args, "grid_same_diagram", True)))
+    sheet_bend_var = tk.StringVar(value=str(getattr(initial_args, "sheet_bend", 0.0)))
+    sheet_twist_var = tk.StringVar(value=str(getattr(initial_args, "sheet_twist", 0.0)))
+    sheet_aspect_var = tk.StringVar(value=str(getattr(initial_args, "sheet_aspect", 0.0)))
+    chain_twist_var = tk.StringVar(value=str(getattr(initial_args, "chain_twist", 90.0)))
+    chain_rounds_var = tk.StringVar(value=str(getattr(initial_args, "chain_rounds", 40)))
+    chain_symmetrize_var = tk.StringVar(value=str(getattr(initial_args, "chain_symmetrize", "auto")))
+    chain_form_var = tk.StringVar(value=str(getattr(initial_args, "chain_form", "perpendicular")))
+    chain_fold_preset_var = tk.StringVar(value=str(getattr(initial_args, "chain_fold_preset", "elongated")))
+    chain_fold_band_var = tk.StringVar(value=str(getattr(initial_args, "chain_fold_band", 0.0)))
+    chain_fold_ring_var = tk.StringVar(value=str(getattr(initial_args, "chain_fold_ring", 0.0)))
+    surface_end_rings_var = tk.StringVar(value=str(getattr(initial_args, "surface_end_rings", "auto")))
     surface_auto_orient_var = tk.BooleanVar(value=bool(getattr(initial_args, "surface_auto_orient", True)))
     surface_auto_aspect_var = tk.BooleanVar(value=bool(getattr(initial_args, "surface_auto_aspect", True)))
     surface_aspect_var = tk.StringVar(value=str(getattr(initial_args, "surface_aspect", 1.6)))
@@ -11845,10 +14931,51 @@ def run_gui(initial_args):
     ttk.Combobox(
         settings, textvariable=sphere_layout_var,
         values=["spherical-kamada", "shaped-kamada", "cubic-kamada",
-                "raw-kk", "stereographic", "stereo-safe"],
+                "raw-kk", "stereographic", "stereo-safe", "grid-diagram", "sheet"]
+        + ["chain"],
         width=18, state="readonly"
     ).grid(row=row, column=1, sticky="w", pady=3)
     add_help_button(row, "sphere_layout")
+    row += 1
+    _grid_same_chk = ttk.Checkbutton(
+        settings, text="grid diagram keeps this diagram (same DT code)", variable=grid_same_var
+    )
+    _grid_same_chk.grid(row=row, column=0, columnspan=3, sticky="w", pady=2)
+    add_help_button(row, "grid_same_diagram")
+    dynamic_widgets.setdefault("grid_same_diagram", []).append((_grid_same_chk, "check"))
+    row += 1
+    add_entry("grid search steps", grid_steps_var, help_key="grid_steps", key="grid_steps")
+    add_entry("grid search seed", grid_seed_var, help_key="grid_seed", key="grid_seed")
+    add_entry("sheet bend deg", sheet_bend_var, help_key="sheet_bend", key="sheet_bend")
+    add_entry("sheet twist deg", sheet_twist_var, help_key="sheet_twist", key="sheet_twist")
+    add_entry("sheet aspect (0 = drawing's)", sheet_aspect_var, help_key="sheet_aspect", key="sheet_aspect")
+    for _ckey, _clabel, _cvar, _cvals in (
+            ("chain_form", "chain form", chain_form_var, ["perpendicular", "folded"]),
+            ("chain_fold_preset", "chain fold preset", chain_fold_preset_var, ["elongated", "tight"])):
+        _c_lbl = ttk.Label(settings, text=_clabel)
+        _c_lbl.grid(row=row, column=0, sticky="w", pady=3)
+        _c_combo = ttk.Combobox(settings, textvariable=_cvar, values=_cvals, width=18, state="readonly")
+        _c_combo.grid(row=row, column=1, sticky="w", pady=3)
+        add_help_button(row, _ckey)
+        dynamic_widgets.setdefault(_ckey, []).extend([(_c_lbl, "label"), (_c_combo, "combo")])
+        row += 1
+    add_entry("band length (0 = preset)", chain_fold_band_var, help_key="chain_fold_band",
+              key="chain_fold_band")
+    add_entry("end-ring length (0 = preset)", chain_fold_ring_var, help_key="chain_fold_ring",
+              key="chain_fold_ring")
+    add_entry("chain twist deg", chain_twist_var, help_key="chain_twist", key="chain_twist")
+    add_entry("chain relax rounds", chain_rounds_var, help_key="chain_rounds", key="chain_rounds")
+    _chain_sym_lbl = ttk.Label(settings, text="chain symmetrize")
+    _chain_sym_lbl.grid(row=row, column=0, sticky="w", pady=3)
+    _chain_sym_combo = ttk.Combobox(
+        settings, textvariable=chain_symmetrize_var,
+        values=["auto", "none"], width=18, state="readonly"
+    )
+    _chain_sym_combo.grid(row=row, column=1, sticky="w", pady=3)
+    add_help_button(row, "chain_symmetrize")
+    dynamic_widgets.setdefault("chain_symmetrize", []).extend(
+        [(_chain_sym_lbl, "label"), (_chain_sym_combo, "combo")]
+    )
     row += 1
 
     _surface_shape_lbl = ttk.Label(settings, text="surface shape")
@@ -11863,12 +14990,14 @@ def run_gui(initial_args):
         [(_surface_shape_lbl, "label"), (_surface_shape_combo, "combo")]
     )
     row += 1
+    add_entry("end rings (auto / i,j)", surface_end_rings_var, help_key="surface_end_rings",
+              key="surface_end_rings")
 
     _cube_style_lbl = ttk.Label(settings, text="cube style")
     _cube_style_lbl.grid(row=row, column=0, sticky="w", pady=3)
     _cube_style_combo = ttk.Combobox(
         settings, textvariable=cube_style_var,
-        values=["smooth", "angled"], width=18, state="readonly"
+        values=["smooth", "angled", "grid"], width=18, state="readonly"
     )
     _cube_style_combo.grid(row=row, column=1, sticky="w", pady=3)
     add_help_button(row, "cube_style")
@@ -11876,6 +15005,7 @@ def run_gui(initial_args):
         [(_cube_style_lbl, "label"), (_cube_style_combo, "combo")]
     )
     row += 1
+    add_entry("cube grid (0 = auto)", cube_grid_var, help_key="cube_grid", key="cube_grid")
     _surface_auto_aspect_chk = ttk.Checkbutton(
         settings, text="surface auto aspect (from PCA)", variable=surface_auto_aspect_var
     )
@@ -11908,7 +15038,7 @@ def run_gui(initial_args):
     add_help_button(row, "direct_connecting")
     dynamic_widgets.setdefault("direct_connecting", []).append((_direct_conn_chk, "check"))
     row += 1
-    add_entry("sphere radius", sphere_radius_var, help_key="sphere_radius")
+    add_entry("sphere radius", sphere_radius_var, help_key="sphere_radius", key="sphere_radius")
     add_entry("sphere extent", sphere_extent_var, help_key="sphere_extent", key="sphere_extent")
     add_entry("crossing offset", sphere_offset_var, help_key="crossing_offset")
     add_entry("crossing angle deg", sphere_angle_var,
@@ -11931,12 +15061,14 @@ def run_gui(initial_args):
     ).grid(row=row, column=0, columnspan=3, sticky="w", pady=2)
     add_help_button(row, "xyz_even_spacing")
     row += 1
-    ttk.Checkbutton(
+    _final_smooth_chk = ttk.Checkbutton(
         settings,
         text="final smooth 3D curve",
         variable=xyz_final_smooth_var,
-    ).grid(row=row, column=0, columnspan=3, sticky="w", pady=2)
+    )
+    _final_smooth_chk.grid(row=row, column=0, columnspan=3, sticky="w", pady=2)
     add_help_button(row, "xyz_final_smooth")
+    dynamic_widgets.setdefault("xyz_final_smooth", []).append((_final_smooth_chk, "check"))
     row += 1
     _smooth_method_lbl = ttk.Label(settings, text="smoothing method")
     _smooth_method_lbl.grid(row=row, column=0, sticky="w", pady=3)
@@ -11950,8 +15082,10 @@ def run_gui(initial_args):
         [(_smooth_method_lbl, "label"), (_smooth_method_combo, "combo")]
     )
     row += 1
-    add_entry("smooth window", xyz_smooth_window_var, help_key="xyz_smooth_window")
-    add_entry("smooth passes", xyz_smooth_passes_var, help_key="xyz_smooth_passes")
+    add_entry("smooth window", xyz_smooth_window_var, help_key="xyz_smooth_window",
+              key="xyz_smooth_window")
+    add_entry("smooth passes", xyz_smooth_passes_var, help_key="xyz_smooth_passes",
+              key="xyz_smooth_passes")
     add_entry("clearance (0=auto)", xyz_clearance_var,
               help_key="xyz_clearance", key="xyz_clearance")
     _xyz_repair_chk = ttk.Checkbutton(
@@ -12284,18 +15418,40 @@ def run_gui(initial_args):
         sl = sphere_layout_var.get()
         is_shaped_k = (sl == "shaped-kamada")
         is_cubic_k = (sl == "cubic-kamada")
+        is_grid_diagram = (sl == "grid-diagram")
+        _set_dynamic("grid_steps", is_grid_diagram)
+        _set_dynamic("grid_seed", is_grid_diagram)
+        _set_dynamic("grid_same_diagram", is_grid_diagram)
+        is_sheet = (sl == "sheet")
+        _set_dynamic("sheet_bend", is_sheet)
+        _set_dynamic("sheet_twist", is_sheet)
+        _set_dynamic("sheet_aspect", is_sheet)
+        is_chain = (sl == "chain")
+        is_folded_chain = is_chain and chain_form_var.get() == "folded"
+        _set_dynamic("chain_form", is_chain)
+        _set_dynamic("chain_fold_preset", is_folded_chain)
+        _set_dynamic("chain_fold_band", is_folded_chain)
+        _set_dynamic("chain_fold_ring", is_folded_chain)
+        _set_dynamic("chain_twist", is_chain and not is_folded_chain)
+        _set_dynamic("chain_rounds", is_chain and not is_folded_chain)
+        _set_dynamic("chain_symmetrize", is_chain)
+        # the folded chain is sized by the crossing offset (tube = 2 |offset|)
+        # and ignores the sphere radius
+        _set_dynamic("sphere_radius", not is_folded_chain)
         kamada_family = sl in ("spherical-kamada", "shaped-kamada",
                                "cubic-kamada", "raw-kk")
         s_shape = surface_shape_var.get()
         s_auto_aspect = bool(surface_auto_aspect_var.get())
         s_auto_orient = bool(surface_auto_orient_var.get())
         _set_dynamic("cube_style", is_cubic_k)
+        _set_dynamic("cube_grid", is_cubic_k and cube_style_var.get() in ("angled", "grid"))
         _set_dynamic("surface_shape", is_shaped_k)
+        _set_dynamic("surface_end_rings", is_shaped_k and s_shape == "capped-cylinder")
         _set_dynamic("surface_auto_aspect", is_shaped_k)
         _set_dynamic("surface_auto_orient", is_shaped_k)
         _set_dynamic(
             "surface_aspect",
-            is_shaped_k and (not s_auto_aspect) and s_shape in ("ellipsoid", "cylinder"),
+            is_shaped_k and (not s_auto_aspect) and s_shape in ("ellipsoid", "cylinder", "capped-cylinder"),
         )
         _set_dynamic("surface_tube", is_shaped_k and (not s_auto_aspect) and s_shape == "torus")
         _set_dynamic("surface_orient", is_shaped_k and (not s_auto_orient))
@@ -12304,18 +15460,24 @@ def run_gui(initial_args):
         _set_dynamic("direct_connecting", kamada_family)
         _set_dynamic("sphere_crossing_angle", kamada_family)
         _set_dynamic("sphere_refine", kamada_family)
-        _set_dynamic("sphere_bump", True)
+        _set_dynamic("sphere_bump", not is_chain)
         _set_dynamic("sphere_extent", sl in ("stereographic", "stereo-safe"))
-        _set_dynamic("xyz_repair", sl != "stereo-safe")
+        _set_dynamic("xyz_repair", sl not in ("stereo-safe", "chain"))
         # stereo-safe never smooths, so the smoothing method applies only
         # when final smoothing is on and the layout smooths at all.
         _set_dynamic("xyz_smooth_method",
-                     sl != "stereo-safe" and bool(xyz_final_smooth_var.get()))
+                     sl not in ("stereo-safe", "chain") and bool(xyz_final_smooth_var.get()))
+        # ... and the smoothing switch and its window / passes likewise
+        # (these two layouts force final smoothing off).
+        _set_dynamic("xyz_final_smooth", sl not in ("stereo-safe", "chain"))
+        _smooth_live = sl not in ("stereo-safe", "chain") and bool(xyz_final_smooth_var.get())
+        _set_dynamic("xyz_smooth_window", _smooth_live)
+        _set_dynamic("xyz_smooth_passes", _smooth_live)
         # the rods go into the shells file, so they need it switched on
         _set_dynamic("glb_rod_diameter", bool(shells_glb_var.get()))
         _set_dynamic(
             "xyz_clearance",
-            sl != "stereo-safe" and bool(xyz_repair_var.get()),
+            sl not in ("stereo-safe", "chain") and bool(xyz_repair_var.get()),
         )
 
     def collect_args():
@@ -12374,6 +15536,21 @@ def run_gui(initial_args):
             no_image=False,
             sphere_layout=sphere_layout_var.get(),
             cube_style=cube_style_var.get(),
+            cube_grid=_int_value(cube_grid_var, "cube grid"),
+            grid_steps=_int_value(grid_steps_var, "grid search steps"),
+            grid_seed=_int_value(grid_seed_var, "grid search seed"),
+            grid_same_diagram=bool(grid_same_var.get()),
+            sheet_bend=_float_value(sheet_bend_var, "sheet bend"),
+            sheet_twist=_float_value(sheet_twist_var, "sheet twist"),
+            sheet_aspect=_float_value(sheet_aspect_var, "sheet aspect"),
+            chain_twist=_float_value(chain_twist_var, "chain twist"),
+            chain_rounds=_int_value(chain_rounds_var, "chain relax rounds"),
+            chain_symmetrize=chain_symmetrize_var.get().strip() or "auto",
+            chain_form=chain_form_var.get().strip() or "perpendicular",
+            chain_fold_preset=chain_fold_preset_var.get().strip() or "elongated",
+            chain_fold_band=_float_value(chain_fold_band_var, "band length"),
+            chain_fold_ring=_float_value(chain_fold_ring_var, "end-ring length"),
+            surface_end_rings=surface_end_rings_var.get().strip() or "auto",
             direct_connecting=bool(direct_connecting_var.get()),
             sphere_refine=bool(sphere_refine_var.get()),
             sphere_radius=_float_value(sphere_radius_var, "sphere radius"),
@@ -12687,6 +15864,21 @@ def run_gui(initial_args):
                 surface_orient=ns.surface_orient,
                 surface_tilt=ns.surface_tilt,
                 cube_style=getattr(ns, "cube_style", "smooth"),
+                cube_grid=getattr(ns, "cube_grid", 0),
+                grid_steps=getattr(ns, "grid_steps", GRID_DIAGRAM_STEPS),
+                grid_seed=getattr(ns, "grid_seed", 0),
+                grid_same_diagram=bool(getattr(ns, "grid_same_diagram", True)),
+                sheet_bend=getattr(ns, "sheet_bend", 0.0),
+                sheet_twist=getattr(ns, "sheet_twist", 0.0),
+                sheet_aspect=getattr(ns, "sheet_aspect", 0.0),
+                surface_end_rings=getattr(ns, "surface_end_rings", "auto"),
+                chain_twist=getattr(ns, "chain_twist", 90.0),
+                chain_rounds=getattr(ns, "chain_rounds", 40),
+                chain_symmetrize=getattr(ns, "chain_symmetrize", "auto"),
+                chain_form=getattr(ns, "chain_form", "perpendicular"),
+                chain_fold_preset=getattr(ns, "chain_fold_preset", "elongated"),
+                chain_fold_band=getattr(ns, "chain_fold_band", 0.0),
+                chain_fold_ring=getattr(ns, "chain_fold_ring", 0.0),
                 xyz_repair=not getattr(ns, 'no_xyz_repair', False),
                 xyz_clearance=(getattr(ns, 'xyz_clearance', 0.0) or None),
                 audit_dt=getattr(ns, 'dt', None),
@@ -12697,10 +15889,18 @@ def run_gui(initial_args):
             if _shells is not None:
                 try:
                     shells_file = shells_glb_path(ns.shells_glb, ns.xyz_output)
+                    _mt0 = (os.path.getmtime(shells_file)
+                            if os.path.exists(shells_file) else None)
                     shells_log = "".join(
                         m + "\n" for m in write_surface_shells_glb(
                             shells_file, _shells, extras={"dt": ns.dt},
                             rod_diameter=getattr(ns, "glb_rod_diameter", 0.0)))
+                    # A layout without a base surface (the chain) writes
+                    # nothing when the rod diameter is 0: do not report a
+                    # .glb that was not (re)written.
+                    if (not os.path.exists(shells_file)
+                            or os.path.getmtime(shells_file) == _mt0):
+                        shells_file = None
                 except Exception as sexc:
                     shells_file = None
                     shells_log = "[warn] surface shells failed: %s\n" % sexc
@@ -12769,6 +15969,21 @@ def run_gui(initial_args):
             surface_orient=ns.surface_orient,
             surface_tilt=ns.surface_tilt,
             cube_style=getattr(ns, "cube_style", "smooth"),
+            cube_grid=getattr(ns, "cube_grid", 0),
+            grid_steps=getattr(ns, "grid_steps", GRID_DIAGRAM_STEPS),
+            grid_seed=getattr(ns, "grid_seed", 0),
+            grid_same_diagram=bool(getattr(ns, "grid_same_diagram", True)),
+            sheet_bend=getattr(ns, "sheet_bend", 0.0),
+            sheet_twist=getattr(ns, "sheet_twist", 0.0),
+            sheet_aspect=getattr(ns, "sheet_aspect", 0.0),
+            surface_end_rings=getattr(ns, "surface_end_rings", "auto"),
+            chain_twist=getattr(ns, "chain_twist", 90.0),
+            chain_rounds=getattr(ns, "chain_rounds", 40),
+            chain_symmetrize=getattr(ns, "chain_symmetrize", "auto"),
+            chain_form=getattr(ns, "chain_form", "perpendicular"),
+            chain_fold_preset=getattr(ns, "chain_fold_preset", "elongated"),
+            chain_fold_band=getattr(ns, "chain_fold_band", 0.0),
+            chain_fold_ring=getattr(ns, "chain_fold_ring", 0.0),
             skeleton_out=skel,
             skeleton_grid=getattr(ns, "proj_grid_density", 24),
             xyz_repair=not getattr(ns, "no_xyz_repair", False),
@@ -13143,6 +16358,21 @@ def run_gui(initial_args):
                 surface_orient=ns.surface_orient,
                 surface_tilt=ns.surface_tilt,
                 cube_style=getattr(ns, "cube_style", "smooth"),
+                cube_grid=getattr(ns, "cube_grid", 0),
+                grid_steps=getattr(ns, "grid_steps", GRID_DIAGRAM_STEPS),
+                grid_seed=getattr(ns, "grid_seed", 0),
+                grid_same_diagram=bool(getattr(ns, "grid_same_diagram", True)),
+                sheet_bend=getattr(ns, "sheet_bend", 0.0),
+                sheet_twist=getattr(ns, "sheet_twist", 0.0),
+                sheet_aspect=getattr(ns, "sheet_aspect", 0.0),
+                surface_end_rings=getattr(ns, "surface_end_rings", "auto"),
+                chain_twist=getattr(ns, "chain_twist", 90.0),
+                chain_rounds=getattr(ns, "chain_rounds", 40),
+                chain_symmetrize=getattr(ns, "chain_symmetrize", "auto"),
+                chain_form=getattr(ns, "chain_form", "perpendicular"),
+                chain_fold_preset=getattr(ns, "chain_fold_preset", "elongated"),
+                chain_fold_band=getattr(ns, "chain_fold_band", 0.0),
+                chain_fold_ring=getattr(ns, "chain_fold_ring", 0.0),
                 xyz_repair=not getattr(ns, "no_xyz_repair", False),
                 xyz_clearance=(getattr(ns, "xyz_clearance", 0.0) or None),
                 audit_dt=getattr(ns, "dt", None),
@@ -13210,9 +16440,17 @@ def run_gui(initial_args):
         "surface_shape": surface_shape_var, "surface_aspect": surface_aspect_var,
         "surface_tube": surface_tube_var, "surface_orient": surface_orient_var,
         "surface_tilt": surface_tilt_var,
-        "cube_style": cube_style_var,
+        "cube_style": cube_style_var, "cube_grid": cube_grid_var,
+        "grid_steps": grid_steps_var, "grid_seed": grid_seed_var,
+        "sheet_bend": sheet_bend_var, "sheet_twist": sheet_twist_var, "sheet_aspect": sheet_aspect_var,
+        "chain_twist": chain_twist_var, "chain_rounds": chain_rounds_var,
+        "chain_symmetrize": chain_symmetrize_var,
+        "chain_form": chain_form_var, "chain_fold_preset": chain_fold_preset_var,
+        "chain_fold_band": chain_fold_band_var, "chain_fold_ring": chain_fold_ring_var,
+        "surface_end_rings": surface_end_rings_var,
     }
     session_bool_vars = {
+        "grid_same_diagram": grid_same_var,
         "direct_connecting": direct_connecting_var,
         "sphere_refine": sphere_refine_var,
         "xyz_final_smooth": xyz_final_smooth_var,
@@ -13435,11 +16673,13 @@ def run_gui(initial_args):
         flatten_orthogonal_var,
         sphere_layout_var,
         surface_shape_var,
+        cube_style_var,
         surface_auto_orient_var,
         surface_auto_aspect_var,
         xyz_repair_var,
         xyz_final_smooth_var,
         shells_glb_var,
+        chain_form_var,
     ):
         var.trace_add("write", lambda *_a: _apply_dynamic_states())
 
@@ -13514,7 +16754,19 @@ def main(argv=None):
     if not args.dt:
         parser.error("--dt is required unless using --gui or no arguments for GUI mode.")
 
-    return run_pipeline(args, status_stream=sys.stderr)
+    try:
+        return run_pipeline(args, status_stream=sys.stderr)
+    except ValueError as exc:
+        # V5.7: a refusal whose message is the whole explanation (the chain
+        # layout's ChainLayoutError: not a chain, no drawing that can be cut,
+        # a bad chain parameter, a failed self-check) is printed as one
+        # [error] line, exit status 1, instead of a traceback.  Any other
+        # ValueError -- a bug, or a layout that has not opted in -- still
+        # propagates with its traceback.
+        if not getattr(exc, "user_facing", False):
+            raise
+        print("[error] %s" % exc, file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

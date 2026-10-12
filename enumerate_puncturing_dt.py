@@ -173,14 +173,20 @@ CONGRUENCE_NDIGITS = 3         # rounding of the normalised distance multiset
 # Balanced and Lopsided clasps:
 #
 #     decompress   bigon nn   other nn   worst panel   false crossings
-#        0.00       0.0486     0.0895      0.0479            0
+#        0.00       0.0486     0.0895      0.0479           28 *
 #        0.15       0.0820     0.1177      0.0820            0
 #        0.30       0.1060     0.1193      0.0971            0     <- chosen
 #        0.45       0.0953     0.1016      0.0762            0
 #
+#   * re-measured 2026-10-03 with the exact false-crossing audit (CLAUDE.md
+#     Invariant 1b): Balanced 2 + Lopsided 26, squeezed bigon panels whose
+#     splines loop through each other.  The old audit's 6% exclusion zone hid
+#     them and read 0.  (0.60, past the table, has 4 on the Lopsided clasp.)
+#
 # It roughly doubles the room in the worst panel and helps the non-bigon panels
 # too, with no false crossings.  --decompress 0 restores the raw-grouping
-# figure's exact settings; --decompress auto searches the ladder below.
+# figure's exact settings (and its false crossings); --decompress auto searches
+# the ladder below and rejects every value with a false crossing.
 # Panel order in the atlas.  "gon" is the default: biggest punctured polygon
 # first, which reads as a progression -- the large faces give the open, airy
 # drawings and the bigons the tight ones -- and keeps panels of the same polygon
@@ -414,8 +420,12 @@ def false_crossing_count(model, P):
     disqualified however roomy it looks."""
     try:
         return int(DDOL.audit_false_crossings(model, P, DDOL.crossing_centers(model, P)))
-    except Exception:  # noqa: BLE001
-        return 0
+    except Exception as exc:  # noqa: BLE001
+        # A drawing that could not be audited is NOT known to be clean: count
+        # it as one defect so auto-decompress rejects it (it used to read 0).
+        print("  [warn] false-crossing audit failed (%s: %s); the panel is treated as "
+              "not clean" % (type(exc).__name__, exc), file=sys.stderr)
+        return 1
 
 
 def _layout_panels(model, G, reps, tutte_extra):

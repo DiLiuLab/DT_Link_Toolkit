@@ -9,6 +9,8 @@ hyperbolic invariants with the reference DT link.
 Usage: sage -python audit_xyz.py file.xyz "DT: [...]"
 """
 import argparse
+import os
+import re
 import sys
 import warnings
 
@@ -140,14 +142,132 @@ def link_from_curve(comps, rng):
             c1, _, e1o = slots[(c, j)]
             c2, e2i, _ = slots[(c, (j + 1) % m)]
             c1[e1o] = c2[e2i]
-    return spherogram.Link(list(Cs.values()))
+    # Orient each component as the curve runs it.  Left to itself spherogram
+    # chooses every component's direction when it builds the Link, which
+    # leaves the signs of the crossings between components -- and so the
+    # writhe of a multi-component curve -- arbitrary.  The isometry test never
+    # noticed (it is unoriented); writhe readings of links did.  build=False
+    # plus spherogram's own _build(start_orientations=...) is the hook it uses
+    # itself when rebuilding a link with known orientations.
+    starts = [(slots[(c, 0)][0], slots[(c, 0)][2]) for c in passes]
+    try:
+        L = spherogram.Link(list(Cs.values()), build=False)
+        L._build(start_orientations=starts)
+        return L
+    except (TypeError, AttributeError):
+        return spherogram.Link(list(Cs.values()))
 
+
+
+def _dt_components(dt_string):
+    """The DT code's components as tuples of ints, read exactly as the drawing
+    script's ``parse_dt`` reads them (look-alike Unicode dashes and spaces
+    normalised, the ``[...]`` literal evaluated, a flat list of ints taken as
+    one component), so a flip vector computed by the drawing script lines up
+    with these components.  Used only when no components come with the
+    flips (``audit_xyz.py --flips`` without the drawing script)."""
+    import ast
+    text = str(dt_string)
+    for ch in ("\u2212", "\u2013", "\u2014", "\u2010", "\u2011", "\uff0d", "\u2015"):
+        text = text.replace(ch, "-")
+    for ch in ("\u00a0", "\u2009", "\u202f", "\u2007", "\u2002", "\u3000"):
+        text = text.replace(ch, " ")
+    m = re.search(r"\[.*\]", text.strip(), re.DOTALL)
+    if not m:
+        raise ValueError("no '[...]' list in the DT code")
+    raw = ast.literal_eval(m.group(0))
+    if all(isinstance(x, int) for x in raw):
+        raw = [tuple(raw)]
+    return [tuple(int(x) for x in comp) for comp in raw]
+
+
+def _diagram_is_planar(L):
+    """Euler check on a spherogram Link's diagram: every connected piece must
+    have crossings + 2 faces.  spherogram accepts any flip vector and does not
+    check that it describes a planar diagram."""
+    n = len(L.crossings)
+    if n == 0:
+        return True
+    parent = {id(c): id(c) for c in L.crossings}
+
+    def find(a):
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+    for c in L.crossings:
+        for d in c.adjacent:
+            if d is not None and id(d[0]) in parent:
+                parent[find(id(c))] = find(id(d[0]))
+    pieces = len({find(id(c)) for c in L.crossings})
+    return len(L.faces()) == n + 2 * pieces
+
+
+def reference_link_from_flips(dt_string, flips, comps=None):
+    """The DT code's link, realised with the given flip vector (one bool per
+    crossing, DT-label order).  With flips given, spherogram's DT decoder
+    skips the embedding search that fails on most codes with kinks
+    (``DTcodec.embed`` -> ``bridge``: "not enough values to unpack"), so a
+    valid vector always yields the diagram.  Raises ValueError if the result
+    is not a planar diagram (a wrong vector)."""
+    _load_topology_modules()
+    from spherogram.codecs.DT import DTcodec
+    comps = [tuple(c) for c in (comps if comps is not None else _dt_components(dt_string))]
+    n = sum(len(c) for c in comps)
+    flips = [bool(f) for f in flips]
+    if len(flips) != n:
+        raise ValueError("%d flips for %d crossings" % (len(flips), n))
+    L = DTcodec(comps, flips).link()
+    if not _diagram_is_planar(L):
+        raise ValueError("the flip vector does not give a planar diagram")
+    return L
+
+
+def _flips_from_drawing_script(dt_string):
+    """(components, flip vector) for the code, from the newest draw_dt_original_labels*.py
+    next to this file (its crossing-face embedding; see
+    dt_flips_from_embedding there), or None.  Only the command line needs this:
+    the drawing script passes its own flips to the library API."""
+    import glob
+    import importlib.util
+    here = os.path.dirname(os.path.abspath(__file__))
+    cands = glob.glob(os.path.join(here, "draw_dt_original_labels*.py"))
+
+    def vkey(path):
+        m = re.search(r"V(\d+)[._](\d+)", os.path.basename(path))
+        return (int(m.group(1)), int(m.group(2))) if m else (-1, -1)
+    for path in sorted(cands, key=vkey, reverse=True):
+        name = os.path.splitext(os.path.basename(path))[0]
+        mod = sys.modules.get(name)
+        if mod is None:
+            spec = importlib.util.spec_from_file_location(name, path)
+            mod = importlib.util.module_from_spec(spec)
+            sys.modules[name] = mod
+            spec.loader.exec_module(mod)
+        fn = getattr(mod, "dt_flips_from_embedding", None)
+        if fn is None:
+            continue
+        comps = mod.parse_dt(dt_string)
+        return comps, fn(mod.build_model(comps))
+    return None
 
 
 def audit_components_against_dt(xyz_components, dt_string, attempts=4,
-                                simplify_rounds=8, seed=11):
+                                simplify_rounds=8, seed=11, flips=None,
+                                flips_source="the given flip vector"):
     """Library API for draw_dt_original_labels: audit a list of Nx3 closed
     polylines against the DT code they were generated from.
+
+    The reference link is spherogram's reading of the bare code.  spherogram
+    cannot read most codes with kinks or other two-point cuts (its embedding
+    search fails: 126 of 132 backtrack diagrams measured), so ``flips`` is
+    used when that reading fails, and the detail says so, naming
+    ``flips_source``.  ``flips`` is a flip vector of a planar realisation, or
+    (components, flip vector) -- the components the vector was computed for,
+    so the two cannot be read differently -- or a zero-argument callable
+    returning either.
+    For a link whose type is prime every realisation is the same link up to
+    mirror image, which this mirror-blind test does not see.
 
     Returns a dict: {'status': 'ok'|'FAIL'|'inconclusive'|'unavailable',
     'detail': str}.  Requires spherogram + snappy ('unavailable' if not)."""
@@ -156,19 +276,113 @@ def audit_components_against_dt(xyz_components, dt_string, attempts=4,
     except Exception as e:
         return {'status': 'unavailable',
                 'detail': 'spherogram/snappy not importable (%s)' % e}
+    return _audit_against_dt(xyz_components, dt_string, attempts,
+                             simplify_rounds, seed, flips, flips_source)
+
+
+def _simplified_crossings(L, rounds=4):
+    """Crossings left after simplifying a COPY of L."""
+    c = L.copy()
+    for _r in range(rounds):
+        c.simplify('global')
+    return len(c.crossings)
+
+
+def _audit_against_dt(xyz_components, dt_string, attempts, simplify_rounds,
+                      seed, flips, flips_source):
     import numpy as _np
     comps = [_np.asarray(c, float) for c in xyz_components]
+    note = ''
     try:
         ref = spherogram.Link(dt_string)
         Mref = ref.exterior()
         vref = float(Mref.volume())
+        ref_trivial = _simplified_crossings(ref) == 0
+        ref_ncomp = len(ref.link_components)
     except Exception as e:
-        return {'status': 'inconclusive',
-                'detail': 'reference DT link failed: %s' % str(e)[:80]}
+        first = '%s' % str(e)[:60]
+        try:
+            fl = flips() if callable(flips) else flips
+        except Exception as e2:
+            fl, first = None, first + '; flip vector: %s' % str(e2)[:40]
+        fl_comps = None
+        if isinstance(fl, tuple) and len(fl) == 2:
+            fl_comps, fl = fl
+        if fl is None:
+            return {'status': 'inconclusive',
+                    'detail': "reference DT link failed: spherogram's DT "
+                              "decoder could not read the code (%s) and no "
+                              "flip vector was given" % first}
+        try:
+            ref = reference_link_from_flips(dt_string, fl, comps=fl_comps)
+            # a backtrack diagram has dozens of removable crossings; its raw
+            # exterior gives a degenerate solution with a meaningless
+            # "volume" (the Hopf link's read 2.0299).  Simplifying keeps the
+            # link and gives SnapPy a sane triangulation.
+            ref_ncomp = len(ref.link_components)
+            for _r in range(4):
+                ref.simplify('global')
+            ref_trivial = len(ref.crossings) == 0
+            Mref = ref.exterior()
+            vref = float(Mref.volume())
+        except Exception as e2:
+            return {'status': 'inconclusive',
+                    'detail': "reference DT link failed: spherogram's DT "
+                              "decoder could not read the code (%s), nor "
+                              "build it from the flip vector (%s)"
+                              % (first, str(e2)[:60])}
+        note = (" [reference built from %s: spherogram's DT decoder could "
+                "not read the bare code]" % flips_source)
+    ref_hyp = _hyperbolic(Mref.copy())     # re-triangulates: test a copy, keep Mref and vref
+    if abs(vref) < 5e-5:           # a degenerate structure's volume prints as -0.0000 at random
+        vref = 0.0
+    r = _compare_with_reference(comps, Mref, vref, attempts, simplify_rounds, seed, ref_hyp,
+                                ref_trivial, ref_ncomp)
+    if note:
+        r = dict(r, detail=r['detail'] + note)
+    return r
+
+
+def _geometric(solution_type):
+    """A SnapPy solution that is a hyperbolic structure: all tetrahedra
+    positively oriented, or some negatively oriented (still geometric, the
+    volume is right).  Degenerate, flat or missing solutions are not."""
+    return 'positive' in solution_type or 'negatively' in solution_type
+
+
+def _hyperbolic(M, tries=10):
+    """True when SnapPy finds a hyperbolic structure on M within ``tries``
+    re-triangulations.  A non-hyperbolic exterior (a torus link's, say) never
+    has one, so False is reliable there; a hyperbolic exterior is found at
+    once in practice, and ten tries keep a stubborn triangulation from being
+    mistaken for a non-hyperbolic one."""
+    for _r in range(tries):
+        if _geometric(M.solution_type()):
+            return True
+        M.randomize()
+    return False
+
+
+def _compare_with_reference(comps, Mref, vref, attempts, simplify_rounds, seed, ref_hyp=True,
+                            ref_trivial=False, ref_ncomp=None):
     rng = np.random.default_rng(seed)
     last = 'no valid projection'
+    # Lattice-like curves (the angled / grid cube wires, the grid-diagram
+    # lift) have many exactly parallel and collinear segments at identical
+    # heights, so a random projection is not generic: apparent crossings land
+    # on vertices or two segments project onto one line, and the Gauss code
+    # comes out wrong (a non-planar code, or a spurious hyperbolic link where
+    # the reference is not).  A perturbation of 1e-7 of the curve's extent
+    # makes the projection generic without moving anything that matters --
+    # strands that close are touching anyway.
+    extent = max(1.0, max(float(np.ptp(c, axis=0).max()) for c in comps if len(c)))
     for _ in range(attempts):
-        L = link_from_curve(comps, rng)
+        pert = [c + rng.normal(scale=1.0e-7 * extent, size=c.shape) for c in comps]
+        try:
+            L = link_from_curve(pert, rng)
+        except Exception as e:  # noqa: BLE001
+            last = 'degenerate projection (%s)' % str(e)[:40]
+            continue
         if L is None or L == 'split':
             last = 'degenerate projection'
             continue
@@ -176,6 +390,11 @@ def audit_components_against_dt(xyz_components, dt_string, attempts=4,
             for _r in range(simplify_rounds):
                 L.simplify('global'); L.simplify('pickup')
             if len(L.crossings) == 0:
+                if ref_trivial and ref_ncomp == len(comps):
+                    # a kinked unknot / unlink code: the DT link is the unlink too
+                    return {'status': 'ok',
+                            'detail': 'curve and DT link both reduce to the '
+                                      'unlink of %d component(s)' % len(comps)}
                 return {'status': 'FAIL',
                         'detail': 'curve reduces to an UNLINK; the 3D '
                                   'polyline does not realize the DT link'}
@@ -186,6 +405,8 @@ def audit_components_against_dt(xyz_components, dt_string, attempts=4,
                     break
                 M.randomize()
             v = float(M.volume())
+            if abs(v) < 5e-5:
+                v = 0.0
             try:
                 iso = M.is_isometric_to(Mref)
             except Exception:
@@ -202,6 +423,16 @@ def audit_components_against_dt(xyz_components, dt_string, attempts=4,
                         'detail': 'curve link is NOT isometric to the DT '
                                   'link (volumes %.4f vs %.4f): a strand '
                                   'passed through another' % (v, vref)}
+            if iso is None and 'positive' in st and not ref_hyp:
+                # the curve's exterior is hyperbolic, the DT link's is not
+                # (a torus link, say): they cannot be the same link
+                return {'status': 'FAIL',
+                        'detail': 'curve link is hyperbolic (vol %.4f) but the '
+                                  'DT link is not: a strand passed through '
+                                  'another' % v}
+            # volumes of non-hyperbolic exteriors are printed too (SnapPy's
+            # value for a degenerate solution, e.g. 4BL's 14.6554 = 4 x the
+            # Whitehead link's): equal ones are evidence, not proof
             last = ('isometry undecided (curve vol %.4f, DT vol %.4f)'
                     % (v, vref))
         except Exception as e:
@@ -224,6 +455,12 @@ def main(argv=None):
                         help="Spherogram simplify rounds per attempt (default: 8)")
     parser.add_argument("--seed", type=int, default=11,
                         help="random projection seed (default: 11)")
+    parser.add_argument("--flips", default=None,
+                        help="flip vector for the DT code, one 0/1 per crossing in "
+                             "DT-label order (commas and spaces ignored).  Used only "
+                             "when spherogram cannot read the bare code; by default "
+                             "it is computed by the newest draw_dt_original_labels*.py "
+                             "next to this file")
     args = parser.parse_args(argv)
     try:
         _load_topology_modules()
@@ -233,12 +470,23 @@ def main(argv=None):
     path, dt = args.xyz_file, args.dt
     comps = load_xyz(path)
     print(f"{len(comps)} components, {sum(len(c) for c in comps)} points")
+    if args.flips is not None:
+        digits = re.sub(r"[\s,\[\]]", "", args.flips)
+        if not digits or set(digits) - set("01"):
+            parser.error("--flips must be 0/1 digits, e.g. 0110")
+        flips = [d == "1" for d in digits]
+        source = "the --flips vector"
+    else:
+        flips = lambda: _flips_from_drawing_script(dt)   # noqa: E731
+        source = "a planar embedding computed by the drawing script"
     result = audit_components_against_dt(
         comps,
         dt,
         attempts=max(1, args.attempts),
         simplify_rounds=max(0, args.simplify_rounds),
         seed=args.seed,
+        flips=flips,
+        flips_source=source,
     )
     prefix = {
         "ok": "[ok]",
