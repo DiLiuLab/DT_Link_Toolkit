@@ -92,6 +92,11 @@ Pipeline
 4. REPORT.  Write an Excel workbook (one ranked row per representative with all
    metrics, plus a run_info sheet) and an SVG figure (2-D Tutte layout + 3-D
    sphere layout for each representative, captioned with its DT code and score).
+   Since 2026-10-11 each representative also gets its symmetry-distinct crossings
+   N in four materials from spheremaps.py (descriptive columns, not scored).  Since
+   2026-10-12 the figure shades those classes on the first 2-D drawing, adds a
+   paper-style column (mdfig.py: the drawing as symmetric as it allows), and colours
+   each crossing on the 3-D sphere by its class under the sphere group.
 
 Reproducibility: the generation step is resumable from a JSONL checkpoint, and the
 checkpoint is the ONLY thing that reproduces a chain.  Round i is driven by a
@@ -247,6 +252,28 @@ sys.modules[_draw_name] = DDOL
 _spec.loader.exec_module(DDOL)
 LE = _load_newest("link_engine")        # newest link_engine*.py (today link_engine_v4_0)
 CDT2 = _load_newest("canonical_dt")     # newest canonical_dt*.py (today canonical_dt_V2_0): canonical form, combinatorial symmetry, and the rotation-system + eigenvalue point-group engine (sigma/i/Sn)
+_SPHEREMAPS = None                      # spheremaps*.py, loaded on first use (symmetry-distinct crossings)
+
+
+def _spheremaps():
+    """spheremaps.py -- the diagram as a map on the sphere, exact symmetry groups and the symmetry-distinct
+    crossings N -- found by version like the other helpers and loaded on first use."""
+    global _SPHEREMAPS
+    if _SPHEREMAPS is None:
+        _SPHEREMAPS = _load_newest("spheremaps")
+    return _SPHEREMAPS
+
+
+def symmetry_distinct_crossings(dt_string):
+    """N, the number of classes of crossings under the symmetries of the most symmetric rigid realisation, in
+    four materials (achiral / chiral / directed / directed chiral), with the realisations of the DT code, their
+    exact sphere groups and the classes themselves (spheremaps.crossings_report).  DESCRIPTIVE: reported beside
+    the score and never part of the composite (Invariant 2).  Exact on composite diagrams, where this file's own
+    gadget-graph symmetry cannot tell a granny knot from a square knot."""
+    try:
+        return _spheremaps().crossings_report(dt_string)
+    except Exception as exc:  # noqa: BLE001  -- e.g. a non-3-connected diagram above the brute-force limit
+        return {"error": "%s: %s" % (type(exc).__name__, exc)}
 
 try:
     from scipy.optimize import linear_sum_assignment
@@ -585,8 +612,9 @@ def geometric_2d_metrics(model, G):
     }
 
 
-def _crossing_centers_3d(model, G):
-    dirs = DDOL._kamada_3d_unit_directions(G)
+def _crossing_centers_3d(model, G, dirs=None):
+    if dirs is None:
+        dirs = DDOL._kamada_3d_unit_directions(G)
     n = len(model["crossings"])
     centers = np.zeros((n, 3), float)
     counts = np.zeros(n, float)
@@ -640,8 +668,77 @@ def _best_rotational_symmetry_3d(centers, kmax=6, thresh=0.12):
     return best_k, best_score
 
 
+_GADGET_ROLES = ("in_o", "in_e", "out_o", "out_e")     # the crossing's 4-cycle, in order (build_gadget_graph)
+
+
+def _layout_sigma(model, pos):
+    """The rotation systems a layout may realise -- a list of candidate spheremaps sigma vectors, most reliable first
+    -- for a 3-D layout on the sphere (`pos` = unit directions) or a 2-D one (positions).  Per crossing, +1 when its
+    gadget quad in_o -> in_e -> out_o -> out_e turns anticlockwise (seen from outside the sphere), else -1, up to the
+    global reflection (normalised so crossing 0 is +1).  It names WHICH realisation of a composite DT code a panel
+    draws, so the classes coloured on it are that realisation's.  First candidate: the sign of the quad's signed
+    AREA; second: the triangle in_o, in_e, out_o, which a non-convex quad (one reflex corner) turns the wrong way.
+    Measured on the paper's 146 composite codes (review, 2026-10-12): the area matches a realisation for 96, the
+    triangle for 55, either for 101; where both match they agree.  A layout that is not an embedding there (a
+    folded or bow-tie gadget) can match none: see _drawn_realisation."""
+    out = []
+    for rule in ("area", "triangle"):
+        sig = _quad_signs(model, pos, rule)
+        if sig and sig[0] < 0:
+            sig = [-x for x in sig]
+        if sig not in out:
+            out.append(sig)
+    return out
+
+
+def _quad_signs(model, pos, rule="area"):
+    """Per crossing +1 / -1, NOT normalised: the turning sense of its gadget quad in_o -> in_e -> out_o -> out_e
+    (signed area; "triangle": in_o, in_e, out_o only), seen from outside the sphere for 3-D directions.  Two drawings
+    of one realisation have equal vectors when they have the same handedness and opposite ones when they are each
+    other's in-plane mirror image."""
+    sig = []
+    for k in range(len(model["crossings"])):
+        q = [np.asarray(pos[(k, r)], float) for r in _GADGET_ROLES]
+        if len(q[0]) == 3:
+            c = sum(q)
+            if rule == "area":
+                val = float(np.dot(sum(np.cross(q[i], q[(i + 1) % 4]) for i in range(4)), c))
+            else:
+                val = float(np.linalg.det(np.array(q[:3])))
+        else:
+            pts = q if rule == "area" else q[:3]
+            val = sum(pts[i][0] * pts[(i + 1) % len(pts)][1] - pts[(i + 1) % len(pts)][0] * pts[i][1]
+                      for i in range(len(pts)))
+        sig.append(1 if val > 0 else -1)
+    return sig
+
+
+def _drawn_realisation(cr, sigmas):
+    """(index, realisation report, crossings that differ) of the realisation a layout draws: the first candidate
+    sigma (_layout_sigma) equal to a realisation's; else the nearest realisation (fewest crossings whose corner
+    order differs; 0 = exact).  None when crossings_report failed."""
+    reals = cr.get("realisations") or []
+    if not reals:
+        return None
+    for sig in sigmas or []:
+        for j, r in enumerate(reals):
+            if list(r["sigma"]) == list(sig):
+                return j, r, 0
+    best = None
+    for sig in sigmas or []:
+        for j, r in enumerate(reals):
+            d = sum(1 for a, b in zip(r["sigma"], sig) if a != b)
+            if best is None or d < best[2]:
+                best = (j, r, d)
+    if best is None:
+        j = cr["best_realisation"]
+        return j, reals[j], len(reals[j]["sigma"])
+    return best
+
+
 def sphere_3d_metrics(model, G):
-    centers = _crossing_centers_3d(model, G)
+    dirs = DDOL._kamada_3d_unit_directions(G)
+    centers = _crossing_centers_3d(model, G, dirs)
     n = len(centers)
     thomson = _riesz_energy(centers, s=1.0)
     ref = _riesz_energy(DDOL._fibonacci_sphere_directions(n), s=1.0)
@@ -683,6 +780,7 @@ def sphere_3d_metrics(model, G):
         "strand3d_length_cv": strand3d_cv,
         "bending_energy": bending, "sym3d_order": sym_k, "sym3d_score": sym_score,
         "_centers3d": centers,
+        "_dirs3d": dirs,                        # every gadget node's direction: the sphere view's strand routes
     }
 
 
@@ -757,6 +855,8 @@ def score_diagram(dt_string, negative_even="over"):
             orbit_sizes, m["graph"]["automorphism_order"])
     except Exception as exc:  # noqa: BLE001  -- never let a report kill a score
         m["graph"]["orbit_check"] = "error: %s" % exc
+    # Symmetry-distinct crossings N (spheremaps): intrinsic and descriptive, like the plane drawings.
+    m["crossings"] = symmetry_distinct_crossings(dt_string)
     # Loop-aware 3-D point-group order, computed here (before scoring) in this
     # diagram's own 3-D frame.  Feeds diagram_symmetry and also warms the shared
     # cache the descriptive "3D point group" column reads from.
@@ -1833,6 +1933,14 @@ def _diagram_name(dt):
 # --------------------------------------------------------------------------- #
 #  4a. Excel report
 # --------------------------------------------------------------------------- #
+def _sdc(key):
+    """Getter for a symmetry-distinct-crossings column: the value, or the error that prevented it."""
+    def _get(m):
+        cr = m.get("crossings") or {}
+        return cr.get(key, cr.get("error", ""))
+    return _get
+
+
 def _cols():
     # (header, path-getter) ; getter takes the scored metrics dict m
     def g(*keys):
@@ -1865,6 +1973,14 @@ def _cols():
         ("Face degree CV", g("graph", "face_degree_cv")),
         ("Bigons", g("graph", "n_bigons")),
         ("Plane drawings", g("graph", "n_plane_drawings")),
+        ("N achiral", _sdc("N_achiral")),
+        ("N chiral", _sdc("N_chiral")),
+        ("N directed", _sdc("N_dir_achiral")),
+        ("N directed chiral", _sdc("N_dir_chiral")),
+        ("N all symmetries", _sdc("N_achiral_comb")),
+        ("Rigid model", _sdc("model_achiral")),
+        ("Diagrams of the code", lambda m: (m["crossings"]["diagrams"] if "realisations" in m.get("crossings", {})
+                                            else m.get("crossings", {}).get("error", ""))),
         ("Symmetry order", g("graph", "automorphism_order")),
         ("Symmetry group", lambda m: m["graph"].get("symmetry_group", "")),
         ("Edge length CV", g("geom2d", "edge_length_cv")),
@@ -2022,6 +2138,25 @@ _METRIC_LEGEND = [
      "and the complete crossing flip. INTRINSIC -- unlike the 2-D metrics it does not depend on "
      "which face is turned to the outside. Not scored; reported for comparison. "
      "enumerate_puncturing_dt.py draws the atlas."),
+    ("N achiral", "lower = fewer to specify",
+     "Symmetry-distinct crossings: classes of crossings under the symmetries of the most symmetric RIGID "
+     "realisation -- the diagram on a sphere (over strand outside) or drawn flat with one region outside -- for "
+     "a molecule built from achiral components.  From spheremaps.py, exact also for composite diagrams (the "
+     "smallest over the diagrams the DT code describes; see Diagrams of the code).  Intrinsic.  Not scored."),
+    ("N chiral", "lower = fewer to specify", "As N achiral, with proper symmetries only (homochiral material)."),
+    ("N directed", "lower = fewer to specify",
+     "As N achiral, with only the symmetries that keep every strand's direction (5'->3', N->C), for the best "
+     "choice of ring directions."),
+    ("N directed chiral", "lower = fewer to specify", "Both restrictions: the count for DNA and peptides."),
+    ("N all symmetries", "descriptive",
+     "Classes under ALL diagram symmetries, including those that exchange over and under without keeping a region "
+     "(no rigid molecule can perform them; the count in the 3-sphere).  Can be smaller than N achiral."),
+    ("Rigid model", "descriptive", "The rigid picture that attains N achiral, with its point group: 'sphere G' and/or 'flat G'."),
+    ("Diagrams of the code", "descriptive",
+     "Diagrams on the sphere (up to mirror image) that this DT code describes: 1 for a prime diagram; a composite "
+     "code can describe several (granny and square knot share their codes), and the N columns give the smallest.  "
+     "Rotation systems that give the same diagram are counted once.  An error message here means spheremaps refused "
+     "the code (e.g. a split diagram) or it was too large to search."),
     ("Symmetry order", "higher = better", "Combinatorial symmetry: how many DT re-encodings fix the diagram (RESPECTS over/under); higher = fewer unique sequences."),
     ("Symmetry group", "descriptive", "The symmetry group type respecting over/under (e.g. C1 trivial, C2, C2xC2 = Klein four-group of order 4, Ck cyclic). C2xC2 has order 4 but is NOT a 4-fold rotation."),
     ("Edge length CV", "descriptive", "DESCRIPTIVE ONLY (not scored): uniformity of segment lengths in the relaxed 2-D layout. Depends on which face draw_dt turns to the outside (the 'puncture'), which is not intrinsic when faces tie for largest -- so it is excluded from the composite."),
@@ -2049,6 +2184,80 @@ _METRIC_LEGEND = [
 # --------------------------------------------------------------------------- #
 _PALETTE = ["#4c72b0", "#dd8452", "#55a868", "#c44e52", "#8172b3",
             "#937860", "#da8bc3", "#8c8c8c", "#ccb974", "#64b5cd"]
+
+
+def _centripetal_closed(points, samples=12, alpha=0.5):
+    """Closed CENTRIPETAL Catmull-Rom spline (knot spacing |p_{i+1} - p_i|^alpha, alpha 1/2; Barry-Goldman), with
+    DDOL.catmull_rom's return shape (dense points, start index of every span).  Unlike the uniform spline it makes
+    no loop or cusp inside a span however uneven the control spacing is (Yuksel, Schaefer and Keyser 2011) -- on
+    the sphere a gadget's corners sit close to its centre and the segment nodes far away, and the uniform spline
+    curled into small loops there."""
+    pts = np.asarray(points, float)
+    n = len(pts)
+    out, starts = [], []
+    for i in range(n):
+        p0, p1, p2, p3 = pts[(i - 1) % n], pts[i], pts[(i + 1) % n], pts[(i + 2) % n]
+        d01, d12, d23 = (max(float(np.linalg.norm(b - a)), 1e-12) ** alpha for a, b in ((p0, p1), (p1, p2), (p2, p3)))
+        t0, t1 = 0.0, d01
+        t2, t3 = t1 + d12, t1 + d12 + d23
+        starts.append(len(out))
+        for k in range(samples):
+            t = t1 + (t2 - t1) * k / float(samples)
+            a1 = ((t1 - t) * p0 + (t - t0) * p1) / (t1 - t0)
+            a2 = ((t2 - t) * p1 + (t - t1) * p2) / (t2 - t1)
+            a3 = ((t3 - t) * p2 + (t - t2) * p3) / (t3 - t2)
+            b1 = ((t2 - t) * a1 + (t - t0) * a2) / (t2 - t0)
+            b2 = ((t3 - t) * a2 + (t - t1) * a3) / (t3 - t1)
+            out.append(((t2 - t) * b1 + (t - t1) * b2) / (t2 - t1))
+    return np.asarray(out), starts
+
+
+def _strand_arcs(model, pos, centers, samples=12, sphere=False):
+    """[(component, points)], one per arc between consecutive crossings of a strand, along the LAYOUT'S OWN ROUTE:
+    the drawing's spline (DDOL.catmull_rom) through each visit's in-corner, crossing centre, out-corner and segment
+    node, cut at the crossing centres.  A strand therefore enters a crossing at one corner and leaves by the
+    opposite one -- it passes straight through -- and runs over another crossing's dot only where the layout itself
+    does.  `pos` = 2-D positions (the drawing's own uniform spline, so the skeleton IS the drawing's shadow), or
+    unit directions with `sphere` (a centripetal spline in 3-D, _centripetal_closed, pushed back onto the sphere).  Replaces chords between crossing centres, bowed apart when parallel (2026-10-12):
+    a chord can run through another crossing (the square knot's three collinear crossings) and makes strands seem
+    to turn at a crossing; on the paper's 267 diagrams the chords were defective on 240 in 2-D and 234 on the
+    sphere; routed, the 2-D skeleton has a defect exactly where its drawing has false crossings (none, now that the
+    figure falls back to an exact layout) -- for the sphere see _sphere_view_layout."""
+    out = []
+    for ci, cp in enumerate(model["comp_positions"]):
+        if not cp:
+            continue
+        ctrl, marks = DDOL.component_controls(model, pos, centers, ci)
+        ctrl = [np.asarray(c, float) for c in ctrl]
+        dense, starts = (_centripetal_closed(ctrl, samples) if sphere else DDOL.catmull_rom(ctrl, samples=samples))
+        dense = np.asarray(dense, float)
+        if sphere:
+            dense = dense / np.linalg.norm(dense, axis=1, keepdims=True)
+        idx = [starts[mk[0]] for mk in marks]
+        for j in range(len(idx)):
+            a, b = idx[j], idx[(j + 1) % len(idx)]
+            seg = dense[a:b + 1] if b > a else np.vstack([dense[a:], dense[:b + 1]])
+            out.append((ci, seg))
+    return out
+
+
+def _sphere_view_layout(model, dirs):
+    """(positions, centres) the sphere view draws: each crossing's four gadget corners compacted into a clean X on
+    two perpendicular tangent axes about its centre (DDOL._compact_crossing_gadgets_on_sphere -- the toolkit's own
+    spherical-kamada build step, whose X keeps the sense of the layout's even strand), at 0.35 x the closest
+    crossing spacing and at most 0.2 rad, so neighbouring X's never overlap; segment nodes stay where the 3-D
+    layout put them, and the centres are the scored ones (_crossing_centers_3d).  The raw corners of the
+    Kamada-Kawai solve are often nearly collinear, which drew crossings as near-tangencies.  Measured on the
+    paper's 268 diagrams (2026-10-12) with arcs along the strands: raw corners 104 diagrams with a defect, 49
+    strands seeming to turn at a crossing; compacted X + uniform spline 77 / 42; compacted X + centripetal spline
+    74 / 0 (chords between centres, the old drawing: 234).  The defects left are arcs crossing where the 3-D layout
+    itself is not an embedding: 68 composites, 5 T(2,n) and the prime link 6^2_3 (L6a1); outside that corpus the
+    prime 8-ring Brunnian chain folds too."""
+    n = len(model["crossings"])
+    C = _crossing_centers_3d(model, None, dirs)
+    nn = min((float(np.arccos(np.clip(C[a] @ C[b], -1.0, 1.0))) for a in range(n) for b in range(a + 1, n)),
+             default=0.5)
+    return DDOL._compact_crossing_gadgets_on_sphere(model, dirs, min(max(0.35 * nn, 1e-3), 0.2))
 
 
 def _arc_list(model):
@@ -2079,8 +2288,12 @@ def _bow_offsets(arcs):
     return off
 
 
-def _draw_skeleton_2d(ax, C2, model, gap_frac=0.05):
-    """2-D component-coloured skeleton; parallel arcs are bowed apart (quadratic Bezier)."""
+def _draw_chord_skeleton_2d(ax, C2, model, gap_frac=0.05):
+    """LEGACY (the scorer's skeleton until 2026-10-12, kept verbatim so the published V2 / V3 report builders, which
+    call _draw_skeleton_2d(ax, C2, model), redraw their figures unchanged): each arc a CHORD between consecutive
+    crossing centres, bowed apart only when two arcs share both ends.  It shows the geometry the descriptive 2-D
+    metrics and the 3-D strand length measure (straight / great-circle steps between centres), but a chord can run
+    through another crossing (the square knot's three collinear crossings) and strands bend at the dots."""
     arcs = _arc_list(model)
     off = _bow_offsets(arcs)
     span = float(np.max(C2.max(0) - C2.min(0))) or 1.0
@@ -2102,6 +2315,20 @@ def _draw_skeleton_2d(ax, C2, model, gap_frac=0.05):
         ctrl = (pa + pb) / 2.0 + perp * (off[idx] * gap * 2.0)   # midpoint bow = off*gap
         pts = (1 - ts) ** 2 * pa + 2 * (1 - ts) * ts * ctrl + ts ** 2 * pb
         ax.plot(pts[:, 0], pts[:, 1], "-", lw=1.5, color=col, alpha=0.9)
+    ax.plot(C2[:, 0], C2[:, 1], "o", ms=4.0, color="#222222", zorder=3)
+    ax.set_aspect("equal")
+    ax.axis("off")
+
+
+def _draw_skeleton_2d(ax, model, P=None, centers=None):
+    """2-D skeleton: the drawing's shadow -- every arc along its strand (_strand_arcs), crossings as dots.  The
+    pre-2026-10-12 call _draw_skeleton_2d(ax, C2, model[, gap_frac]) -- crossing centres first, as the V2 / V3
+    report builders make it -- still draws the old chord skeleton (_draw_chord_skeleton_2d)."""
+    if not isinstance(model, dict):
+        return _draw_chord_skeleton_2d(ax, model, P, centers if isinstance(centers, (int, float)) else 0.05)
+    for ci, A in _strand_arcs(model, P, centers, samples=16):
+        ax.plot(A[:, 0], A[:, 1], "-", lw=1.5, color=_PALETTE[ci % len(_PALETTE)], alpha=0.9)
+    C2 = np.array([centers[k] for k in range(len(model["crossings"]))], float)
     ax.plot(C2[:, 0], C2[:, 1], "o", ms=4.0, color="#222222", zorder=3)
     ax.set_aspect("equal")
     ax.axis("off")
@@ -2183,6 +2410,19 @@ def _point_group_order_3d(dt, C3, aut_fallback=1):
     return max(1, int(aut_fallback))
 
 
+def _axis_label(els):
+    """One label for the elements sharing an axis: the highest rotation Cn and rotoreflection Sm on it; Sm alone when
+    m = 2n (an S2n axis is also a Cn axis), "Cn/Sm" otherwise."""
+    rots = [o for k, o in els if k == "axis"]
+    imps = [o for k, o in els if k == "improper-axis"]
+    if imps:
+        m = max(imps)
+        if not rots or m == 2 * max(rots):
+            return "S%d" % m
+        return "C%d/S%d" % (max(rots), m)
+    return "C%d" % max(rots)
+
+
 def _draw_symmetry_3d(ax3, sym_elems):
     """Overlay the true point-group elements:
       * rotation axis (Cn)     -> thin short-dashed line + Cn label, extended past the sphere;
@@ -2195,20 +2435,32 @@ def _draw_symmetry_3d(ax3, sym_elems):
     dash = (0, (2.4, 1.8))                        # short dashes, small gaps
     # High z-orders + clip_on=False so the axis/label/dot/plane sit ABOVE the faint
     # sphere skeleton (which is drawn at zorder 0) and are never clipped by the panel.
+    # One line and ONE label per axis.  Elements on the same line (C2 with S4, C3 with S6, C4 with S8) used to be
+    # labelled on top of each other; now an S2n absorbs the Cn it contains and any other pair reads "Cn/Sm".
+    lines = []                                    # [unit vector, [(kind, order), ...]]
+    for kind, order, vec in sym_elems:
+        if kind not in ("axis", "improper-axis") or vec is None:
+            continue
+        v = np.asarray(vec, float); v = v / (np.linalg.norm(v) + 1e-12)
+        for ln in lines:
+            if abs(float(ln[0] @ v)) > 0.999:
+                ln[1].append((kind, order))
+                break
+        else:
+            lines.append([v, [(kind, order)]])
+    for vec, els in lines:
+        p0, p1 = -1.6 * vec, 1.6 * vec            # extend out of the sphere
+        ax3.plot([p0[0], p1[0]], [p0[1], p1[1]], [p0[2], p1[2]],
+                 color="#111111", lw=1.0, ls=dash, alpha=0.95, zorder=30,
+                 clip_on=False)
+        lbl = _axis_label(els)
+        for s in (1.0, -1.0):                     # label BOTH ends so one is always front-facing
+            ax3.text(s * 1.74 * vec[0], s * 1.74 * vec[1], s * 1.74 * vec[2], lbl,
+                     color="#111111", fontsize=9, fontweight="bold",
+                     ha="center", va="center", zorder=40, clip_on=False)
     for kind, order, vec in sym_elems:
         if kind in ("axis", "improper-axis"):
-            if vec is None:
-                continue
-            vec = np.asarray(vec, float); vec = vec / (np.linalg.norm(vec) + 1e-12)
-            p0, p1 = -1.6 * vec, 1.6 * vec        # extend out of the sphere
-            ax3.plot([p0[0], p1[0]], [p0[1], p1[1]], [p0[2], p1[2]],
-                     color="#111111", lw=1.0, ls=dash, alpha=0.95, zorder=30,
-                     clip_on=False)
-            lbl = ("C%d" % order) if kind == "axis" else ("S%d" % order)
-            for s in (1.0, -1.0):                 # label BOTH ends so one is always front-facing
-                ax3.text(s * 1.74 * vec[0], s * 1.74 * vec[1], s * 1.74 * vec[2], lbl,
-                         color="#111111", fontsize=9, fontweight="bold",
-                         ha="center", va="center", zorder=40, clip_on=False)
+            continue
         elif kind == "inversion":
             # inversion centre: a dot at the origin, labelled i
             ax3.scatter([0.0], [0.0], [0.0], c="#7e3f98", s=46, marker="o",
@@ -2242,10 +2494,107 @@ def _draw_symmetry_3d(ax3, sym_elems):
                      zorder=40, clip_on=False)
 
 
+# Colours of the symmetry-distinct crossing classes (the topo_atlas paper's palette); a crossing that no symmetry
+# relates to another is grey.  More classes continue with tab20 / tab20b / tab20c WITHOUT their greys (grey means
+# "a class of one"); colours repeat only after len(_class_palette()) classes of two or more.
+_CLASS_COLOURS = ["#f08c00", "#1c7ed6", "#2f9e44", "#e03131", "#9c36b5", "#8d4f2d", "#0c8599", "#f783ac",
+                  "#94d82d", "#74c0fc", "#fcc419"]
+_SINGLETON_GREY = "#adb5bd"
+
+
+def _class_palette():
+    import matplotlib
+    import matplotlib.colors as mc
+    pal = list(_CLASS_COLOURS)
+    for name in ("tab20", "tab20b", "tab20c"):
+        for c in matplotlib.colormaps[name].colors:
+            h = mc.to_hex(c)
+            if h not in pal and mc.rgb_to_hsv(mc.to_rgb(h))[1] > 0.2:
+                pal.append(h)
+    return pal
+
+
+def _class_colour_map(classes, taken=None):
+    """{class (sorted tuple): colour} for the classes of two or more crossings, largest first (then smallest
+    crossing) in palette order.  A class equal to one in `taken` -- the map of another panel of the same row --
+    keeps that colour and the others take the next unused ones, so a class has ONE colour throughout a row.  Classes
+    of one crossing are absent (grey)."""
+    pal = _class_palette()
+    taken = dict(taken or {})
+    used = set(taken.values())
+    free = [c for c in pal if c not in used]
+    out = {}
+    multi = sorted((tuple(sorted(o)) for o in classes if len(o) > 1), key=lambda o: (-len(o), o))
+    for i, o in enumerate(multi):
+        if o in taken:
+            out[o] = taken[o]
+        elif free:
+            out[o] = free.pop(0)
+        else:
+            out[o] = pal[i % len(pal)]
+    return out
+
+
+def _class_colour_list(classes, cmap):
+    """One colour per class, in the order given (None = a class of one crossing, grey)."""
+    return [cmap.get(tuple(sorted(o))) if len(o) > 1 else None for o in classes]
+
+
+def _class_colours(classes, n, cmap=None):
+    """One colour per crossing (see _class_colour_map); a crossing in no class of two or more is grey."""
+    cmap = _class_colour_map(classes) if cmap is None else cmap
+    col = [_SINGLETON_GREY] * n
+    for o in classes:
+        c = cmap.get(tuple(sorted(o)))
+        for k in o:
+            col[k] = c or _SINGLETON_GREY
+    return col
+
+
+_MDFIG = None                                   # mdfig.py, loaded on first use (the paper's drawings)
+
+
+def _mdfig():
+    """mdfig.py -- the topo_atlas paper's symmetric drawings with class shading -- found by version and loaded on
+    first use (after spheremaps, which it imports, so both share one instance)."""
+    global _MDFIG
+    if _MDFIG is None:
+        _spheremaps()
+        _MDFIG = _load_newest("mdfig")
+    return _MDFIG
+
+
+def _shade_classes_2d(ax, centers, classes, cmap):
+    """Translucent class discs ON TOP of the strands of a 2-D drawing (zorder 4.5: above the strands, the white
+    under-gap masks and the redrawn over-strand, below the DT labels), sized as the paper's (mdfig.disc).  Under
+    the strands (as first drawn, 2026-10-12) every white gap mask cut a white bar through its disc (user)."""
+    from matplotlib.patches import Circle
+    cv = np.array([centers[k] for k in sorted(centers)], float)
+    if len(cv) == 0:
+        return
+    span = float(np.linalg.norm(cv.max(axis=0) - cv.min(axis=0))) or 1.0
+    near = span
+    if len(cv) > 1:
+        from scipy.spatial import cKDTree
+        dd, _ = cKDTree(cv).query(cv, k=2)
+        near = float(np.median(dd[:, 1]))
+    r = min(0.32 * near, 0.075 * span)
+    cols = _class_colours(classes, len(cv), cmap)
+    for k in sorted(centers):
+        ax.add_patch(Circle(tuple(centers[k]), r, facecolor=cols[k], alpha=0.36, edgecolor="none", zorder=4.5))
+
+
 def _draw_sphere_depth(ax3, C3, model, elev=22.0, azim=-58.0, gap=0.13, zoom=1.9,
-                       sym_elems=None):
-    """3-D sphere layout: arcs ride on the sphere (renormalized), parallel arcs are
-    bowed apart, and transparency is depth-cued (nearer = opaque, farther = faint)."""
+                       sym_elems=None, classes=None, cmap=None, dirs=None):
+    """3-D sphere layout: arcs follow the layout's strand routes through the gadget nodes'
+    directions `dirs` (_sphere_view_layout: compacted X's; _strand_arcs on the sphere), and
+    transparency is depth-cued (nearer = opaque, farther = faint).
+    `classes` (lists of crossing indices): colour each crossing by its class (colours from
+    `cmap`, see _class_colour_map); without it the crossings are small black dots.
+    `dirs` = the gadget positions to route the arcs through (make_figure passes _sphere_view_layout's).  Without
+    them -- the pre-2026-10-12 call, as the V2 / V3 report builders make it -- the old great-circle chords between
+    consecutive centres are drawn, bowed apart by `gap` when parallel: the geometry the 3-D strand length measures,
+    kept verbatim so those figures regenerate unchanged."""
     ax3.view_init(elev=elev, azim=azim)
     er, ar = math.radians(elev), math.radians(azim)
     eye = np.array([math.cos(er) * math.cos(ar),
@@ -2255,39 +2604,58 @@ def _draw_sphere_depth(ax3, C3, model, elev=22.0, azim=-58.0, gap=0.13, zoom=1.9
     wf = ax3.plot_wireframe(np.outer(np.cos(u), np.sin(v)), np.outer(np.sin(u), np.sin(v)),
                             np.outer(np.ones_like(u), np.cos(v)), color="0.9", linewidth=0.2)
     wf.set_zorder(0); wf.set_clip_on(False)       # skeleton on the lowest layer, never clips
-    arcs = _arc_list(model)
-    off = _bow_offsets(arcs)
-    ss = np.linspace(0, 1, 16)
-    for idx, (ci, a, b) in enumerate(arcs):
-        pa, pb = C3[a], C3[b]
-        col = _PALETTE[ci % len(_PALETTE)]
-        # canonical direction (sorted endpoints) so parallel arcs bow to opposite sides
-        lo, hi = (a, b) if a <= b else (b, a)
-        chord = C3[hi] - C3[lo]
-        mid = (pa + pb) / 2.0
-        t = np.cross(mid, chord)
-        nt = np.linalg.norm(t)
-        if nt < 1e-9:
-            continue
-        t = t / nt
-        ctrl = mid + t * (off[idx] * gap * 2.0)
-        # bowed arc, each sample renormalized to the unit sphere
-        pts = ((1 - ss) ** 2)[:, None] * pa + (2 * (1 - ss) * ss)[:, None] * ctrl \
-            + (ss ** 2)[:, None] * pb
-        pts = pts / np.linalg.norm(pts, axis=1, keepdims=True)
-        for j in range(len(ss) - 1):
-            s0, s1 = pts[j], pts[j + 1]
-            depth = float(np.dot((s0 + s1) / 2.0, eye))
-            alpha = 0.12 + 0.83 * (depth + 1.0) / 2.0
-            ax3.plot([s0[0], s1[0]], [s0[1], s1[1]], [s0[2], s1[2]],
-                     "-", lw=1.9, color=col, alpha=alpha, solid_capstyle="round",
-                     zorder=5, clip_on=False)
+    if dirs is None:
+        # LEGACY chord arcs (until 2026-10-12), verbatim
+        arcs = _arc_list(model)
+        off = _bow_offsets(arcs)
+        ss = np.linspace(0, 1, 16)
+        for idx, (ci, a, b) in enumerate(arcs):
+            pa, pb = C3[a], C3[b]
+            col = _PALETTE[ci % len(_PALETTE)]
+            # canonical direction (sorted endpoints) so parallel arcs bow to opposite sides
+            lo, hi = (a, b) if a <= b else (b, a)
+            chord = C3[hi] - C3[lo]
+            mid = (pa + pb) / 2.0
+            t = np.cross(mid, chord)
+            nt = np.linalg.norm(t)
+            if nt < 1e-9:
+                continue
+            t = t / nt
+            ctrl = mid + t * (off[idx] * gap * 2.0)
+            # bowed arc, each sample renormalized to the unit sphere
+            pts = ((1 - ss) ** 2)[:, None] * pa + (2 * (1 - ss) * ss)[:, None] * ctrl \
+                + (ss ** 2)[:, None] * pb
+            pts = pts / np.linalg.norm(pts, axis=1, keepdims=True)
+            for j in range(len(ss) - 1):
+                s0, s1 = pts[j], pts[j + 1]
+                depth = float(np.dot((s0 + s1) / 2.0, eye))
+                alpha = 0.12 + 0.83 * (depth + 1.0) / 2.0
+                ax3.plot([s0[0], s1[0]], [s0[1], s1[1]], [s0[2], s1[2]],
+                         "-", lw=1.9, color=col, alpha=alpha, solid_capstyle="round",
+                         zorder=5, clip_on=False)
+    else:
+        # one line per segment, as the chords were drawn: matplotlib depth-sorts every artist, so a nearer dot stays
+        # on top of a farther strand (a single collection of all arcs was drawn over every dot; review 2026-10-12)
+        for ci, A in _strand_arcs(model, dirs, {k: C3[k] for k in range(len(C3))}, samples=6, sphere=True):
+            col = _PALETTE[ci % len(_PALETTE)]
+            for j in range(len(A) - 1):
+                s0, s1 = A[j], A[j + 1]
+                depth = float(np.dot((s0 + s1) / 2.0, eye))
+                ax3.plot([s0[0], s1[0]], [s0[1], s1[1]], [s0[2], s1[2]], "-", lw=1.9, color=col,
+                         alpha=0.12 + 0.83 * (depth + 1.0) / 2.0, solid_capstyle="round", zorder=5, clip_on=False)
     dvals = C3 @ eye
     alphas = 0.2 + 0.8 * (dvals - dvals.min()) / (np.ptp(dvals) + 1e-9)
-    for k in range(len(C3)):
-        ax3.scatter(C3[k, 0], C3[k, 1], C3[k, 2], c="#222222",
-                    s=9, alpha=float(alphas[k]), depthshade=False,
-                    zorder=6, clip_on=False)
+    if classes:
+        cols = _class_colours(classes, len(C3), cmap)
+        for k in range(len(C3)):
+            ax3.scatter(C3[k, 0], C3[k, 1], C3[k, 2], c=cols[k], s=46,
+                        alpha=float(0.35 + 0.65 * (alphas[k] - 0.2) / 0.8), depthshade=False,
+                        edgecolors="#343a40", linewidths=0.5, zorder=7, clip_on=False)
+    else:
+        for k in range(len(C3)):
+            ax3.scatter(C3[k, 0], C3[k, 1], C3[k, 2], c="#222222",
+                        s=9, alpha=float(alphas[k]), depthshade=False,
+                        zorder=6, clip_on=False)
     _draw_symmetry_3d(ax3, sym_elems)                # overlay C2 axes / mirror planes / i dot
     # EQUAL, symmetric data limits so the sphere renders ROUND.  Without this,
     # Matplotlib auto-scales each axis independently to the plotted data; the symmetry
@@ -2302,6 +2670,169 @@ def _draw_sphere_depth(ax3, C3, model, elev=22.0, azim=-58.0, gap=0.13, zoom=1.9
     except TypeError:
         ax3.set_box_aspect((1, 1, 1))
     ax3.axis("off")
+
+
+def _turn_positions(P, ang, c0):
+    c, s = math.cos(ang), math.sin(ang)
+    R = np.array([[c, -s], [s, c]])
+    c0 = np.asarray(c0, float)
+    return {v: c0 + R @ (np.asarray(p, float) - c0) for v, p in P.items()}
+
+
+def _mirror_positions(P):
+    """The in-plane mirror x -> -x: the same DT code, labels and over/under, the other handedness (Invariant 10)."""
+    return {v: np.array([-float(p[0]), float(p[1])]) for v, p in P.items()}
+
+
+_PAPER_CACHE = {}                               # (DT code, sigma) -> (paper-style positions, outer face)
+
+
+def _row_drawings(m, model, G):
+    """The 2-D drawings of one figure row, alike (2026-10-12, user: "align the 2D drawings so that they are of the
+    same orientation, all with symmetry elements beautifully aligned with the xy paper's plane").
+      - Column 4 is the paper-style drawing (mdfig.paper_positions: the most symmetric exact drawing, already turned
+        onto the axes) of the realisation the toolkit's default drawing shows (a composite DT code has several).
+      - Columns 1-3 draw the SAME picture in the toolkit's shaped-tutte layout (_DRAW_LAYOUT): the map's embedding
+        and column 4's outer face pinned (mdfig.positions).  Otherwise the two layouts could put different faces
+        outside and no turn would make them alike (the figure-eight did).  Where that drawing has false crossings
+        (on the paper's 267 diagrams only composites -- granny-type knots, radial [5]catenane, olympiadane -- whose
+        two-point cuts a Tutte solve crushes) spread-tutte is tried, then column 4's own layout; `note` says so.
+      - Column 4 is reflected x -> -x when it has the other handedness (a DT code does not fix it: Invariant 10),
+        and columns 1-3 are turned so a mirror line of the drawing -- a mirror plane or an in-plane two-fold axis
+        of the diagram -- lies on x or y (with none, to the smallest bounding box), taking among those turns the
+        one nearest the rotation that best fits crossing k onto crossing k of column 4.
+    Without a crossings report or a paper-style drawing, columns 1-3 keep the default shaped-tutte drawing (or
+    spread-tutte where it is not exact) turned by mdfig.align_to_axes.  Returns (P, centers, d2, paper, note,
+    paper_error, face_note); d2 = _drawn_realisation, paper = (layout, model, P, centers) or None; face_note says
+    when the outer face is not the toolkit's default (the largest face) and whether the change bought symmetry
+    (mdfig ranks faces by how many diagram symmetries keep them outside and weights each drawing by the square root
+    of that number, so the most symmetric face usually wins but a much cleaner drawing can beat it).  Every change
+    is a rigid motion or a switch to an exact layout of the same realisation."""
+    import contextlib
+    import io
+    cr = m.get("crossings") or {}
+    quiet = lambda: contextlib.redirect_stdout(io.StringIO())
+    audit = lambda Q: DDOL.audit_false_crossings(model, Q, DDOL.crossing_centers(model, Q))
+    seen = {}                                   # the face the default drawing turns outward (its puncture)
+    original = DDOL.select_outer_face
+
+    def _spy(faces, *a, **kw):
+        f = original(faces, *a, **kw)
+        seen["face"] = f
+        return f
+    DDOL.select_outer_face = _spy
+    try:
+        P = DDOL.compute_positions(G, _DRAW_LAYOUT, tutte_opts=dict(_DRAW_TUTTE_OPTS))
+    finally:
+        DDOL.select_outer_face = original
+    if _DRAW_MIN_SEP > 0:
+        P = DDOL.nudge_min_separation(P, G, _DRAW_MIN_SEP)
+    bad = audit(P)
+    note = ""
+    d0 = _drawn_realisation(cr, _layout_sigma(model, P))
+    paper, perr, MD, face = None, None, None, None
+    try:
+        MD = _mdfig()
+        if d0:
+            M = _spheremaps().SMap(m["dt"], d0[1]["sigma"])
+            key = (m["dt"], tuple(d0[1]["sigma"]))
+            if key not in _PAPER_CACHE:
+                chosen = {}
+                _PAPER_CACHE[key] = (MD.paper_positions(M, chosen=chosen), chosen.get("face"))
+            paper, face = _PAPER_CACHE[key]
+    except Exception as exc:  # noqa: BLE001  -- e.g. no exact symmetric drawing
+        perr = "%s: %s" % (type(exc).__name__, exc)
+    tried = []
+    if paper is not None and face is not None:
+        for lay in (_DRAW_LAYOUT, "spread-tutte"):
+            try:
+                with quiet():
+                    _, _, Q = MD.positions(M, face, lay, _DRAW_MIN_SEP)
+            except Exception:  # noqa: BLE001
+                continue
+            Q = {v: np.asarray(q, float) for v, q in Q.items()}
+            if lay == "spread-tutte":
+                model["round_kinks"] = True     # spread-tutte draws kinks as teardrops (Invariant 23)
+            b = audit(Q)
+            same = list(d0[1]["sigma"]) in _layout_sigma(model, Q)   # it must draw column 4's map, not another
+            tried.append("%s %s" % (lay, b if same else "another realisation"))
+            if b == 0 and same:
+                P = Q
+                if lay != _DRAW_LAYOUT:
+                    note = "spread-tutte (shaped-tutte: %s)" % ", ".join(tried[:-1])
+                break
+            model.pop("round_kinks", None)
+        else:
+            P = {v: np.asarray(q, float).copy() for v, q in paper[2].items()}
+            if paper[1].get("round_kinks"):
+                model["round_kinks"] = True
+            note = "the paper-style layout (%s)" % ", ".join(tried or ["no toolkit layout"])
+    elif bad:
+        try:
+            with quiet():
+                Q = DDOL.compute_positions(G, "spread-tutte", tutte_opts=dict(_DRAW_TUTTE_OPTS))
+                if _DRAW_MIN_SEP > 0:
+                    Q = DDOL.nudge_min_separation(Q, G, _DRAW_MIN_SEP)
+            model["round_kinks"] = True
+            bq = audit(Q)
+        except Exception:  # noqa: BLE001
+            bq = None
+        if bq == 0:
+            P, note = Q, "spread-tutte (shaped-tutte drew %d false crossing%s)" % (bad, "" if bad == 1 else "s")
+        else:
+            model.pop("round_kinks", None)
+            note = "shaped-tutte: %d false crossing%s, no exact layout found" % (bad, "" if bad == 1 else "s")
+    d2 = _drawn_realisation(cr, _layout_sigma(model, P))
+    face_note = ""
+    if paper is not None and face is not None:
+        # say when, and why, the outer face is not the one the toolkit's default drawing put outside (Invariant 1)
+        # faces matched by their EDGES (segment nodes): networkx puts a kink loop inside its crossing square, so
+        # node sets of the default drawing's faces need not equal the map's; no match -> no note
+        try:
+            segs = lambda F: frozenset(v for v in F if isinstance(v, tuple) and v[0] == "seg")
+            keys = {segs(MD.gadget_face_key(M, G, F)): i for i, F in enumerate(M.faces())}
+            fd = keys.get(segs(seen["face"])) if seen.get("face") is not None else None
+            face_note = MD.outer_face_note(M, face, fd) if fd is not None else ""
+        except Exception:  # noqa: BLE001  -- a caption detail; never lose the figure over it
+            face_note = ""
+    elif paper is None:
+        face_note = "outside: the toolkit's default face (no paper-style drawing to match)"
+    wrap = lambda x: abs((x + math.pi) % (2 * math.pi) - math.pi)
+    if paper is not None:
+        mp, Pp = paper[1], paper[2]
+        if sum(a * b for a, b in zip(_quad_signs(model, P), _quad_signs(mp, Pp))) < 0:
+            Pp = _mirror_positions(Pp)
+        paper = (paper[0], mp, Pp, DDOL.crossing_centers(mp, Pp))
+    if MD is not None:
+        centers = DDOL.crossing_centers(model, P)
+        try:
+            if paper is not None:
+                # the two turns TOGETHER (review, 2026-10-12): each panel may only turn so a TRUE mirror line of
+                # its own lies on x or y (mdfig.axis_turns; mdfig's own turn of column 4, kept for the paper, can
+                # put a non-mirror line there: the Lopsided clasp came out 39 deg off), and the pair is the one
+                # that leaves the smallest turn between them (crossing k fitted onto crossing k); a panel with no
+                # mirror line has no direction to keep and is turned to match the other exactly
+                mp, Pp, cp = paper[1], paper[2], paper[3]
+                n = len(model["crossings"])
+                A = np.array([centers[k] for k in range(n)], float)
+                B = np.array([cp[k] for k in range(n)], float)
+                A, B = A - A.mean(axis=0), B - B.mean(axis=0)
+                phi = math.atan2(float(np.sum(A[:, 0] * B[:, 1] - A[:, 1] * B[:, 0])), float(np.sum(A * B)))
+                kind1, c1, turns1 = MD.axis_turns(model, P, centers)
+                kind4, c4, turns4 = MD.axis_turns(mp, Pp, cp)
+                _, _, a1, a4 = min((wrap(phi + b4 - b1), wrap(b4), b1, b4) for b1 in turns1 for b4 in turns4)
+                if kind4 == "box":
+                    a4 = a1 - phi
+                elif kind1 == "box":
+                    a1 = phi + a4
+                P = _turn_positions(P, a1, c1)
+                Pp = _turn_positions(Pp, a4, c4)
+                paper = (paper[0], mp, Pp, DDOL.crossing_centers(mp, Pp))
+            else:
+                P, _ = MD.align_to_axes(model, P, centers)
+        except Exception:  # noqa: BLE001  -- a turn is cosmetic; never lose the drawing over it
+            pass
+    return P, DDOL.crossing_centers(model, P), d2, paper, note, perr, face_note
 
 
 # 2-D layout used for BOTH the draw_dt_original_labels panel and the Tutte skeleton,
@@ -2349,24 +2880,26 @@ def make_figure(scored, path, max_draw=60):
     n = len(reps)
     total = sum(m["_class"]["multiplicity"] for m in scored)
     nsph = len(_SPHERE_VIEWS)
-    # columns: text | draw(labelled) | draw(no labels) | skeleton | sphere views...
-    ncol = 4 + nsph
-    fig = plt.figure(figsize=(3.15 * ncol + 3.6, 3.9 * n + 0.7))
+    # columns: text | draw(labelled, classes shaded) | draw(no labels) | skeleton | paper style | sphere views...
+    ncol = 5 + nsph
+    height = 3.9 * n + 1.9                   # 1.2 in above the top row for the column titles and the figure title
+    fig = plt.figure(figsize=(3.15 * ncol + 3.6, height))
     # wider sphere columns (1.7) so the 3-D drawings are larger; clip is turned off
     # everywhere (see end of this function) so nothing is cut at the panel edges.
-    gs = fig.add_gridspec(n, ncol, width_ratios=[1.05, 1.15, 1.15, 0.95] + [1.7] * nsph,
-                          hspace=0.30, wspace=0.02)
+    gs = fig.add_gridspec(n, ncol, width_ratios=[1.05, 1.15, 1.15, 0.95, 1.15] + [1.7] * nsph,
+                          hspace=0.30, wspace=0.02, top=1.0 - 1.45 / height, bottom=0.55 / height)
+    coloured = False
 
     for i, m in enumerate(reps):
         model = DDOL.build_model(DDOL.parse_dt(m["dt"]))
         G = DDOL.build_gadget_graph(model)
-        # shared shaped-tutte layout -> identical rotation in the drawings and the skeleton
-        P = DDOL.compute_positions(G, _DRAW_LAYOUT, tutte_opts=dict(_DRAW_TUTTE_OPTS))
-        if _DRAW_MIN_SEP > 0:
-            P = DDOL.nudge_min_separation(P, G, _DRAW_MIN_SEP)
-        centers_d = DDOL.crossing_centers(model, P)
-        C2 = np.array([centers_d[k] for k in range(len(model["crossings"]))], float)
-        C3 = m["sphere3d"]["_centers3d"]
+        # one layout for the two drawings and the skeleton, exact, turned onto the axes like the paper-style panel
+        P, centers_d, d2, paper, layout_note, paper_err, face_note = _row_drawings(m, model, G)
+        dirs3 = m["sphere3d"].get("_dirs3d")
+        if dirs3 is None:                       # a result scored before 2026-10-12: rebuild the same layout
+            dirs3 = DDOL._kamada_3d_unit_directions(G)
+        pos3, cen3 = _sphere_view_layout(model, dirs3)
+        C3 = np.array([cen3[k] for k in range(len(model["crossings"]))], float)
         rid = m["_class"]["rep_id"]
         col_of = lambda ci: _PALETTE[ci % len(_PALETTE)]
         group = m["graph"].get("symmetry_group", "C%d" % m["graph"]["automorphism_order"])
@@ -2393,11 +2926,28 @@ def make_figure(scored, path, max_draw=60):
         axt.text(0.0, 0.23, dt_wrapped, transform=axt.transAxes, ha="left", va="top",
                  fontsize=8.0, family="monospace")
 
-        # --- col 1: draw_dt_original_labels WITH DT labels ---
+        # the symmetry-distinct classes (spheremaps) of the realisation THIS 2-D drawing shows, matched by its
+        # rotation system (a composite DT code has several realisations: granny and square knot share codes)
+        cr = m.get("crossings") or {}
+        cmap = _class_colour_map(d2[1]["orbits_achiral"]) if d2 else {}
+
+        # --- col 1: draw_dt_original_labels WITH DT labels, crossings shaded by class ---
         axd = fig.add_subplot(gs[i, 1])
         _render_draw(axd, model, P, centers_d, col_of, show_labels=True)
+        if d2:
+            _shade_classes_2d(axd, centers_d, d2[1]["orbits_achiral"], cmap)
+            coloured = True
+        notes = [("drawn with " + layout_note, "#a61e4d")] if layout_note else []
+        if face_note:
+            notes.append((face_note, "#495057"))
+        y_note = -0.02
+        for txt, colr in notes:
+            wrapped = textwrap.wrap(txt, 62)
+            axd.text(0.5, y_note, "\n".join(wrapped), transform=axd.transAxes, ha="center", va="top", fontsize=6.5,
+                     color=colr)
+            y_note -= 0.036 * len(wrapped) + 0.012
         if i == 0:
-            axd.set_title("draw_dt_original_labels\n(with DT labels)", fontsize=9)
+            axd.set_title("draw_dt_original_labels\n(with DT labels; classes shaded)", fontsize=9)
 
         # --- col 2: draw_dt_original_labels WITHOUT labels (strands unobscured) ---
         axd2 = fig.add_subplot(gs[i, 2])
@@ -2405,13 +2955,41 @@ def make_figure(scored, path, max_draw=60):
         if i == 0:
             axd2.set_title("draw_dt_original_labels\n(no labels)", fontsize=9)
 
-        # --- col 3: 2-D skeleton (same layout, parallel arcs bowed apart) ---
+        # --- col 3: 2-D skeleton (the same drawing's shadow: arcs along the strands) ---
         ax2 = fig.add_subplot(gs[i, 3])
-        _draw_skeleton_2d(ax2, C2, model)
+        _draw_skeleton_2d(ax2, model, P, centers_d)
         if i == 0:
-            ax2.set_title("2-D skeleton\n(same layout)", fontsize=9)
+            ax2.set_title("2-D skeleton\n(same drawing, no over/under)", fontsize=9)
 
-        # --- cols 4+: 3-D sphere, two viewpoints, depth-shaded, enlarged ---
+        # --- col 4: the paper's style -- the same realisation drawn as symmetrically as it allows, classes shaded ---
+        axp = fig.add_subplot(gs[i, 4])
+        axp.axis("off")
+        if d2 and paper is None:
+            axp.text(0.5, 0.5, "no paper-style drawing:\n%s" % str(paper_err)[:90], ha="center", va="center",
+                     fontsize=6.5, wrap=True, transform=axp.transAxes)
+        elif d2:
+            j2, r2, diff2 = d2
+            try:
+                orbs = r2["orbits_achiral"]
+                _mdfig().draw(axp, _spheremaps().SMap(m["dt"], r2["sigma"]), positions=paper, orbits=orbs,
+                              orbit_letters=False, orbit_colours=_class_colour_list(orbs, cmap), lw=1.5)
+                sub = "N = %d (%s)" % (len(orbs), r2["model_achiral"])
+                if cr.get("diagrams", 1) > 1:
+                    sub += "\ndiagram %d of %d of this DT code (smallest N %d)" % (
+                        r2.get("diagram", j2) + 1, cr["diagrams"], cr["N_achiral"])
+                if diff2:
+                    sub += "\nnearest diagram: the 2-D layout differs at %d crossing%s" % (diff2, "" if diff2 == 1 else "s")
+                axp.text(0.5, -0.02, sub, transform=axp.transAxes, ha="center", va="top", fontsize=7.5)
+            except Exception as exc:  # noqa: BLE001  -- e.g. no exact symmetric drawing; never kill the figure
+                axp.text(0.5, 0.5, "no paper-style drawing:\n%s" % str(exc)[:90], ha="center", va="center",
+                         fontsize=6.5, wrap=True, transform=axp.transAxes)
+        else:
+            axp.text(0.5, 0.5, "crossing classes unavailable:\n%s" % str(cr.get("error", "no report"))[:90],
+                     ha="center", va="center", fontsize=6.5, wrap=True, transform=axp.transAxes)
+        if i == 0:
+            axp.set_title("paper style\n(symmetric drawing, classes shaded)", fontsize=9)
+
+        # --- cols 5+: 3-D sphere, two viewpoints, depth-shaded, enlarged ---
         # symmetry elements (C2 axes / mirror planes) overlaid on the 3-D layout
         sym_elems = _symmetry_axes_3d(m["dt"], C3)
         n_ax = sum(1 for k, o, v in sym_elems if k == "axis")
@@ -2427,10 +3005,33 @@ def make_figure(scored, path, max_draw=60):
             parts.append("inversion centre (i)")
         if n_S:
             parts.append("%d S%d" % (n_S, max((o for k, o, v in sym_elems if k == "improper-axis"), default=2)))
-        sym_label = "3-D symmetry: " + (", ".join(parts) if parts else "none (C1)")
+        # crossings coloured by their classes under the symmetries of THIS picture -- the sphere group of the
+        # realisation the 3-D layout draws (matched by its rotation system).  N can be attained by the flat picture
+        # instead (the paper-style panel shows those classes); then the sphere has more classes than N.
+        d3 = _drawn_realisation(cr, _layout_sigma(model, pos3))
+        classes, cmap3 = None, None
+        if d3:
+            j3, r3, diff3 = d3
+            classes = r3["orbits_sphere_achiral"]
+            cmap3 = _class_colour_map(classes, taken=cmap)
+            coloured = True
+            ncl = len(classes)
+            sym_label = ("drawn elements: " + (", ".join(parts) if parts else "none")
+                         + "\ncolours: %d class%s under the exact sphere group %s" % (ncl, "" if ncl == 1 else "es",
+                                                                                    r3["sphere_achiral_group"])
+                         + "\nN = %d (%s)" % (r3["N_achiral"], r3["model_achiral"]))
+            if cr.get("diagrams", 1) > 1:
+                sym_label += "; diagram %d of %d" % (r3.get("diagram", j3) + 1, cr["diagrams"])
+            if diff3:
+                sym_label += "\n(nearest diagram: the 3-D layout differs at %d crossing%s)" % (diff3, "" if diff3 == 1 else "s")
+        else:
+            sym_label = "3-D symmetry: " + (", ".join(parts) if parts else "none (C1)")
+            if cr.get("error"):
+                sym_label += "\ncrossing classes unavailable: " + "\n".join(textwrap.wrap(cr["error"], 60)[:2])
         for vi, (elev, azim) in enumerate(_SPHERE_VIEWS):
-            ax3 = fig.add_subplot(gs[i, 4 + vi], projection="3d")
-            _draw_sphere_depth(ax3, C3, model, elev=elev, azim=azim, sym_elems=sym_elems)
+            ax3 = fig.add_subplot(gs[i, 5 + vi], projection="3d")
+            _draw_sphere_depth(ax3, C3, model, elev=elev, azim=azim, sym_elems=sym_elems,
+                               classes=classes, cmap=cmap3, dirs=pos3)
             if i == 0:
                 ax3.set_title("3-D sphere (view %d)\n%s" % (vi + 1, sym_label), fontsize=8)
             elif vi == 0:
@@ -2438,12 +3039,20 @@ def make_figure(scored, path, max_draw=60):
 
     fig.suptitle("Representative diagrams of one link, ranked by composite score  "
                  "(canonical DT codes at left; 3-D sphere from two viewpoints)",
-                 fontsize=13, y=0.999)
-    fig.text(0.5, 0.004,
-             "On the 3-D spheres (true point group, up to mirror): a black dashed line = a "
-             "rotation (Cn) axis, a violet square labelled σ = a mirror plane, a violet dot "
-             "labelled i at the centre = an inversion centre, a dashed axis + Sn = a rotoreflection.",
-             ha="center", va="bottom", fontsize=8, color="#555555")
+                 fontsize=13, y=1.0 - 0.12 / height)
+    foot = ("On the 3-D spheres (true point group, up to mirror): a black dashed line = a "
+            "rotation (Cn) axis, a violet square labelled σ = a mirror plane, a violet dot "
+            "labelled i at the centre = an inversion centre, a dashed axis + Sn = a rotoreflection.  "
+            "Skeleton and sphere arcs follow the strands of their layout (the 3-D strand length is still measured "
+            "along great-circle steps between consecutive crossing centres).\nThe first three 2-D panels draw the "
+            "toolkit's shaped-tutte layout with the paper-style panel's outer face -- the face kept outside by the most "
+            "diagram symmetries, other things equal, rather than the toolkit's default largest face (a note under a "
+            "row says when they differ) -- all four turned so a mirror line lies along x or y, the same way round.")
+    if coloured:
+        foot += ("\nCrossing colours (spheremaps): in the first drawing and the paper-style panel, the N symmetry-"
+                 "distinct classes; on the spheres, the classes under the sphere group (more than N when the flat "
+                 "picture attains N).  A class keeps its colour across a row; grey = related to no other crossing.")
+    fig.text(0.5, 0.06 / height, foot, ha="center", va="bottom", fontsize=8, color="#555555")
     _strip_clip_paths(fig)                   # remove all clipping masks from the SVG
     fig.savefig(path, bbox_inches="tight")
     plt.close(fig)
@@ -3546,6 +4155,7 @@ def run_pipeline(args, log=None):
         "reset_every": args.reset_every,
         "canonical_cost_limit": CANONICAL_COST_LIMIT,
         "canonical_fallbacks": len(_COMPLEXITY_WARNED),
+        "symmetry_distinct_crossings": "spheremaps.py: N in four materials, descriptive (not in the composite)",
         "generator": "harvesting (every minimum-crossing diagram kept)"
                      if not getattr(args, "legacy_chain", False) else "legacy chain",
         "reset_mode": getattr(args, "reset_mode", "origin"),
@@ -3591,6 +4201,7 @@ def run_pipeline(args, log=None):
                     "graph": {k: v for k, v in m["graph"].items() if not k.startswith("_")},
                     "geom2d": {k: v for k, v in m["geom2d"].items() if not k.startswith("_")},
                     "sphere3d": {k: v for k, v in m["sphere3d"].items() if not k.startswith("_")},
+                    "symmetry_distinct_crossings": m.get("crossings"),
                 }
                 for m in scored
             ],

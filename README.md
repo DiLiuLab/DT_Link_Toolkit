@@ -42,6 +42,8 @@ enumerate_puncturing_dt.py       Atlas of the plane drawings, one per punctured 
 grid_diagram.py                  Minimal grid diagram (arc presentation) of a link, and its 3-D lift
 chain_layout.py                  3-D layout of a linear chain (--sphere-layout chain): segment and reunite, or --chain-form folded
 canonical_dt_V2_0.py             Canonical DT code (up to mirror) and symmetry
+spheremaps.py                    Symmetry-distinct crossings N: the diagram as a map on the sphere, exact groups
+mdfig.py                         The paper's symmetric drawings with class shading (used by spheremaps and the scorer)
 dt_converter.py                  Convert between DT, Gauss, PD, braid and named codes
 figure_to_dt_V3_0.py             Extract a DT code from a diagram image
 assets/dt_link_toolkit_icon.png  Optional icon for the launcher (Borromean rings)
@@ -125,6 +127,7 @@ score            Diagram generation, deduplication, and scoring
 puncture         Atlas of the plane drawings, one per punctured face
 grid             Minimal grid diagram (arc presentation) of a link, and its 3-D lift
 canonical        Canonical DT code and diagram symmetry
+crossings        Symmetry-distinct crossings N (exact sphere maps, four materials)
 convert          Convert between DT, Gauss, PD, braid and named codes
 figure           Extract a DT code from a diagram image
 find             Search SnapPy databases for a DT match
@@ -1105,6 +1108,65 @@ python3 canonical_dt_V2_0.py --dt "DT: [(4,6,2)]"
 python3 canonical_dt_V2_0.py --dt "DT: [(4,6,2)]" --ops
 python3 canonical_dt_V2_0.py       # no arguments -> graphical interface
 ```
+
+### Symmetry-distinct crossings (`crossings`, spheremaps.py)
+
+```bash
+python3 DT_Link_Toolkit.py crossings
+```
+
+```bash
+python3 DT_Link_Toolkit.py crossings --dt "DT: [(-6, -8, -2, -4)]"
+```
+
+```bash
+python3 spheremaps.py --dt "DT: [...]" --json out.json
+```
+
+```bash
+python3 spheremaps.py --selftest
+```
+
+With no arguments (or with `--gui`) it opens a window: enter a DT code, pick
+the material whose classes to shade, and it shows the report beside the
+drawing of each diagram the code describes, in the paper's symmetric style
+(`mdfig.py`), with Save JSON, Save figure and Self-test buttons. The window
+stays responsive while a large code is searched.
+
+`spheremaps.py` treats a diagram as a map on the sphere (a rotation system plus
+over/under) and finds its exact symmetry group, the classes of its crossings,
+and **N, the number of symmetry-distinct crossings**: the classes under the
+symmetries of the most symmetric *rigid* realisation — the diagram on a sphere
+(over strand outside) or drawn flat with one region outside — for achiral,
+chiral (proper symmetries only), directed (strand directions kept, best choice
+of ring directions) and directed chiral material (DNA, peptides). The count
+over *all* diagram symmetries is also given; it can be smaller and is then
+attainable by no rigid molecule (it is the count in the 3-sphere). A DT code
+does not fix a composite diagram (the granny and square knots share their
+codes), so every realisation is reported, and rotation systems that give the
+same diagram are counted once. The figure-eight knot, for example:
+N = 1 in achiral material (sphere group S4), 2 in chiral material. A split
+code (pieces that share no crossing) or one with no drawing in the plane is
+refused with a one-line error; N is defined for one connected diagram.
+
+The scorer reports the same numbers as descriptive columns (`N achiral`,
+`N chiral`, `N directed`, `N directed chiral`, `N all symmetries`,
+`Rigid model`, `Diagrams of the code`; not part of the composite). Its figure
+shades the N classes on the first 2-D drawing, adds a paper-style column (the
+same diagram drawn as symmetrically as it allows, classes shaded), and colours
+each crossing on the 3-D sphere by its class under the sphere group — more
+classes than N when the flat picture attains N, as for the 4BL Lopsided clasp
+(sphere C1, 14 classes; N = 7 flat, Ci). A class keeps one colour across a
+row. The 2-D drawings of a row show one picture: the toolkit's shaped-tutte
+layout with the paper-style panel's outer face (the face kept outside by the
+most diagram symmetries, other things equal; a note under the row says when it
+is not the default largest face, and why), all turned so a mirror line lies
+along x or y and drawn the same way round. The skeleton and the sphere arcs
+follow the strands of their layout instead of joining crossing centres. The module comes from the
+topo_atlas paper "Minimal Diagrams and Symmetry-Distinct Crossings", whose
+scripts load it from here; its `--selftest` checks the paper's verified
+numbers. It is exact on composite diagrams, where the gadget-graph symmetry of
+`canonical_dt_V2_0.py` cannot tell a granny knot from a square knot.
 
 `canonical_dt_V2_0.py` reduces a signed DT code to its canonical
 representative — the lexicographically smallest legal code over all

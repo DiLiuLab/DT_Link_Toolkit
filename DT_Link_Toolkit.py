@@ -15,6 +15,7 @@ Tools:
     score            Diagram generation, deduplication, and scoring
     puncture         Atlas of the plane drawings, one per punctured face
     canonical        Canonical DT code and diagram symmetry
+    crossings        Symmetry-distinct crossings N (exact sphere maps, four materials)
     convert          Convert between DT, Gauss, PD, braid and named codes
     figure           Extract a DT code from a diagram image
     find             Search SnapPy databases for a DT match
@@ -150,6 +151,13 @@ TOOLS: Tuple[Tool, ...] = (
         base="canonical_dt",
         aliases=("canonical", "canonical-dt", "canon", "symmetry"),
         desc="Canonical DT code and diagram symmetry",
+        gui="optional",
+    ),
+    Tool(
+        key="crossings",
+        base="spheremaps",
+        aliases=("crossings", "symmetry-distinct", "sdc", "n-crossings", "spheremaps", "sphere-maps"),
+        desc="Symmetry-distinct crossings N (exact sphere maps, four materials)",
         gui="optional",
     ),
     Tool(

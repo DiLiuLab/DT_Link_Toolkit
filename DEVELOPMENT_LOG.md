@@ -4,7 +4,106 @@ DT Link Toolkit Development Log
 This file records version-specific development notes and implementation history.
 For installation and everyday usage, see README.md.
 
-One rule for every version resolver (2026-10-11)
+spheremaps GUI, review fixes, and the scorer figure (2026-10-12)
+--------------------------------------------------------------
+* An independent review (6 agents) of the 2026-10-11 merge confirmed N exactly --
+  all 960 paper diagrams and all 666 census entries match field for field -- and
+  found these defects, now fixed:
+  - a split DT code (`DT: [(-4,-6,-2),(-8,)]`) came back with six "realisations"
+    that are not diagrams (the face count n + 2 is met by a genus-1 piece beside a
+    planar one): `check_diagram` now refuses split and non-planar codes;
+  - "realisations" counted planar rotation systems, not diagrams (4-ring chain 4,
+    really 1; olympiadane 8 -> 2): `diagrams` counts distinct ones by
+    `canonical_code`, and the scorer's column is now `Diagrams of the code`;
+  - comma-less `(-4), (-2)` was read as a knot: respelled `(-4,), (-2,)`;
+  - CLI tracebacks -> one `[error]` line; report columns no longer run together;
+  - the scorer coloured the sphere dots with N's classes even when the FLAT
+    picture attains N (4BL Lopsided clasp: 7 coloured pairs on a C1 sphere): the
+    sphere now shows the sphere group's own classes and the title states N and
+    its model;
+  - the drawn realisation was found from three gadget corners, which fails on a
+    non-convex gadget (55 of 146 composite codes matched; the whole quad's signed
+    area matches 96, either 101); now area, then the triangle, then the nearest.
+* spheremaps GUI: no arguments or `--gui` opens a window (DT code, brute-force
+  limit, material to shade, report, paper-style drawing of each diagram, Save
+  JSON / figure, Self-test); work runs in a worker thread.  Launcher `crossings`
+  is `gui="optional"`.  Self-test 105 checks.
+* Skeletons drawn along the strands (user: three crossings "passed by 3 lines,
+  which are not correct"): the 2-D skeleton and the sphere arcs joined crossing
+  centres by chords, bowed apart when parallel, so a chord could run through
+  another crossing (the square knot's three collinear crossings) and strands
+  seemed to turn at crossings -- defective on 240 / 234 of the paper's 267
+  diagrams.  Now every arc follows its strand through the layout's corners and
+  segment nodes (2-D: the drawing's own spline -- 0 defects; sphere: each gadget
+  compacted into a clean X as the spherical-kamada build does, centripetal
+  spline -- 74, all where the 3-D layout itself folds: granny-type composites
+  and T(2,n)).
+* One row, one picture (user: "align the 2D drawings so that they are of the
+  same orientation, all with symmetry elements beautifully aligned with the xy
+  paper's plane"): the shaped-tutte drawings use the paper-style panel's
+  realisation and outer face, fall back to pinned spread-tutte where they would
+  have false crossings (the default drawing had them on 90 of 267, all
+  composites), and are turned so a mirror line lies along x or y; the
+  paper-style panel is reflected when it is the other handedness.  267/267
+  exact, 264 with a mirror on an axis, 267/267 same handedness.  A note under a
+  row says when the outer face is not the default largest face and whether that
+  bought symmetry (Lopsided clasp: a 4-gon kept by 2 symmetries instead of a
+  pentagon kept by 1; Offset clasp: an equally symmetric face, cleaner drawing).
+  The class discs are drawn on top of the strands (under them, the white
+  under-gap masks cut bars through them).
+* A third review (code) and an audit of the papers found, and this entry fixes:
+  the sphere arcs, drawn as one collection, were painted over every crossing
+  dot (now one line per segment again, depth-sorted with the dots); the Lopsided
+  clasp's row was 39 deg out of turn, because mdfig's own alignment (kept for
+  the paper) can put a non-mirror line on the axis -- the row's two turns are
+  now chosen together from TRUE mirror lines (mdfig.axis_turns); a pinned layout
+  must realise the panel's map; the face note is omitted when the default face
+  is symmetry-equivalent and matches faces by their edges (kinks); the
+  spheremaps GUI prints the same note and replays a change made while a job
+  runs; a crossing-free component counts as split; extra flags without --dt no
+  longer open the GUI.  The report builders' old calls of the skeleton and
+  sphere helpers (results_score_10X_V3 fig_f03_examples.py, V2 g03.py) draw the
+  old chord pictures verbatim, so V3 Figure 3 regenerates byte-identically: a
+  published figure changes only by a deliberate rebuild.  The chords are also
+  what the 3-D strand length measures (great-circle steps between centres).
+* mdfig.py (the paper's drawing module) moved into the toolkit like spheremaps;
+  the paper's copy is a shim, and its 17 figures are byte-identical through it.
+* Scorer figure, after the user's screenshot: one label per symmetry axis (S4 and
+  C2 on one axis used to print on top of each other), the first 2-D drawing
+  shaded by class, and a new paper-style column; every earlier panel kept.  The
+  composite is unchanged (4BL 0.8975525235 / 0.7477680859 / 0.7208900841 /
+  0.5572556564).
+
+spheremaps.py: symmetry-distinct crossings in the toolkit (2026-10-11)
+---------------------------------------------------------------------
+* New unversioned module `spheremaps.py` (launcher tool `crossings`), moved here from
+  the topo_atlas paper "Minimal Diagrams and Symmetry-Distinct Crossings": a diagram as
+  a map on the sphere (rotation system + over/under), every realisation of a DT code,
+  exact symmetry groups of four kinds (sphere orientation kept/reversed x crossings
+  kept/reversed), crossing classes, and N -- the classes under the symmetries of the
+  most symmetric rigid realisation (on a sphere, or flat with one region outside) --
+  for achiral, chiral, directed and directed chiral material, plus the count over all
+  diagram symmetries.  `crossings_report(dt)` lists every realisation (a composite DT
+  code has several: the granny and square knots share theirs); `--dt`, `--json`,
+  `--selftest` (96 checks against the paper's verified numbers).  The module finds the
+  drawing script by the toolkit's one resolver rule.
+* Why it replaces the scorer's own symmetry for this purpose: on the paper's 275
+  minimal diagrams the scorer's gadget-graph / 3-D point group agrees with the exact
+  sphere group on 234 (composites with any symmetry 15 of 54); it reads the Hopf link
+  as C1 instead of D2d, gives up on the cubic [6]catenane (O) at its cost guard, and
+  misplaces axes for the T(2,n) family.  spheremaps agrees with the paper on 275 of 275
+  and takes about 0.3 ms per realisation.
+* score_diagramV2_5: descriptive columns `N achiral`, `N chiral`, `N directed`,
+  `N directed chiral`, `N all symmetries`, `Rigid model`, `Realisations` (legend
+  entries; JSON `symmetry_distinct_crossings`; never in the composite -- the 4BL
+  rosette still scores 0.8975525206).  The 3-D sphere views colour each crossing by
+  its class (the paper's palette, grey for a crossing no symmetry relates to another)
+  and name the exact sphere group; for a composite code the classes are those of the
+  realisation the layout draws, identified by its rotation system (`_layout_sigma`).
+  The 2-D panels are unchanged.
+* The paper's scripts now load this file (their spheremaps.py is a shim), so the two
+  share one implementation.
+
 -------------------------------------------------
 * The toolkit finds "the newest <tool>*.py" in nine places, and they used four
   different rules.  The launcher (`resolve_script`) accepted any suffix starting
