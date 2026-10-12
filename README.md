@@ -62,6 +62,10 @@ strand_passage_guiV4_2 -> link_engine_v4_0 -> draw_dt_original_labelsV5_7
 `score_diagramV2_5.py` names none of its helpers: it loads the newest
 `draw_dt_original_labels*.py`, `link_engine*.py` and `canonical_dt*.py` next to it,
 comparing versions numerically, so a bump of any of the three needs no edit there.
+Every tool that looks for "the newest version" (the launcher included) uses one rule:
+only `<tool>.py` or `<tool>` plus a pure version suffix (`V5_7`, `_v4_0`, `_V2_0`)
+counts, versions compare as numbers, so backup, copied or dated files
+(`...V5_7_backup.py`, `...V5_7_20261011.py`) and folders are never picked.
 `link_engine_v4_0.py` (its import of the drawing script) and `strand_passage_guiV4_2.py`
 still name their imports and must be repointed on a bump.
 
@@ -131,12 +135,14 @@ Anything after the tool name is forwarded to that tool, so
 `--menu` for a text menu instead of the GUI, and `--list` to see the exact script
 file each tool resolves to along with the interpreters found.
 
-The launcher does not hard-code version numbers: for each tool it finds every
-matching `<name>*.py` in this directory and picks the highest version, so a newer
-script (for example a future `score_diagramV2_6.py`) is used automatically once
-added, with no edit to the launcher. Both spellings of the version suffix are
-understood — `nameV2_1.py` and `name_V2_1.py` alike — and the comparison is
-numeric, so `V10_0` correctly beats `V2_0`.
+The launcher does not hard-code version numbers: for each tool it takes `<name>.py`
+or `<name>` plus a pure version suffix in this directory and picks the highest
+version, so a newer script (for example a future `score_diagramV2_6.py`) is used
+automatically once added, with no edit to the launcher. Every spelling of the
+version suffix is understood — `nameV2_1.py`, `name_V2_1.py`, `name_v2_1.py` — and
+the comparison is numeric, so `V10_0` correctly beats `V2_0`. Backup, copied or
+dated files (`nameV2_1_backup.py`, `nameV2_1 copy.py`, `nameV2_1_20261011.py`) and
+folders are never picked; every resolver in the toolkit follows this one rule.
 
 ### Which Python the launcher uses
 

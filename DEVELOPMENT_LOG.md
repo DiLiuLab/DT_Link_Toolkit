@@ -4,6 +4,39 @@ DT Link Toolkit Development Log
 This file records version-specific development notes and implementation history.
 For installation and everyday usage, see README.md.
 
+One rule for every version resolver (2026-10-11)
+-------------------------------------------------
+* The toolkit finds "the newest <tool>*.py" in nine places, and they used four
+  different rules.  The launcher (`resolve_script`) accepted any suffix starting
+  `[Vv]\d` (`[Vv]\d[A-Za-z0-9_.]*`); the `_find_draw_module` / `_load_draw_module` /
+  `draw_module` of score_diagram, canonical_dt, enumerate_puncturing_dt and
+  dt_converter had no filter at all -- every `draw_dt_original_labels*.py`, directories
+  included -- ranked by a loose `_version_key`, so a backup or dated copy
+  (`..V5_7_backup.py`, `..V5_7_20261011.py`) ranked at or above the live file;
+  chain_layout, grid_diagram and audit_xyz read only `V(\d+)[._](\d+)` with no
+  tie-break; grid_diagram picked canonical_dt by plain alphabetical sort (a future
+  V10_0 would lose to V9_x); and none of them checked that the candidate is a file.
+* Now all use the strict rule of score_diagram's `_find_newest`: `<base>.py` or
+  `<base>` + a pure version suffix (`[_-]?[Vv]` then 1-3 digit ASCII numbers joined
+  by `_`; `[0-9]`, not `\d`, which also matches non-ASCII digits) + `.py`, a regular
+  file, versions compared as tuples of ints, the basename breaking ties, folder and
+  base glob-escaped (the launcher's `Path.glob` is relative to its own folder).  Each file carries its own
+  `_VERSION_SUFFIX`, `_version_key(path)` and `_versioned_files(folder, base)` (the
+  tools are standalone scripts); the launcher's pattern says the same in its own
+  form.  Search folders are unchanged per tool.
+* Verified: in the repo every resolver picks exactly the files it picked before
+  (V5_7, V2_5, v4_0, V2_0, ...).  In a scratch copy seeded with backup, copy, dated,
+  dotted and "(1)" copies, prefix-sharing helpers (link_engine_utils_v9_9.py, ...)
+  and directories named like newer versions (each decoy raises if loaded), the old
+  rules loaded decoys or crashed in every resolver, the new ones ignored all of them;
+  with genuinely newer copies added (V5_10, V2_10, v4_12) every resolver moved to
+  them.  Every name ever used in the repo and in old_scripts/ fits the rule.  An
+  independent review agreed (304 probes over 386 decoys, 56 launcher runs; the helper
+  text byte-identical in all seven files and equivalent to the launcher's regex on a
+  million random names).  The now-unused module-level `import glob` was dropped from
+  canonical_dt, dt_converter and enumerate_puncturing_dt; the launcher's docstring and
+  the README describe the rule.
+
 score_diagram: --reset-subprocess really runs in a subprocess (2026-10-11)
 ------------------------------------------------------------------------
 * Found by the independent review of the version-lookup change.  The child that

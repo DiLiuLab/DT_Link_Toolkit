@@ -23,9 +23,12 @@ Version-independent tool lookup
 -------------------------------
 Several tool scripts carry a version number in their filename (for example
 ``draw_dt_original_labelsV5_5.py``).  The launcher does not hard-code these: for
-each tool it finds every matching ``<base>*.py`` in this directory and picks the
-highest version, so a newer ``...V5_6.py`` or ``...V6_0.py`` is used
-automatically once added, with no edit to this file.
+each tool it takes ``<base>.py`` or ``<base>`` plus a pure version suffix
+(``V5_7``, ``_v4_0``, ``_V2_0``; ASCII numbers of 1-3 digits) in this directory,
+regular files only, and picks the highest version, compared as numbers, so a newer
+``...V5_6.py`` or ``...V6_0.py`` is used automatically once added, with no edit to
+this file, and a backup, copy or dated file (``...V5_7_backup.py``) never is.  Every
+other resolver in the toolkit uses the same rule.
 
 Interpreter selection
 ---------------------
@@ -186,7 +189,7 @@ def _version_key(version: Optional[str]) -> Tuple[int, ...]:
     """
     if not version:
         return ()
-    return tuple(int(n) for n in re.findall(r"\d+", version))
+    return tuple(int(n) for n in re.findall(r"[0-9]+", version))
 
 
 def resolve_script(tool: Tool, root: Path = PROJECT_DIR) -> Optional[Path]:
@@ -197,14 +200,18 @@ def resolve_script(tool: Tool, root: Path = PROJECT_DIR) -> Optional[Path]:
     #   link_engine_v4_0.py              _v, lowercase
     #   canonical_dt_V2_0.py             _V, uppercase
     # Requiring a v/V + digit after the optional separator keeps a sibling like
-    # ``score_diagram_helper.py`` from being mistaken for the tool.
+    # ``score_diagram_helper.py`` from being mistaken for the tool.  Since 2026-10-11
+    # the suffix must be a PURE version -- 1-3 digit numbers joined by '_' -- the same
+    # rule as every other resolver in the toolkit (_versioned_files), so a backup or
+    # dated copy (..V5_7_backup.py, ..V5_7_20261011.py), a dotted version or a
+    # directory is never launched instead of the real tool.
     pattern = re.compile(
-        r"^" + re.escape(tool.base) + r"(?:[_-]?[Vv](?P<ver>\d[A-Za-z0-9_.]*))?\.py$"
+        r"^" + re.escape(tool.base) + r"(?:[_-]?[Vv](?P<ver>[0-9]{1,3}(?:_[0-9]{1,3})*))?\.py$"
     )
     candidates: List[Tuple[Tuple[int, ...], str, Path]] = []
     for path in root.glob(tool.base + "*.py"):
         match = pattern.match(path.name)
-        if not match:
+        if not match or not path.is_file():
             continue
         candidates.append((_version_key(match.group("ver")), path.name, path))
     if not candidates:

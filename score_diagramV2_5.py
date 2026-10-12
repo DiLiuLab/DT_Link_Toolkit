@@ -159,6 +159,9 @@ def _load_path(name, path):
     return mod
 
 
+_VERSION_SUFFIX = r"[_-]?[Vv]([0-9]{1,3}(?:_[0-9]{1,3})*)"   # V5_7, _v4_0, _V2_0: this repo's spellings (ASCII digits)
+
+
 def _version_key(path):
     """Sort key for a versioned filename: its trailing V<major>_<minor>... as ints.
 
@@ -168,8 +171,21 @@ def _version_key(path):
     unversioned file yields (), sorting below any versioned one.
     """
     stem = os.path.splitext(os.path.basename(path))[0]
-    m = re.search(r"[_-]?[Vv](\d[A-Za-z0-9_]*)$", stem)
-    return tuple(int(n) for n in re.findall(r"\d+", m.group(1))) if m else ()
+    m = re.search(_VERSION_SUFFIX + "$", stem)
+    return tuple(int(n) for n in m.group(1).split("_")) if m else ()
+
+
+def _versioned_files(folder, base):
+    """The files in `folder` named <base>.py or <base> + a PURE version suffix + .py.
+
+    The toolkit's one resolver rule (2026-10-11): a backup or dated copy
+    (..V5_7_backup.py, ..V5_7 copy.py, ..V5_7_20261011.py), a dotted version, another
+    tool sharing the prefix (link_engine_utils.py) or a directory is never a
+    candidate.  Pick with max(key=lambda p: (_version_key(p), os.path.basename(p)))."""
+    import glob
+    pattern = re.compile(re.escape(base) + "(?:" + _VERSION_SUFFIX + r")?\.py")
+    return [p for p in glob.glob(os.path.join(glob.escape(folder), glob.escape(base) + "*.py"))
+            if pattern.fullmatch(os.path.basename(p)) and os.path.isfile(p)]
 
 
 def _find_newest(base):
@@ -184,20 +200,17 @@ def _find_newest(base):
     everyone else.  Since 2026-10-11: before, the engine and the canonical-form module
     were loaded by their literal file names (_load_local / _find_base, removed), so every
     bump of either had to repoint this file."""
-    import glob
-    pattern = re.compile(re.escape(base) + r"(?:[_-]?[Vv]\d{1,3}(?:_\d{1,3})*)?\.py")
     for folder in (_HERE, os.getcwd(), os.environ.get("DDOL_DIR", "")):
         if not folder:
             continue
-        found = [p for p in glob.glob(os.path.join(glob.escape(folder), glob.escape(base) + "*.py"))
-                 if pattern.fullmatch(os.path.basename(p)) and os.path.isfile(p)]
+        found = _versioned_files(folder, base)
         if found:
             # basename breaks ties, so an equal-version pair resolves deterministically
             path = max(found, key=lambda p: (_version_key(p), os.path.basename(p)))
             return os.path.splitext(os.path.basename(path))[0], path
     raise FileNotFoundError(
-        "Could not find a versioned %s*.py (e.g. %s_v1_0.py or %sV1_0.py) in %s, the current folder or "
-        "$DDOL_DIR." % (base, base, base, _HERE))
+        "Could not find %s.py or a versioned %s*.py (e.g. %s_v1_0.py or %sV1_0.py) in %s, the current "
+        "folder or $DDOL_DIR." % (base, base, base, base, _HERE))
 
 
 def _load_newest(base):
@@ -209,12 +222,12 @@ def _load_newest(base):
 
 def _find_draw_module():
     """Locate the current draw_dt_original_labels*.py, auto-adapting across version bumps
-    (e.g. V4_5 -> V5_5 -> V10_0). Picks the highest-versioned file at the top level."""
-    import glob
+    (e.g. V4_5 -> V5_5 -> V10_0). Picks the highest-versioned file at the top level
+    (_versioned_files: a pure version suffix only, since 2026-10-11)."""
     for base in (_HERE, os.getcwd(), os.environ.get("DDOL_DIR", "")):
         if not base:
             continue
-        matches = glob.glob(os.path.join(base, "draw_dt_original_labels*.py"))
+        matches = _versioned_files(base, "draw_dt_original_labels")
         if matches:
             # basename breaks ties, so an equal-version pair resolves deterministically
             path = max(matches, key=lambda p: (_version_key(p), os.path.basename(p)))

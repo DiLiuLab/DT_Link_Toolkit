@@ -249,7 +249,6 @@ Notes
 
 import argparse
 import ast
-import glob
 import importlib.util
 import json
 import os
@@ -335,11 +334,33 @@ def snappy_mod():
     return _BACKEND["snappy"]
 
 
+_VERSION_SUFFIX = r"[_-]?[Vv]([0-9]{1,3}(?:_[0-9]{1,3})*)"   # V5_7, _v4_0, _V2_0: this repo's spellings (ASCII digits)
+
+
 def _version_key(path):
-    """Sort key for a trailing ``V<...>`` in a filename stem, as in the launcher."""
+    """Sort key for a versioned filename: its trailing V<major>_<minor>... as ints.
+
+    Compares NUMERICALLY.  Plain text ordering would rank a future 'V10_0' below
+    'V5_5', because '1' sorts before '5' character-wise.  Accepts every suffix
+    spelling in this repo -- 'V5_5' (no separator), '_v4_0', '_V2_0'.  An
+    unversioned file yields (), sorting below any versioned one.
+    """
     stem = os.path.splitext(os.path.basename(path))[0]
-    m = re.search(r"[_-]?[Vv](\d[A-Za-z0-9_]*)$", stem)
-    return tuple(int(n) for n in re.findall(r"\d+", m.group(1))) if m else ()
+    m = re.search(_VERSION_SUFFIX + "$", stem)
+    return tuple(int(n) for n in m.group(1).split("_")) if m else ()
+
+
+def _versioned_files(folder, base):
+    """The files in `folder` named <base>.py or <base> + a PURE version suffix + .py.
+
+    The toolkit's one resolver rule (2026-10-11): a backup or dated copy
+    (..V5_7_backup.py, ..V5_7 copy.py, ..V5_7_20261011.py), a dotted version, another
+    tool sharing the prefix (link_engine_utils.py) or a directory is never a
+    candidate.  Pick with max(key=lambda p: (_version_key(p), os.path.basename(p)))."""
+    import glob
+    pattern = re.compile(re.escape(base) + "(?:" + _VERSION_SUFFIX + r")?\.py")
+    return [p for p in glob.glob(os.path.join(glob.escape(folder), glob.escape(base) + "*.py"))
+            if pattern.fullmatch(os.path.basename(p)) and os.path.isfile(p)]
 
 
 def draw_module():
@@ -356,7 +377,7 @@ def draw_module():
     for base in (here, os.getcwd(), os.environ.get("DDOL_DIR", "")):
         if not base:
             continue
-        matches = glob.glob(os.path.join(base, "draw_dt_original_labels*.py"))
+        matches = _versioned_files(base, "draw_dt_original_labels")
         if not matches:
             continue
         path = max(matches, key=lambda p: (_version_key(p), os.path.basename(p)))

@@ -609,23 +609,47 @@ def same_link(G, ref_link, attempts=3, dt_string=None):
 # a grid diagram of THIS diagram: route the 2-D layout, compress to a grid
 # --------------------------------------------------------------------------
 
+_VERSION_SUFFIX = r"[_-]?[Vv]([0-9]{1,3}(?:_[0-9]{1,3})*)"   # V5_7, _v4_0, _V2_0: this repo's spellings (ASCII digits)
+
+
+def _version_key(path):
+    """Sort key for a versioned filename: its trailing V<major>_<minor>... as ints.
+
+    Compares NUMERICALLY.  Plain text ordering would rank a future 'V10_0' below
+    'V5_5', because '1' sorts before '5' character-wise.  Accepts every suffix
+    spelling in this repo -- 'V5_5' (no separator), '_v4_0', '_V2_0'.  An
+    unversioned file yields (), sorting below any versioned one.
+    """
+    stem = os.path.splitext(os.path.basename(path))[0]
+    m = re.search(_VERSION_SUFFIX + "$", stem)
+    return tuple(int(n) for n in m.group(1).split("_")) if m else ()
+
+
+def _versioned_files(folder, base):
+    """The files in `folder` named <base>.py or <base> + a PURE version suffix + .py.
+
+    The toolkit's one resolver rule (2026-10-11): a backup or dated copy
+    (..V5_7_backup.py, ..V5_7 copy.py, ..V5_7_20261011.py), a dotted version, another
+    tool sharing the prefix (link_engine_utils.py) or a directory is never a
+    candidate.  Pick with max(key=lambda p: (_version_key(p), os.path.basename(p)))."""
+    import glob
+    pattern = re.compile(re.escape(base) + "(?:" + _VERSION_SUFFIX + r")?\.py")
+    return [p for p in glob.glob(os.path.join(glob.escape(folder), glob.escape(base) + "*.py"))
+            if pattern.fullmatch(os.path.basename(p)) and os.path.isfile(p)]
+
+
 def _draw_module():
     """The drawing script (draw_dt_original_labels*.py, newest version next
     to this file), reused when it is the running program."""
     main = sys.modules.get("__main__")
     if main is not None and hasattr(main, "prepare_diagram") and hasattr(main, "_cube_route_nets"):
         return main
-    import glob
     import importlib.util
     here = os.path.dirname(os.path.abspath(__file__))
-    cands = glob.glob(os.path.join(here, "draw_dt_original_labels*.py"))
+    cands = _versioned_files(here, "draw_dt_original_labels")
     if not cands:
         raise RuntimeError("draw_dt_original_labels*.py not found next to grid_diagram.py")
-
-    def vkey(path):
-        m = re.search(r"V(\d+)[._](\d+)", os.path.basename(path))
-        return (int(m.group(1)), int(m.group(2))) if m else (-1, -1)
-    path = max(cands, key=vkey)
+    path = max(cands, key=lambda p: (_version_key(p), os.path.basename(p)))
     name = os.path.splitext(os.path.basename(path))[0]
     if name in sys.modules:
         return sys.modules[name]
@@ -786,9 +810,10 @@ def same_diagram_check(G, dt_string, cost_limit=5000000):
             sys.path.insert(0, here)
         import dt_converter as C
         import importlib.util
-        import glob
-        cands = sorted(glob.glob(os.path.join(here, "canonical_dt*.py")))
-        spec = importlib.util.spec_from_file_location("canonical_dt_mod", cands[-1])
+        cands = _versioned_files(here, "canonical_dt")      # numeric, not alphabetical (2026-10-11)
+        if not cands:
+            raise FileNotFoundError("no canonical_dt*.py next to grid_diagram.py")
+        spec = importlib.util.spec_from_file_location("canonical_dt_mod", max(cands, key=lambda p: (_version_key(p), os.path.basename(p))))
         K = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(K)
     except Exception as exc:  # noqa: BLE001
