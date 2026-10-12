@@ -111,8 +111,9 @@ Where an exact count matters, take the UNION over several runs (several processe
 not a longer run.
 
 Requires SnapPy (``import snappy``); run under ``sage -python`` on the research
-machine for the full toolchain.  Depends on score_diagram.py, link_engine_v4_0.py
-and draw_dt_original_labelsV4_5.py sitting next to it.
+machine for the full toolchain.  Depends on the newest draw_dt_original_labels*.py,
+link_engine*.py and canonical_dt*.py sitting next to it, each found by version
+(_find_draw_module, _find_newest), so a version bump of any of them needs no edit here.
 
 Usage
 -----
@@ -146,24 +147,12 @@ import networkx as nx
 _HERE = os.path.dirname(os.path.abspath(__file__))
 
 
-def _find_base(filename):
-    # Deliberately does NOT search old_scripts/.  That directory is excluded from
-    # git, so a helper resolved there imports fine here and is simply absent in a
-    # clone -- the failure is invisible locally and total for everyone else.
-    for base in (_HERE, os.getcwd(), os.environ.get("DDOL_DIR", "")):
-        if base and os.path.exists(os.path.join(base, filename)):
-            return base
-    return None
-
-
-def _load_local(name, filename):
-    """Import a sibling module by path, registered in sys.modules (dataclasses need it)."""
-    base = _find_base(filename)
-    if base is None:
-        raise FileNotFoundError("Could not find %s next to score_diagramV2_5.py." % filename)
+def _load_path(name, path):
+    """Import the module at `path` as `name`, registered in sys.modules (dataclasses need it)."""
+    base = os.path.dirname(path)
     if base not in sys.path:
         sys.path.insert(0, base)          # let intra-package `import ...` statements resolve
-    spec = importlib.util.spec_from_file_location(name, os.path.join(base, filename))
+    spec = importlib.util.spec_from_file_location(name, path)
     mod = importlib.util.module_from_spec(spec)
     sys.modules[name] = mod
     spec.loader.exec_module(mod)
@@ -181,6 +170,41 @@ def _version_key(path):
     stem = os.path.splitext(os.path.basename(path))[0]
     m = re.search(r"[_-]?[Vv](\d[A-Za-z0-9_]*)$", stem)
     return tuple(int(n) for n in re.findall(r"\d+", m.group(1))) if m else ()
+
+
+def _find_newest(base):
+    """(module name, path) of the highest-versioned <base>*.py -- e.g. "link_engine" ->
+    link_engine_v4_0 -- in the first of this folder, the cwd and $DDOL_DIR that holds
+    any version of it (the order _find_draw_module searches).  Only a pure version
+    suffix counts (<base>V5_7, <base>_v4_0, <base>_V2_0; numbers of up to three digits),
+    compared NUMERICALLY by _version_key, so a backup copy, a date-stamped copy or another
+    tool sharing the prefix is never picked.  Deliberately does NOT search old_scripts/:
+    that directory is excluded from git, so a helper resolved there imports fine here and
+    is simply absent in a clone -- the failure is invisible locally and total for
+    everyone else.  Since 2026-10-11: before, the engine and the canonical-form module
+    were loaded by their literal file names (_load_local / _find_base, removed), so every
+    bump of either had to repoint this file."""
+    import glob
+    pattern = re.compile(re.escape(base) + r"(?:[_-]?[Vv]\d{1,3}(?:_\d{1,3})*)?\.py")
+    for folder in (_HERE, os.getcwd(), os.environ.get("DDOL_DIR", "")):
+        if not folder:
+            continue
+        found = [p for p in glob.glob(os.path.join(glob.escape(folder), glob.escape(base) + "*.py"))
+                 if pattern.fullmatch(os.path.basename(p)) and os.path.isfile(p)]
+        if found:
+            # basename breaks ties, so an equal-version pair resolves deterministically
+            path = max(found, key=lambda p: (_version_key(p), os.path.basename(p)))
+            return os.path.splitext(os.path.basename(path))[0], path
+    raise FileNotFoundError(
+        "Could not find a versioned %s*.py (e.g. %s_v1_0.py or %sV1_0.py) in %s, the current folder or "
+        "$DDOL_DIR." % (base, base, base, _HERE))
+
+
+def _load_newest(base):
+    """The newest <base>*.py, imported from the very path _find_newest chose and registered under its
+    own module name."""
+    name, path = _find_newest(base)
+    return _load_path(name, path)
 
 
 def _find_draw_module():
@@ -208,8 +232,8 @@ _spec = importlib.util.spec_from_file_location(_draw_name, _draw_path)
 DDOL = importlib.util.module_from_spec(_spec)
 sys.modules[_draw_name] = DDOL
 _spec.loader.exec_module(DDOL)
-LE = _load_local("link_engine_v4_0", "link_engine_v4_0.py")
-CDT2 = _load_local("canonical_dt_V2_0", "canonical_dt_V2_0.py")  # canonical form, combinatorial symmetry, and the rotation-system + eigenvalue point-group engine (sigma/i/Sn)
+LE = _load_newest("link_engine")        # newest link_engine*.py (today link_engine_v4_0)
+CDT2 = _load_newest("canonical_dt")     # newest canonical_dt*.py (today canonical_dt_V2_0): canonical form, combinatorial symmetry, and the rotation-system + eigenvalue point-group engine (sigma/i/Sn)
 
 try:
     from scipy.optimize import linear_sum_assignment

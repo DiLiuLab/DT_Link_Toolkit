@@ -59,6 +59,12 @@ Import chain:
 strand_passage_guiV4_2 -> link_engine_v4_0 -> draw_dt_original_labelsV5_7
 ```
 
+`score_diagramV2_5.py` names none of its helpers: it loads the newest
+`draw_dt_original_labels*.py`, `link_engine*.py` and `canonical_dt*.py` next to it,
+comparing versions numerically, so a bump of any of the three needs no edit there.
+`link_engine_v4_0.py` (its import of the drawing script) and `strand_passage_guiV4_2.py`
+still name their imports and must be repointed on a bump.
+
 ## Install
 
 Clone the repository:

@@ -4,6 +4,27 @@ DT Link Toolkit Development Log
 This file records version-specific development notes and implementation history.
 For installation and everyday usage, see README.md.
 
+score_diagram: the engine and the canonical-form module found by version (2026-10-11)
+------------------------------------------------------------------------------------
+* `score_diagramV2_5.py` loaded `link_engine_v4_0.py` and `canonical_dt_V2_0.py` by
+  their literal names, so a version bump of either broke the scorer -- and every
+  script that loads it, such as the topo_atlas paper's harvest and analysis scripts --
+  until the line was repointed.  It now finds both like the drawing script:
+  `_find_newest(base)` takes the highest-versioned `<base>*.py`, searching this folder,
+  then the cwd, then `$DDOL_DIR` (the first folder holding any version wins, as in
+  `_find_draw_module`), and `_load_newest(base)` imports that very path (`_load_path`)
+  under its real module name.  The literal-name helpers `_load_local` / `_find_base`
+  had no callers left and were removed.
+* Only a pure version suffix counts (`<base>V5_7`, `_v4_0`, `_V2_0`; numbers of up to
+  three digits), compared numerically by `_version_key`; backups, copies, date-stamped
+  copies and other tools sharing the prefix are never picked.  `_find_draw_module` is
+  unchanged.
+* Measured: the old and new scorer load the same files under the same module names,
+  with the same shared instances, and give byte-identical `score_diagram` results for
+  two trefoil diagrams (`DT: [(4, 6, 2)]` and the 4-crossing `DT: [(4, 8, 2, 6)]` -- not
+  the figure-eight knot, as first labelled) and the 4BL rosette (composite 0.8975525206);
+  an independent review added Borromean, Hopf, 5_2 and L4a1.
+
 audit_xyz: a reference link for codes spherogram cannot read (2026-10-09)
 ------------------------------------------------------------------------
 * The xyz topology audit printed "reference DT link failed: not enough values
