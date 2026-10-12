@@ -4,6 +4,37 @@ DT Link Toolkit Development Log
 This file records version-specific development notes and implementation history.
 For installation and everyday usage, see README.md.
 
+score_diagram: --reset-subprocess really runs in a subprocess (2026-10-11)
+------------------------------------------------------------------------
+* Found by the independent review of the version-lookup change.  The child that
+  `simplify_once_subprocess` starts (`_SUBPROC_SRC`) could never load the engine: it
+  loaded `link_engine*.py` as an unregistered module named "LE", and the engine's
+  dataclasses (with `from __future__ import annotations`) look their module up in
+  `sys.modules`, so it died with `AttributeError: 'NoneType' object has no attribute
+  '__dict__'`; run from any cwd but the repo it died earlier, unable to import the
+  drawing script.  The child exited non-zero with no output, so the parent's "DT:" test
+  failed and the round silently ran in-process (the bare `except` only caught timeouts
+  and spawn errors), while run_info still recorded `reset_subprocess: True`.  So the option never did what it
+  says; any measurement of it measured the in-process path.  The V2/V3 report runs did
+  not use it (legacy-chain only).
+* Fix: the child registers the engine under its real file stem and puts the engine's
+  folder on `sys.path`; it prints the result on its own last line, which the parent
+  reads (an import that prints no longer breaks the parse).  Every fallback prints a
+  `[warn]` line with the reason (exit code and last stderr line, "timed out after N s",
+  or the exception), and `run_info["reset_subprocess_rounds"]` counts
+  `fresh_interpreter` and `fell_back_in_process` rounds when the flag is set (absent
+  otherwise, so other runs' output is unchanged); `generate_chain` zeroes the counts, so
+  they describe one run.  The warning names a non-DT last line, a signal ("killed by
+  SIGSEGV") and the error line rather than a banner rule, and keeps the tail of a long
+  message.  With the default harvesting generator, `--reset-every`, `--reset-mode`,
+  `--reset-reencode` and `--reset-subprocess` were always silently ignored; a `[note]`
+  now says so.
+* Verified: the child exits 0 from the repo and from another cwd; the scorer's call
+  takes the child's result with no fallback; a forced timeout and a missing interpreter
+  each give one warning and are counted; a CLI run with `--legacy-chain
+  --reset-subprocess --reset-every 1 --rounds 4` reports 3 fresh-interpreter rounds and 0
+  fallbacks.
+
 score_diagram: the engine and the canonical-form module found by version (2026-10-11)
 ------------------------------------------------------------------------------------
 * `score_diagramV2_5.py` loaded `link_engine_v4_0.py` and `canonical_dt_V2_0.py` by

@@ -786,10 +786,15 @@ def simplify_once(dt, backtrack_rounds, backtrack_steps, seed):
 
 
 _SUBPROC_SRC = """
-import sys, random, importlib.util
+import os, sys, random, importlib.util
 import snappy
-_spec = importlib.util.spec_from_file_location("LE", sys.argv[1])
-LE = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(LE)
+_path = os.path.abspath(sys.argv[1])
+sys.path.insert(0, os.path.dirname(_path))         # the engine imports the drawing script by name
+_name = os.path.splitext(os.path.basename(_path))[0]
+_spec = importlib.util.spec_from_file_location(_name, _path)
+LE = importlib.util.module_from_spec(_spec)
+sys.modules[_name] = LE                            # its dataclasses look their module up there
+_spec.loader.exec_module(LE)
 dt, br, bs, seed = sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), int(sys.argv[5])
 random.seed(seed)
 try:
@@ -798,8 +803,19 @@ except Exception:
     pass
 L = snappy.Link(dt)
 L = LE.backtrack_simplify(snappy, L, mode="global", rounds=br, steps=bs)
-sys.stdout.write(LE.dt_to_string(LE.parse_dt_any(L.DT_code())))
+sys.stdout.write("\\n" + LE.dt_to_string(LE.parse_dt_any(L.DT_code())) + "\\n")
 """
+
+# How the --reset-subprocess rounds really ran: a round whose fresh interpreter fails falls back to
+# running in this process, with a warning, and run_info reports both counts.  (Until 2026-10-11 the
+# child could not load the engine -- unregistered module, repo not on its path -- so EVERY such
+# round silently ran in-process while run_info said reset_subprocess: True.)
+_SUBPROC_STATS = {"fresh_interpreter": 0, "fell_back_in_process": 0}   # zeroed by each generate_chain
+
+
+def _short(msg, n=200):
+    """msg, or its head and tail when longer than n characters (the tail names the cause)."""
+    return msg if len(msg) <= n else msg[:90] + " ... " + msg[-(n - 95):]
 
 
 def simplify_once_subprocess(dt, backtrack_rounds, backtrack_steps, seed, timeout=600):
@@ -810,18 +826,43 @@ def simplify_once_subprocess(dt, backtrack_rounds, backtrack_steps, seed, timeou
     reset in a new process therefore explores a genuinely different part of the space --
     the effect that makes a union over separate runs larger than any single run.  Costs a
     process spawn plus a snappy import (~1-3 s), so it only pays at large --reset-every.
-    Falls back to the in-process routine if the subprocess fails for any reason.
+    Falls back to the in-process routine if the subprocess fails for any reason, and says so
+    on stderr; _SUBPROC_STATS counts both outcomes for run_info.
     """
     import subprocess
     try:
         out = subprocess.run([sys.executable, "-c", _SUBPROC_SRC, LE.__file__, dt,
                               str(backtrack_rounds), str(backtrack_steps), str(seed)],
                              capture_output=True, text=True, timeout=timeout)
-        code = (out.stdout or "").strip()
-        if code.startswith("DT:"):
+        lines = [ln.strip() for ln in (out.stdout or "").splitlines() if ln.strip()]
+        code = lines[-1] if lines else ""
+        if out.returncode == 0 and code.startswith("DT:"):
+            _SUBPROC_STATS["fresh_interpreter"] += 1
             return code
-    except Exception:  # noqa: BLE001
-        pass
+        if out.returncode == 0:
+            why = "its last stdout line was not a DT code: %r" % code[:80]
+        else:
+            why = "exit code %d" % out.returncode
+            if out.returncode < 0:                       # killed by a signal (a native crash)
+                import signal
+                try:
+                    why = "killed by %s" % signal.Signals(-out.returncode).name
+                except ValueError:
+                    pass
+            # the error line, not a banner rule or a blank: prefer a line naming an error
+            err = [ln.strip() for ln in (out.stderr or "").splitlines() if re.search(r"[A-Za-z]", ln)]
+            named = [ln for ln in err if re.search(r"Error|Exception|SIG[A-Z]+", ln)]
+            if named or err:
+                why += ": " + _short((named or err)[-1])
+    except subprocess.TimeoutExpired:
+        why = "timed out after %g s" % timeout
+    except Exception as exc:  # noqa: BLE001  -- e.g. the interpreter could not start
+        why = _short("%s: %s" % (type(exc).__name__, exc))
+    _SUBPROC_STATS["fell_back_in_process"] += 1
+    print("[warn] --reset-subprocess: the fresh interpreter failed (%s); this round runs in-process "
+          "instead%s." % (why, "" if _SUBPROC_STATS["fell_back_in_process"] == 1 else
+                          " (fallback #%d)" % _SUBPROC_STATS["fell_back_in_process"]),
+          file=sys.stderr, flush=True)
     return simplify_once(dt, backtrack_rounds, backtrack_steps, seed)
 
 
@@ -896,6 +937,7 @@ def generate_chain(dt0, rounds, backtrack_rounds, backtrack_steps, base_seed,
     Against a plain 80-round chain, a second 80-round run at reset_every=10 added 25
     diagrams over 196 knots, while a 1600-round run at reset_every=80 added only 17 --
     twenty times the work for less gain.  Prefer several short runs to one long one."""
+    _SUBPROC_STATS.update(fresh_interpreter=0, fell_back_in_process=0)   # this run's counts only
     chain = _read_checkpoint(checkpoint)
     if chain and verbose:
         print("  using EXISTING checkpoint '%s': %d round(s) already present (%d DT codes); "
@@ -3378,6 +3420,15 @@ def run_pipeline(args, log=None):
           % ("harvesting" if harvest else "legacy chain", args.rounds,
              args.backtrack_rounds, args.backtrack_steps), flush=True)
     if harvest:
+        ignored = [flag for flag, on in (
+            ("--reset-every", getattr(args, "reset_every", 0)),
+            ("--reset-mode", getattr(args, "reset_mode", "origin") != "origin"),
+            ("--reset-reencode", getattr(args, "reset_reencode", False)),
+            ("--reset-subprocess", getattr(args, "reset_subprocess", False))) if on]
+        if ignored:
+            print("  [note] %s act only with --legacy-chain; the harvesting generator ignores %s."
+                  % (", ".join(ignored), "it" if len(ignored) == 1 else "them"), flush=True)
+    if harvest:
         chain = generate_archive(
             args.dt, args.rounds, args.backtrack_rounds, args.backtrack_steps,
             args.seed, checkpoint=args.checkpoint,
@@ -3487,6 +3538,7 @@ def run_pipeline(args, log=None):
         "reset_mode": getattr(args, "reset_mode", "origin"),
         "reset_reencode": getattr(args, "reset_reencode", False),
         "reset_subprocess": getattr(args, "reset_subprocess", False),
+        **({"reset_subprocess_rounds": dict(_SUBPROC_STATS)} if getattr(args, "reset_subprocess", False) else {}),
         "seed": args.seed,
         "total_DT_codes": len(chain),
         "distinct_representatives": len(classes),
