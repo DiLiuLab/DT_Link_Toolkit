@@ -2494,9 +2494,9 @@ def _draw_symmetry_3d(ax3, sym_elems):
                      zorder=40, clip_on=False)
 
 
-# Colours of the symmetry-distinct crossing classes (the topo_atlas paper's palette); a crossing that no symmetry
-# relates to another is grey.  More classes continue with tab20 / tab20b / tab20c WITHOUT their greys (grey means
-# "a class of one"); colours repeat only after len(_class_palette()) classes of two or more.
+# Colours of the symmetry-distinct crossing classes: the topo_atlas paper's palette (mdfig.ORBIT_COLOURS) and its
+# rule (_class_colour_map).  More classes continue with tab20 / tab20b / tab20c WITHOUT their greys (grey is kept for
+# crossings shown as unrelated); colours repeat only after len(_class_palette()) coloured classes.
 _CLASS_COLOURS = ["#f08c00", "#1c7ed6", "#2f9e44", "#e03131", "#9c36b5", "#8d4f2d", "#0c8599", "#f783ac",
                   "#94d82d", "#74c0fc", "#fcc419"]
 _SINGLETON_GREY = "#adb5bd"
@@ -2514,34 +2514,37 @@ def _class_palette():
     return pal
 
 
-def _class_colour_map(classes, taken=None):
-    """{class (sorted tuple): colour} for the classes of two or more crossings, largest first (then smallest
-    crossing) in palette order.  A class equal to one in `taken` -- the map of another panel of the same row --
-    keeps that colour and the others take the next unused ones, so a class has ONE colour throughout a row.  Classes
-    of one crossing are absent (grey)."""
+def _class_colour_map(classes):
+    """{class (sorted tuple): colour} by the topo_atlas paper's rule (mdfig.draw), the same in every panel and every
+    figure: the classes in canonical order -- largest first, then by smallest crossing, spheremaps.orbits' order --
+    take the palette's colours in turn.  So the same partition always gets the same colours, and any two diagrams
+    with the same N show the same N colours (2026-10-12, user: "for N=7 of the 3 diagrams, why the colors you chose
+    are different? we should keep a constant color palette" -- single crossings used to be grey and colours were
+    carried between panels, so the rosette's N = 7 showed five colours and two greys, the clasps' seven colours).
+    Grey (absent from the map) only when every class is a single crossing, or for the single crossings when there
+    are more classes than the paper's 11 colours; classes beyond those continue with tab20/b/c.  The colours belong
+    to the whole partition: a class that two DIFFERENT partitions share (a row's N classes and its sphere classes,
+    when the flat picture attains N, e.g. 7_4) can be coloured differently in each -- keeping it would break the rule
+    (review 2026-10-12)."""
     pal = _class_palette()
-    taken = dict(taken or {})
-    used = set(taken.values())
-    free = [c for c in pal if c not in used]
-    out = {}
-    multi = sorted((tuple(sorted(o)) for o in classes if len(o) > 1), key=lambda o: (-len(o), o))
-    for i, o in enumerate(multi):
-        if o in taken:
-            out[o] = taken[o]
-        elif free:
-            out[o] = free.pop(0)
-        else:
-            out[o] = pal[i % len(pal)]
+    order = sorted((tuple(sorted(o)) for o in classes), key=lambda o: (-len(o), o))
+    too_many = len(order) > len(_CLASS_COLOURS) or all(len(o) == 1 for o in order)
+    out, i = {}, 0
+    for o in order:
+        if too_many and len(o) == 1:
+            continue
+        out[o] = pal[i % len(pal)]
+        i += 1
     return out
 
 
 def _class_colour_list(classes, cmap):
-    """One colour per class, in the order given (None = a class of one crossing, grey)."""
-    return [cmap.get(tuple(sorted(o))) if len(o) > 1 else None for o in classes]
+    """One colour per class, in the order given (None = grey, see _class_colour_map)."""
+    return [cmap.get(tuple(sorted(o))) for o in classes]
 
 
 def _class_colours(classes, n, cmap=None):
-    """One colour per crossing (see _class_colour_map); a crossing in no class of two or more is grey."""
+    """One colour per crossing (see _class_colour_map; grey where the map has no colour)."""
     cmap = _class_colour_map(classes) if cmap is None else cmap
     col = [_SINGLETON_GREY] * n
     for o in classes:
@@ -2703,7 +2706,9 @@ def _row_drawings(m, model, G):
         one nearest the rotation that best fits crossing k onto crossing k of column 4.
     Without a crossings report or a paper-style drawing, columns 1-3 keep the default shaped-tutte drawing (or
     spread-tutte where it is not exact) turned by mdfig.align_to_axes.  Returns (P, centers, d2, paper, note,
-    paper_error, face_note); d2 = _drawn_realisation, paper = (layout, model, P, centers) or None; face_note says
+    paper_error, face_note, drawn_face); d2 = _drawn_realisation, paper = (layout, model, P, centers) or None;
+    drawn_face = the index (in the realisation's M.faces()) of the region outside in every 2-D panel, or None when
+    columns 1-3 are not column 4's picture (no paper-style drawing, or another realisation); face_note says
     when the outer face is not the toolkit's default (the largest face) and whether the change bought symmetry
     (mdfig ranks faces by how many diagram symmetries keep them outside and weights each drawing by the square root
     of that number, so the most symmetric face usually wins but a much cleaner drawing can beat it).  Every change
@@ -2832,7 +2837,9 @@ def _row_drawings(m, model, G):
                 P, _ = MD.align_to_axes(model, P, centers)
         except Exception:  # noqa: BLE001  -- a turn is cosmetic; never lose the drawing over it
             pass
-    return P, DDOL.crossing_centers(model, P), d2, paper, note, perr, face_note
+    drawn_face = (face if paper is not None and face is not None and d0 and d2
+                  and list(d2[1]["sigma"]) == list(d0[1]["sigma"]) else None)
+    return P, DDOL.crossing_centers(model, P), d2, paper, note, perr, face_note, drawn_face
 
 
 # 2-D layout used for BOTH the draw_dt_original_labels panel and the Tutte skeleton,
@@ -2874,6 +2881,37 @@ def _strip_clip_paths(fig):
                 pass
 
 
+def _figure_footnote(coloured):
+    """The footnote of make_figure (a function, so the figure can reserve its height before drawing)."""
+    import textwrap
+    foot = ("On the 3-D spheres (true point group, up to mirror): a black dashed line = a "
+            "rotation (Cn) axis, a violet square labelled σ = a mirror plane, a violet dot "
+            "labelled i at the centre = an inversion centre, a dashed axis + Sn = a rotoreflection.  "
+            "Skeleton and sphere arcs follow the strands of their layout (the 3-D strand length is still measured "
+            "along great-circle steps between consecutive crossing centres).\nThe first three 2-D panels draw the "
+            "toolkit's shaped-tutte layout with the paper-style panel's outer face -- the face kept outside by the most "
+            "diagram symmetries, other things equal, rather than the toolkit's default largest face (a note under a "
+            "row says when they differ) -- all four turned so a mirror line lies along x or y, the same way round.")
+    # every paragraph wrapped to 93% of the longest one (in characters): unwrapped, the first paragraph alone set
+    # the saved figure's width (bbox_inches="tight"; one long colour line widened it by 8.6%; review 2026-10-12)
+    width = int(0.93 * max(len(ln) for ln in foot.split("\n")))
+    foot = "\n".join("\n".join(textwrap.wrap(par, width)) for par in foot.split("\n"))
+    if coloured:
+        foot += "\n" + "\n".join(textwrap.wrap(
+            "Crossing colours (spheremaps): in the first drawing and the paper-style panel, the N symmetry-distinct "
+            "classes -- the drawing's own when its own symmetry also gives N (they can pair other crossings than "
+            "the sphere's: the 4BL balanced clasp), else the N classes of the rigid picture that attains N, named "
+            "under the paper-style panel, which this drawing cannot show (the sphere group's, or another outer "
+            "region's when the drawing keeps a less symmetric region outside); on the spheres, the classes under the sphere "
+            "group (more than N when only the flat picture attains N).  One palette and one rule, as in the paper: a "
+            "panel's classes, largest first, take the colours in "
+            "turn, so the same set of classes always gets the same colours and equal N the same N colours (where a "
+            "row's spheres show a different set, a class in both can change colour between them); grey when no two "
+            "crossings are related, and for every single crossing when there are more classes than the palette's 11 "
+            "colours.", width))
+    return foot
+
+
 def make_figure(scored, path, max_draw=60):
     import textwrap
     reps = scored[:max_draw]
@@ -2882,19 +2920,23 @@ def make_figure(scored, path, max_draw=60):
     nsph = len(_SPHERE_VIEWS)
     # columns: text | draw(labelled, classes shaded) | draw(no labels) | skeleton | paper style | sphere views...
     ncol = 5 + nsph
-    height = 3.9 * n + 1.9                   # 1.2 in above the top row for the column titles and the figure title
+    # the bottom margin holds the footnote (8 pt lines, ~0.135 in each; reserved for the coloured version, the longest)
+    # plus room for the notes under the last row: a fixed 0.55 in let a 5-line footnote run into those notes
+    # (review 2026-10-12)
+    bottom_in = 0.06 + 0.135 * (_figure_footnote(True).count("\n") + 1) + 0.45
+    height = 3.9 * n - 0.1 + 1.45 + bottom_in   # 1.45 in above the top row for the column titles and the figure title
     fig = plt.figure(figsize=(3.15 * ncol + 3.6, height))
     # wider sphere columns (1.7) so the 3-D drawings are larger; clip is turned off
     # everywhere (see end of this function) so nothing is cut at the panel edges.
     gs = fig.add_gridspec(n, ncol, width_ratios=[1.05, 1.15, 1.15, 0.95, 1.15] + [1.7] * nsph,
-                          hspace=0.30, wspace=0.02, top=1.0 - 1.45 / height, bottom=0.55 / height)
+                          hspace=0.30, wspace=0.02, top=1.0 - 1.45 / height, bottom=bottom_in / height)
     coloured = False
 
     for i, m in enumerate(reps):
         model = DDOL.build_model(DDOL.parse_dt(m["dt"]))
         G = DDOL.build_gadget_graph(model)
         # one layout for the two drawings and the skeleton, exact, turned onto the axes like the paper-style panel
-        P, centers_d, d2, paper, layout_note, paper_err, face_note = _row_drawings(m, model, G)
+        P, centers_d, d2, paper, layout_note, paper_err, face_note, drawn_face = _row_drawings(m, model, G)
         dirs3 = m["sphere3d"].get("_dirs3d")
         if dirs3 is None:                       # a result scored before 2026-10-12: rebuild the same layout
             dirs3 = DDOL._kamada_3d_unit_directions(G)
@@ -2929,13 +2971,28 @@ def make_figure(scored, path, max_draw=60):
         # the symmetry-distinct classes (spheremaps) of the realisation THIS 2-D drawing shows, matched by its
         # rotation system (a composite DT code has several realisations: granny and square knot share codes)
         cr = m.get("crossings") or {}
-        cmap = _class_colour_map(d2[1]["orbits_achiral"]) if d2 else {}
+        # the classes the 2-D panels shade: the N classes, or -- when the drawing's own symmetry (the stabiliser of
+        # its outer region) also leaves N classes -- those (mdfig.drawn_classes; 2026-10-12, at the user's request:
+        # the 4BL balanced clasp's sphere C_i and flat C_i both give 7 classes but pair different crossings, and the
+        # sphere's pairs on its flat drawing were not kept by the drawing's own half-turn)
+        shown, own_group = (d2[1]["orbits_achiral"] if d2 else None), None
+        if d2 and drawn_face is not None:
+            try:
+                SMd = _spheremaps()
+                Md = SMd.SMap(m["dt"], d2[1]["sigma"])
+                own = _mdfig().drawn_classes(Md, drawn_face, shown)
+                if own is not shown:
+                    shown = own
+                    own_group = SMd.point_group_name(SMd._stab(Md, SMd.automorphisms(Md), drawn_face))
+            except Exception:  # noqa: BLE001  -- keep the N classes; never lose the figure over the colouring
+                pass
+        cmap = _class_colour_map(shown) if d2 else {}
 
         # --- col 1: draw_dt_original_labels WITH DT labels, crossings shaded by class ---
         axd = fig.add_subplot(gs[i, 1])
         _render_draw(axd, model, P, centers_d, col_of, show_labels=True)
         if d2:
-            _shade_classes_2d(axd, centers_d, d2[1]["orbits_achiral"], cmap)
+            _shade_classes_2d(axd, centers_d, shown, cmap)
             coloured = True
         notes = [("drawn with " + layout_note, "#a61e4d")] if layout_note else []
         if face_note:
@@ -2970,10 +3027,12 @@ def make_figure(scored, path, max_draw=60):
         elif d2:
             j2, r2, diff2 = d2
             try:
-                orbs = r2["orbits_achiral"]
+                orbs = shown
                 _mdfig().draw(axp, _spheremaps().SMap(m["dt"], r2["sigma"]), positions=paper, orbits=orbs,
                               orbit_letters=False, orbit_colours=_class_colour_list(orbs, cmap), lw=1.5)
                 sub = "N = %d (%s)" % (len(orbs), r2["model_achiral"])
+                if own_group:
+                    sub += "\nshaded: this drawing's own %s classes" % own_group
                 if cr.get("diagrams", 1) > 1:
                     sub += "\ndiagram %d of %d of this DT code (smallest N %d)" % (
                         r2.get("diagram", j2) + 1, cr["diagrams"], cr["N_achiral"])
@@ -3013,7 +3072,7 @@ def make_figure(scored, path, max_draw=60):
         if d3:
             j3, r3, diff3 = d3
             classes = r3["orbits_sphere_achiral"]
-            cmap3 = _class_colour_map(classes, taken=cmap)
+            cmap3 = _class_colour_map(classes)
             coloured = True
             ncl = len(classes)
             sym_label = ("drawn elements: " + (", ".join(parts) if parts else "none")
@@ -3040,19 +3099,19 @@ def make_figure(scored, path, max_draw=60):
     fig.suptitle("Representative diagrams of one link, ranked by composite score  "
                  "(canonical DT codes at left; 3-D sphere from two viewpoints)",
                  fontsize=13, y=1.0 - 0.12 / height)
-    foot = ("On the 3-D spheres (true point group, up to mirror): a black dashed line = a "
-            "rotation (Cn) axis, a violet square labelled σ = a mirror plane, a violet dot "
-            "labelled i at the centre = an inversion centre, a dashed axis + Sn = a rotoreflection.  "
-            "Skeleton and sphere arcs follow the strands of their layout (the 3-D strand length is still measured "
-            "along great-circle steps between consecutive crossing centres).\nThe first three 2-D panels draw the "
-            "toolkit's shaped-tutte layout with the paper-style panel's outer face -- the face kept outside by the most "
-            "diagram symmetries, other things equal, rather than the toolkit's default largest face (a note under a "
-            "row says when they differ) -- all four turned so a mirror line lies along x or y, the same way round.")
-    if coloured:
-        foot += ("\nCrossing colours (spheremaps): in the first drawing and the paper-style panel, the N symmetry-"
-                 "distinct classes; on the spheres, the classes under the sphere group (more than N when the flat "
-                 "picture attains N).  A class keeps its colour across a row; grey = related to no other crossing.")
-    fig.text(0.5, 0.06 / height, foot, ha="center", va="bottom", fontsize=8, color="#555555")
+    foot = _figure_footnote(coloured)
+    # centred on the panels, not on the figure (the text column makes them sit right of centre; centred on the
+    # figure, the footnote's first line stuck out on the left and widened the saved figure; review 2026-10-12)
+    boxes = [ax.get_position() for ax in fig.get_axes()]
+    x_mid = 0.5 * (min(b.x0 for b in boxes) + max(b.x1 for b in boxes))
+    # placed 0.12 in below the LOWEST ink of the rows, measured after drawing: a long DT code in the last row's text
+    # column (T(2,81): 13 lines) or the notes under a last row of composites ran into a footnote placed by a fixed
+    # margin (review 2026-10-12); bbox_inches="tight" grows the saved figure when the footnote ends below it
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    low = min(ax.get_tightbbox(renderer).y0 for ax in fig.get_axes())
+    fig.text(x_mid, (low - 0.12 * fig.dpi) / fig.bbox.height, foot, ha="center", va="top", fontsize=8,
+             color="#555555")
     _strip_clip_paths(fig)                   # remove all clipping masks from the SVG
     fig.savefig(path, bbox_inches="tight")
     plt.close(fig)

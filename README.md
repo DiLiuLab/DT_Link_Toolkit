@@ -1156,8 +1156,15 @@ shades the N classes on the first 2-D drawing, adds a paper-style column (the
 same diagram drawn as symmetrically as it allows, classes shaded), and colours
 each crossing on the 3-D sphere by its class under the sphere group — more
 classes than N when the flat picture attains N, as for the 4BL Lopsided clasp
-(sphere C1, 14 classes; N = 7 flat, Ci). A class keeps one colour across a
-row. The 2-D drawings of a row show one picture: the toolkit's shaped-tutte
+(sphere C1, 14 classes; N = 7 flat, Ci). The 2-D panels shade the drawing's
+own classes instead when its own symmetry (that of the region kept outside)
+also leaves N classes: the 4BL Balanced clasp's sphere Ci and flat Ci both give
+7 classes but pair different crossings, so its drawing is coloured by the pairs
+its own half-turn relates. Colours follow the paper's one rule: a panel's
+classes, largest first, take the palette in turn, so the same set of classes
+always gets the same colours and equal N the same N colours (a class shared by
+a row's 2-D panels and its sphere can change colour between them when the two
+sets differ). The 2-D drawings of a row show one picture: the toolkit's shaped-tutte
 layout with the paper-style panel's outer face (the face kept outside by the
 most diagram symmetries, other things equal; a note under the row says when it
 is not the default largest face, and why), all turned so a mirror line lies

@@ -313,6 +313,41 @@ def face_stabiliser_orders(M):
     return _STAB[key]
 
 
+_FACE_CLASSES = {}
+
+
+def face_classes(M, face, chiral=False):
+    """The classes of crossings under the symmetries of a flat drawing of M with region `face` (an index into
+    M.faces()) outside: the stabiliser of that region (spheremaps.symmetry_report's 'plane' groups), its proper part
+    for chiral material.  Canonical order (largest first, then smallest crossing), as spheremaps.orbits gives."""
+    key = (M.dt, tuple(M.sigma), int(face), bool(chiral))
+    if key not in _FACE_CLASSES:
+        stab = SM._stab(M, SM.automorphisms(M), face)
+        if chiral:
+            stab = [g for g in stab if (g.e == 1) == (g.f == 0)]
+        _FACE_CLASSES[key] = SM.orbits(M.n, stab)
+    return _FACE_CLASSES[key]
+
+
+def drawn_classes(M, face, orbits, chiral=False):
+    """The classes to shade on a flat drawing of M with region `face` outside, given the diagram's N classes `orbits`
+    (spheremaps' headline classes: the sphere group's whenever the sphere attains N, ties included, else those of the
+    first best region).  When the drawing's OWN symmetry -- the stabiliser of `face` -- leaves as few classes as N, its
+    classes are returned instead, so the colours follow the symmetry the drawing shows: the 4BL balanced clasp's
+    sphere C_i (pairing diametrically opposite crossings) and its flat C_i both give N = 7 but pair different
+    crossings, and a flat drawing coloured with the sphere's pairs was not symmetric under its own half-turn
+    (2026-10-12, at the user's request).  Otherwise -- the sphere attains N alone, so the drawing cannot show that
+    symmetry, or the drawing's region is not one that attains N -- `orbits` is returned unchanged (the same object)."""
+    if face is None or orbits is None:
+        return orbits
+    own = face_classes(M, face, chiral)
+    if len(own) != len(orbits):
+        return orbits
+    if sorted(sorted(o) for o in own) == sorted(sorted(o) for o in orbits):
+        return orbits
+    return own
+
+
 def best_positions(M, face_index, layouts=("shaped-tutte", "spread-tutte"), min_sep=0.02, faces=None,
                    sym_bonus=2.2, chosen=None):
     """Every (layout, outer face) candidate whose drawing is exact (no false crossings, every

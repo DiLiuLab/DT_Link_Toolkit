@@ -4,6 +4,39 @@ DT Link Toolkit Development Log
 This file records version-specific development notes and implementation history.
 For installation and everyday usage, see README.md.
 
+Scorer figure colours: one rule, and each drawing's own classes (2026-10-12)
+-------------------------------------------------------------------------
+* One colour rule, the topo_atlas paper's (user: "for N=7 of the 3 diagrams, why
+  the colors you chose are different? we should keep a constant color palette"):
+  a panel's classes, largest first, take the palette in turn
+  (`_class_colour_map` = mdfig.draw).  Single crossings used to be grey and
+  colours were carried from panel to panel, so the 4BL rosette's N = 7 showed
+  five colours and two greys against the clasps' seven; now the three N = 7
+  diagrams show the same seven colours.  Grey only when no two crossings are
+  related (or, past the 11 colours, for single crossings).  Accepted cost: a
+  class shared by a row's N classes and a DIFFERENT sphere partition can change
+  colour between them (7_4); the footnote says so.  The footnote's colour text
+  is wrapped (every paragraph at 93% of the longest) and centred on the
+  panels, so it no longer widens the saved figure (it did by 8.6%); it is
+  placed 0.12 in below the lowest ink of the rows, measured after drawing, and
+  the saved figure grows to fit (a fixed margin let a 5-line footnote, a long
+  DT code in the last row -- T(2,81), 13 lines -- or a composite's notes run
+  into it).  Its colour text no longer promises a note under every row whose
+  drawing keeps a region that does not attain N (9^3_7 has none): it points to
+  the model named under the paper-style panel.
+* The 2-D panels shade the drawing's OWN classes when its own symmetry -- the
+  stabiliser of the region kept outside -- also leaves N classes
+  (`mdfig.face_classes` / `mdfig.drawn_classes`; the user's choice among three
+  options).  The 4BL Balanced clasp's sphere Ci (pairing diametrically opposite
+  crossings) and flat Ci both give 7 classes but pair different crossings; its
+  drawing used to carry the sphere's pairs, which its own half-turn does not
+  relate.  The paper-style panel says "shaded: this drawing's own Ci classes".
+  Otherwise -- the drawn region does not reach N with a partition of its own,
+  or the row has no paper-style drawing -- the N classes are shown as before
+  (the rosette: the flat drawing cannot show its two-fold rotation; the radial
+  [5]catenane: N is reached flat by another region than the one drawn).  Composites
+  unchanged (4BL 0.8975525235 / 0.7477680859 / 0.7208900841 / 0.5572556564).
+
 spheremaps GUI, review fixes, and the scorer figure (2026-10-12)
 --------------------------------------------------------------
 * An independent review (6 agents) of the 2026-10-11 merge confirmed N exactly --
