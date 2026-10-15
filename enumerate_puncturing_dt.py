@@ -153,7 +153,7 @@ def _load_draw_module():
     """Import the drawing module under its REAL name and register it in sys.modules.
 
     Registering under the real name matters: link_engine and canonical_dt do
-    ``import draw_dt_original_labelsV5_7 as D``, and a module already in
+    ``import draw_dt_original_labelsV5_8 as D``, and a module already in
     sys.modules is reused instead of being executed a second time.  Two live
     copies would keep separate module-level state (caches,
     LAST_CROSSING_GEOMETRY), so always check sys.modules first.

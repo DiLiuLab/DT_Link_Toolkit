@@ -4,6 +4,176 @@ DT Link Toolkit Development Log
 This file records version-specific development notes and implementation history.
 For installation and everyday usage, see README.md.
 
+draw_dt_original_labels V5.8: cylinder-tutte review fixes (2026-10-14)
+----------------------------------------------------------------------
+* Two rounds of independent reviews of the new layout (code reviews,
+  robustness sweeps of 651 and 4134 runs, a strand-level reproduction of the
+  BL README); every finding was reproduced before it was fixed.
+  Before/after over 243 prepare_diagram runs (17 diagrams in the cylinder
+  variants, the BL sessions, the other layouts): 210 identical, 26 better,
+  7 redrawn at the same count (0), 0 worse.  The four BL deliverable
+  sessions (also with --hole-swap) and every other layout give identical
+  positions.
+* Flatten pole choice: on a symmetric link every candidate pair is exactly
+  straight and rounding (1e-16) picked the pair; on a ring with four
+  crossings the D construction picked its own far crossing, so the log named
+  the poles the wrong way round (96 of 184 D drawings).  Now flatness is
+  compared to 1e-9, every pair is tried in both orientations and both
+  in-plane mirror images, the intended far crossing is handed to the D
+  construction, the roles are read off the drawing, and the first drawing
+  that audits clean is kept: 0 of 172 mislabelled, the Borromean rings
+  clean for every pole request (7 of 12 drew 11 defects), a requested pole
+  honoured in 98 of 110 runs (the log says when the poles were exchanged).
+  BL_list's Edw_3 code now draws cleanly at the Edw sessions' settings.
+* A pair counts only if both rings really became D's (the Hopf link's
+  two-crossing rings never do).  A flattened drawing with defects is
+  compared with the plain cylinder drawing and the better one kept, with one
+  "not kept" line instead of the flattened attempt's notes
+  (`DT: [(2,8),(4,6)]`: 103 -> 0).
+* Split diagrams: each piece is audited alone (the audit takes a component
+  subset), so the same choices work there (Borromean plus a kinked unknot,
+  --hole-swap: 11 -> 0); a piece no longer wipes another piece's D arcs
+  (Edw_4 plus a kinked unknot: 28 -> 0); log lines name their piece.
+* Crashes fixed: --cylinder-spread on a link with no round ring (Hopf) and
+  on split diagrams.  The spread is skipped when the solve already has
+  straight-line crossings and not kept when it audits worse.
+* --min-sep for cylinder-tutte is kept only when the exact audit is no worse
+  (the nudge has no planarity guard: 6-ring rubber-band chain at hole 0.25,
+  min-sep 0.02: 76 -> 0).  Other layouts unchanged.
+* --hole-swap: the [puncture] report and GUI note now name the face that is
+  outside (they named the selected face, which the swap puts in the hole),
+  in cylinder-tutte and holed-tutte; holed-tutte's --invert-ring gets a note
+  that the named face need not be outside.  Help texts and notes corrected
+  (large hole ratios fold the drawing from about 0.6 on some diagrams).
+
+draw_dt_original_labels V5.8: `--cylinder-spread` for crowded Edwards drawings (2026-10-14)
+-------------------------------------------------------------------------------------------
+* User: "Edw_6 appears very crowded in certain regions."  Measured on the
+  saved drawing: all 44 crossings among the four round rings in an annulus
+  0.10 of the span wide (the July holed-tutte drawing: 0.22), closest crossing
+  pair 0.030 of the drawing, strands of different rings 0.0125 apart in the
+  four diagonal sectors; inside r ~ 0.25 only the two D diameters.  Cause: the
+  two-pole cylinder solve spaces the rings by graph distance between the
+  poles, and the axis spokes carry few nodes.
+* Five strategies were prototyped in parallel on a common harness (scored by
+  the exact false-crossing audit and nearest-crossing spacing), then three
+  independent judges compared the renders (readability / fidelity to Edwards'
+  figures in Maes & Cerf / robustness and simplicity):
+  radial CDF remap of s (Edw_6 closest pair 0.042), closed-form radial
+  profile (0.041; most robust: 0/60 failures in a 60-run sweep, but the band
+  stays), reweighted cylinder solve (0.049), angular + radial optimiser
+  (0.049; 10-13 s, near a failure cliff), and a planarity-guarded,
+  mirror-symmetrised spread of the solve (0.057, 10th percentile 0.079; best
+  on readability 8/10 and fidelity 7/10; 2/60 sweep failures, both inherited
+  from the baseline at min-sep 0.02).  No method makes the circle round:
+  every remap of the radius keeps its 1.6 aspect.
+* Shipped the spread as `_cylinder_spread` (`--cylinder-spread ROUNDS`, 0 =
+  off): the prototype's forces and step rule with its default constants,
+  without the options it measured as no better (polar smoothing, square
+  gadgets, crossing smoothing, pulling every ring round).  The port
+  reproduces the prototype's numbers exactly (Edw_4 / 5 / 6).  With 0 the
+  layouts are exactly as before.  BL_Edw_4/5/6 regenerated at 600 rounds:
+  0 false crossings each; Edw_5 becomes a regular star weave, Edw_4 is
+  nearly unchanged.
+* Left for later (from the judges): a single-ring roundness pull for the
+  circle (pulling every ring re-banded them), a bending term against the
+  remaining small S-kinks, and excluding the D frame from the min-sep nudge
+  (its order dependence leaves a 0.4-0.9% mirror mismatch, as before).
+
+draw_dt_original_labels V5.8: `--layout cylinder-tutte` -- the holed ring solved on a cylinder (2026-10-13)
+-----------------------------------------------------------------------------------------------------------
+* Asked for by the user: the 3-ring cyclic rubber-band chain
+  (`BL_series_2D/link_diagram-BL_cyclic_rubberband_3.svg`) should be a 3-fold
+  wreath like the 4-, 5- and 6-ring drawings, which are holed-tutte wreaths
+  with one n-gon face outside and the other as the hole.  For n = 3 the two
+  n-gons are triangles (9 boundary nodes), so the default "largest face" is
+  a 6-crossing face between two rings and the drawing came out with only a
+  mirror symmetry.
+* What failed, measured: holed-tutte's torus path ignores a --puncture-face
+  that is not one of its "encircling" faces (primary axis, every seed);
+  on the tertiary axis it honours it but its plane solve folds: 15-37 false
+  crossings, and 15-140 straight-line crossings at every hole ratio
+  0.15-0.55 and every twist of the inner rim (a ring of structure is drawn
+  inside the hole -- barycentres land in it, the ring is not convex); the
+  probe path (Tutte with the outer face pinned, then the annulus solve)
+  folds the same way, also with free hole angles.  shaped-tutte with the
+  triangle outside is planar but crushes the interior (with tutte-decompress
+  0.3 it is clean and 3-fold, but the rings become thin straight bands round
+  a triangular hole); spread-tutte with the triangle outside is clean but
+  fills the disc evenly (no hole, meandering strands); a prototype
+  "spread-holed" force layout (spread-tutte plus rim pulls) opened the hole
+  only to 0.17 and had the same meandering look.  Rejected.
+* `cylinder_tutte_layout`: in log-polar coordinates the ring is a strip, and
+  a strip is convex.  s is harmonic between 1 on the outer rim and 0 on the
+  hole rim; theta is harmonic on the strip's periodic cover, each edge
+  carrying its winding across the cut, read off a strictly planar reference
+  (stellated Tutte with the outer face outside; the exact integer grid if
+  that is not clean) about a point strictly inside the hole face -- exact for
+  straight segments that miss the point, so every face but the rims winds 0;
+  the hole rim turns by the twist that minimises the energy (one extra
+  unknown, zero net torque).  Both rims keep their reference angles.
+  (s, theta) is mapped radially between the two drawn rim POLYGONS
+  (`_rim_polygon_radius`): mapping onto the circles let a node squeezed
+  against the outer rim fall outside a chord (granny knot 20 straight-line
+  crossings, 8-ring chain 12).  A part hanging off two points still
+  collapses onto a line in any Tutte solve (granny: 4 left); only then the
+  solve is repeated with a centre node in every face but the rims, whose
+  windings come from walking round the face.  Not by default: it adds
+  wiggles at the clasps of drawings the plain solve gets right (compared on
+  the rubber-band chains).
+* Measured: rubber-band chains of 3-6 rings at hole ratios 0.15 / 0.25 / 0.40
+  -- 0 straight-line crossings in all twelve, twist <= 0.5 deg, rendered 0
+  false crossings, exactly n-fold with symmetry enforcement, and the same
+  handedness for every n with the c8+c16+... n-gon outside (rings 1 -> n
+  counterclockwise, like the saved 5- and 6-ring drawings; the saved 4-ring
+  drawing runs clockwise, i.e. it is the in-plane mirror of the others).
+  Over 64 drawings with a hole (the 23 BL-series sessions, 4BL, Borromean,
+  Hopf, trefoil, figure-eight, 5_2, granny, the 8-ring chain, a 30-crossing
+  backtrack knot; default and swapped faces) every straight-line drawing is
+  planar; the rendered audit is clean except granny swapped (10), the 8-ring
+  chain with its default face (14 at hole ratios 0.15-0.3, 22 at the default
+  0.4; an elongated chain does not suit any annulus) and the kinky backtrack knot (4; spread-tutte's job).  Two kinked
+  unknots have no vertex-disjoint hole and get plain tutte.
+* Then the BL_Edw drawings (Maes & Cerf's Brunnian links on Edwards'
+  construction of Venn diagrams; user: "the current Edw drawings are also
+  looking ugly").  They were holed-tutte + flatten-orthogonal: the two axis
+  rings as 'D's are right, but the circle and the cogwheels came out as
+  lozenges.  None of tutte / shaped / spread / sphere-stereo / plain
+  cylinder-tutte shows Edwards' structure (measured on Edw_4/5/6).  On the
+  sphere Edwards' two axis rings are great circles through the two crossings
+  they share, so `_cylinder_flat_poles` makes those two crossing squares the
+  cylinder's rims (centre and infinity): the axes come out straight to
+  ~1e-15 and the circle and cogwheels concentric.  Mapping onto the rim
+  polygons squared the rings into diamonds (a crossing square has four
+  corners), so this case maps onto circles; then holed-tutte's own
+  `_flatten_orthogonal_rings` draws the D's.  The pair is the one of all
+  ring pairs crossing exactly twice whose rings come out straight; the
+  higher-numbered ring is turned onto x, which with the sessions' framing
+  (rotate -90) makes it the vertical D on the right, as in the saved
+  drawings (and in Maes & Cerf, where each step adds the vertical
+  rectangle).  With the sessions' own settings (hole ratio 0.1, min-sep
+  0.01, D radius 0.6, separation 0.05) Edw_4/5/6 render with 0 false
+  crossings; hole ratio 0.05 left one spline touch on Edw_4, min-sep 0.03
+  added touches.  The Borromean rings (n = 3) break the D construction
+  itself (each D ring has only four crossings): 6 false crossings, so the
+  hand-drawn Edw_3 stays.
+
+* Report fix on the way: holed-tutte's [puncture] lines and GUI note named
+  the SELECTED face even when its torus path used another ("requested face
+  c2+c10+c18 not applied ...; kept c2+c10+c18"; for 4BL the default log said
+  "c1+c4+c10+c13" while the outer face was the crossing square of c3 -- a
+  holed-tutte quirk left as it is).  They now name the face used.  The
+  [puncture] line no longer says "unique largest" for a smaller face, and the
+  GUI help for 'hole ratio' had the direction backwards.
+* Unchanged: 84 runs of the other layouts (9 diagrams x 8 layouts plus
+  puncture / swap variants) give identical positions and false-crossing
+  counts before and after under a fixed PYTHONHASHSEED; only those holed-tutte
+  [puncture] lines differ.  (Without a fixed seed `planar` and `spring` vary
+  from run to run anyway: nx.planar_layout pops nodes from a set.)
+* Bumped V5.7 -> V5.8 at the user's request; the two literal importers
+  (link_engine_v4_0, strand_passage_guiV4_2), the window title, README and
+  enumerate_puncturing_dt's docstring are repointed.
+
 Scorer figure colours: one rule, and each drawing's own classes (2026-10-12)
 -------------------------------------------------------------------------
 * One colour rule, the topo_atlas paper's (user: "for N=7 of the 3 diagrams, why

@@ -1,11 +1,176 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-draw_dt_original_labelsV5_7.py
+draw_dt_original_labelsV5_8.py
 ==============================
 
 Draw a smooth planar oriented link diagram from a signed Dowker-Thistlethwaite
 (DT) code while preserving the original traversal labels supplied by the user.
+
+V5.8 changes
+------------
+* 2-D: new layout 'cylinder-tutte' (2026-10-13, at the user's request: the
+  3-ring cyclic rubber-band chain could not be drawn as a 3-fold wreath like
+  its 4-, 5- and 6-ring siblings).  holed-tutte pins two faces to two
+  outlines and solves the barycentric system in the PLANE, where the ring
+  between them is not convex, so a barycentre can land inside the hole:
+  with the chain's two triangles as rims it has 15-140 straight-line
+  crossings at every hole ratio (0.15-0.55) and every twist of the inner rim,
+  and its torus path ignores a --puncture-face that is not one of its
+  "encircling" faces.  `cylinder_tutte_layout` solves the same picture on the
+  CYLINDER: in log-polar coordinates the two rims are the edges of a strip,
+  which is convex -- s harmonic between 1 (outer rim) and 0 (hole rim), theta
+  harmonic on the periodic cover (each edge's winding read off a strictly
+  planar stellated-Tutte reference), the hole rim turned by the energy-
+  minimising twist -- then mapped radially between the two drawn rim
+  polygons (`_cylinder_solve`, `_rim_polygon_radius`).  The outer face is the
+  --puncture-face face (`select_outer_face` among the diagram's faces, as for
+  spread-tutte), the hole is auto-picked (vertex-disjoint from it, encircling,
+  deepest) and --hole-swap exchanges them; --hole-ratio sets the hole.  When
+  the plain solve's straight-line drawing is not planar (a part hanging off
+  two points collapses: the granny knot) it is repeated with a centre node
+  in every other face.  A [cylinder] log line names the two rims, the twist
+  and the outcome; no hole face -> plain tutte.  Measured: the cyclic
+  rubber-band chains of 3-6 rings (n-gons as rims) at hole ratios 0.15 /
+  0.25 / 0.40 all planar, rendered with 0 false crossings and, with symmetry
+  enforcement, exactly n-fold; over 64 drawings with a hole (the 23 BL-series
+  sessions, 4BL, Borromean, Hopf, trefoil, figure-eight, 5_2, granny, the
+  8-ring chain, a kinky backtrack knot; both faces) every straight-line
+  drawing is planar and the rendered audit is clean except granny swapped
+  (10), the elongated 8-ring chain with its default face (14 at hole ratios
+  0.15-0.3, 22 at the default 0.4) and the kinky knot (4).  Deterministic: no 3-D layout, seed or hash order involved.
+  Every other layout is unchanged (84 runs -- 9 diagrams x 8 layouts plus
+  puncture / swap variants -- with identical positions and false-crossing
+  counts under a fixed PYTHONHASHSEED).  CLI
+  --layout cylinder-tutte; GUI layout 'cylinder-tutte' (puncture face, hole
+  ratio, swap inner/outer face, outline / PCA overlays live).
+* 2-D: cylinder-tutte --flatten-orthogonal (2026-10-13, at the user's
+  request: the BL_Edw drawings -- Maes & Cerf's Brunnian links on Edwards'
+  construction of Venn diagrams -- looked lopsided).  Edwards draws two rings
+  as straight lines through the centre, closed far out, and the circle and
+  the cogwheels concentric round the centre; on the sphere the two lines are
+  great circles through two poles, the two crossings they share.
+  `_cylinder_flat_poles` makes those two crossings the cylinder's rims --
+  the hole one crossing square, the outer rim the other -- for every pair of
+  rings crossing each other exactly twice, keeps the pair whose rings come
+  out straight (to CYLINDER_FLAT_TOL; Edw_4/5/6: 5e-16, 1e-15, 3e-15), maps
+  onto circles (a square rim's corners would square the rings off), turns
+  the higher-numbered ring onto x and hands the layout to holed-tutte's own
+  `_flatten_orthogonal_rings` for the two 'D's.  BL_Edw_4/5/6 with their
+  sessions' settings (hole ratio 0.1, min-sep 0.01, D radius 0.6 / separation
+  0.05): round circle, cogwheels with 2 / 4 / 8 symmetric lobes, 0 false
+  crossings, the last ring the vertical D on the right as in the saved
+  drawings.  No qualifying pair -> a [cylinder] note and the plain cylinder
+  layout.  The 3-ring case (the Borromean rings) needs the pole choice of
+  the 2026-10-14 review fixes below: before them it drew 6-11 false
+  crossings depending on rounding.  holed-tutte's flatten is unchanged (Edw_4/5/6
+  positions identical).  GUI: 'flatten orthogonal components' and its two
+  fields are live for cylinder-tutte.
+* 2-D: cylinder-tutte --cylinder-spread ROUNDS (2026-10-14, at the user's
+  request: "Edw_6 appears very crowded in certain regions").  With
+  --flatten-orthogonal the cylinder solve spaces the rings by graph distance
+  between the two poles, so Edw_6's circle and three cogwheels (44 crossings)
+  sat in an annulus about 10% of the drawing wide (radius 0.25-0.36 of its
+  span) with an empty disc inside.
+  `_cylinder_spread` is the planarity-guarded spread the user first asked for
+  ("spread-holed-tutte"), run on the cylinder solve: crossing centres closer
+  than the mean crossing spacing push apart, a spring holds every node to the
+  cylinder's own strip barycentre (the solve is its fixed point), port and
+  smoothing pulls keep strands straight through crossings, a soft wall keeps
+  the rings inside the D frame; each move <= 0.2 |F|, a cap cooled from 0.3 k
+  to 0 and 0.95 x the PrEd safe radius, so the straight-line drawing keeps its
+  embedding; every round is averaged over the D2 symmetry (node permutations
+  read off the solve), so the axes stay straight; the poles and the outermost
+  crossing on each half-axis are pinned, so the D's keep their size; any final
+  straight-line crossing -> the solve is kept.  Chosen from five prototypes
+  judged by three independent reviewers (radial CDF remap, closed-form radial
+  profile, reweighted solve, angular + radial optimiser, this one): best on
+  readability and Edwards fidelity.  Edw_6 closest crossing pair 0.030 ->
+  0.057 of the drawing, 10th percentile 0.030 -> 0.079, Edw_5 a regular star
+  weave, Edw_4 nearly unchanged; 0 false crossings; 1-5 s.  0 = off (default)
+  reproduces the earlier layouts exactly; the BL_Edw sessions use 600
+  (CYLINDER_SPREAD_ROUNDS).  Not applied without flatten (a note says so).
+  GUI 'cylinder spread rounds', session key cylinder_spread.
+* 2-D: the [puncture] report names the face really drawn outside.  holed-
+  tutte's torus ("kamada wreath") path picks its own outer face, but the log
+  and the GUI note named the selected one: a requested face printed
+  "requested face X not applied ...; kept X", and the default log named a
+  face that was not outside at all (4BL: "c1+c4+c10+c13", really the crossing
+  square of c3).  The report now carries the face used, with a note; a
+  non-largest face no longer reads "(unique largest, ...)".  Drawings are
+  unchanged.
+* GUI help: 'hole ratio' said smaller values give a bigger hole; the code uses
+  it as the hole's size, so larger values give a bigger hole (text fixed).
+* 2-D: cylinder-tutte review fixes (2026-10-14; two rounds of independent
+  reviews of the new layout, every finding reproduced first).  Before/after
+  over 243 prepare_diagram runs (17 diagrams in the cylinder variants, the BL
+  sessions, the other layouts): 210 identical, 26 better, 7 redrawn with the
+  same count (0), 0 worse.  The BL_cyclic_rubberband_3 and BL_Edw_4/5/6
+  sessions (also with --hole-swap) and every other layout give identical
+  positions under PYTHONHASHSEED=0; holed-tutte's --hole-swap [puncture]
+  lines changed (below).
+  - Flatten pole choice.  On a symmetric link every candidate pair is exactly
+    straight (Borromean rings: flatness ~1e-16 to 7e-16, decided by
+    rounding), and on a ring with four crossings `_flatten_orthogonal_rings`
+    picked its own OUT crossing by geometry, so the log named the poles the
+    wrong way round (96 of 184 D drawings over the Borromean codes and
+    Edw_3..6, default and session settings) and `DT: [(6,-8),(-10,12),
+    (-2,4)]` drew 11 defects in 7 of its 12 --puncture-face c1..c6 x
+    --hole-swap runs.  Now: flatness compared to 1e-9; every pair tried in
+    both orientations and both in-plane mirror images (the 'D's have a fixed
+    handedness; on the Borromean rings exactly one image of each solve draws
+    cleanly); `_flatten_orthogonal_rings(out_crossing=)` (default None:
+    holed-tutte unchanged) makes the intended pole the OUT crossing where it
+    sits between the ring's extremes; the roles are READ OFF the drawing for
+    the log and the [puncture] report; order = pair with the requested
+    crossing, preferred orientation, as solved before mirrored, straightness,
+    ring number; the first that audits clean is kept, else the fewest
+    defects.  Result: 0 of 172 mislabelled, 0 defects in all 12 runs, a
+    requested pole honoured in 98 of 110 runs -- in the other 12 it drew
+    dirty in both images and the log says the poles were exchanged.
+    BL_list's Edw_3 code draws cleanly at the BL_Edw sessions' settings.
+  - A pair counts only if both rings really became D's: a ring with two
+    crossings is left as it was (the Hopf link: the note claimed D's and the
+    drawing had 4 false crossings; now the plain layout, 0).
+  - A flattened drawing with defects is compared with the plain cylinder
+    drawing and the better one kept; when the plain one wins, the flattened
+    attempt's notes are dropped for one "not kept" line (`DT: [(2,8),(4,6)]`:
+    103 -> 0; Edw_6 at the default hole ratio 0.4: 4 -> 0, plain).
+  - Split diagrams: each piece is audited alone (`_piece_defects`; the
+    audit's new `components=` restriction), so the pole choice and the plain
+    comparison work there too (the Borromean rings plus a kinked unknot,
+    --hole-swap: 11 -> 0); a piece no longer wipes another piece's D arcs
+    (Edw_4 plus a kinked unknot: 28 -> 0); [cylinder] and [puncture] lines
+    name their piece ("piece 2 of 2 (ring 4)"); a hole-ratio note is printed
+    once.
+  - --cylinder-spread: crashed on a diagram with no round ring (Hopf link)
+    and on a split diagram (KeyError: it looped over every crossing of the
+    model, not of the piece); skipped with a note when the solve already has
+    straight-line crossings (it keeps a planar drawing planar, it cannot
+    untangle one); not kept when its drawing audits worse.
+  - --min-sep: the nudge has no planarity guard and cylinder-tutte drawings
+    are tightly packed (6-ring rubber-band chain at hole 0.25 and min-sep
+    0.02: 76 false crossings; Edw_6 at 0.02: 609).  For cylinder-tutte it is
+    kept only when the drawing audits no worse with it, else skipped with a
+    [cylinder] line.  Other layouts: unchanged.
+  - --hole-swap (cylinder-tutte and holed-tutte): the [puncture] report and
+    the GUI note named the selected face, which the swap puts in the centre;
+    they now name the face outside and the hole; a requested face the swap
+    put in the hole reads "requested face X made the hole by --hole-swap"
+    (GUI: "[requested face is the hole]"), not "not applied" -- on holed-
+    tutte's kamada path only when the requested face is one of its
+    encircling faces -- and an overridden swap on the flatten path says
+    "--hole-swap not applied"; with --invert-ring holed-tutte says the named
+    face is not necessarily the one outside.  The [cylinder] notes that
+    every piece of a split diagram repeats (hole-ratio clamp,
+    --cylinder-spread without flatten) are printed once.
+  - Notes and help: an out-of-range --hole-ratio is reported (it was
+    silently replaced: inf -> 0.40); large hole ratios can fold the drawing
+    from about 0.6 on some diagrams (the 3-ring rubber-band chain), not only
+    above 0.8; the stellated-fallback note no longer names a cause it does
+    not know; the flatten radius / separation help covers cylinder-tutte;
+    "vertical D on the right" holds with the BL_Edw sessions' rotate -90,
+    not with the default framing.
 
 V5.7 changes
 ------------
@@ -1032,7 +1197,7 @@ Outputs:
   and a spherical XYZ coordinate file with blank lines between components.
 
 Example:
-  python draw_dt_original_labelsV5_7.py \
+  python draw_dt_original_labelsV5_8.py \
     --dt 'DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]' \
     --output example_v3.svg \
     --table example_v3.csv \
@@ -1082,7 +1247,7 @@ matplotlib.rcParams["svg.fonttype"] = "none"
 matplotlib.rcParams["pdf.fonttype"] = 42
 matplotlib.rcParams["ps.fonttype"] = 42
 DIAGRAM_FONT_FAMILY = "Arial"
-SCRIPT_VERSION = "V5.7"
+SCRIPT_VERSION = "V5.8"
 VERSION = SCRIPT_VERSION
 # V5.6: crossing-separation measurement from the most recent kamada-family XYZ
 # build, so the GUI "?" popup for the crossing angle can show live numbers.
@@ -1125,20 +1290,21 @@ GUI_HELP_TEXT = {
     "table": "Optional CSV table listing each crossing, original odd/even DT labels, components, over/under label, and 2D coordinates.",
     "xyz": "Path for the spherical x y z coordinate file. The file is plain three-column coordinates. Blank lines separate link components.",
     "negative_even": "DT sign convention. Default: a negative even DT label means the even-labeled visit is over, matching the common Sage/KnotTheory convention. Choose 'under' for the opposite convention.",
-    "layout": "2D preview/image layout. tutte is usually smooth and clean; shaped-tutte pins the Tutte boundary to a chosen shape (see tutte shape); holed-tutte pins two faces (outer + auto-picked central hole) to the outer/inner outlines of a holed shape (ring/annulus) so the diagram wraps around a central hole; spread-tutte is the layout for diagrams with many TRIVIAL crossings -- kinks and bigons from Reidemeister moves, which every Tutte solve crushes to points: it makes every crossing square a face of the embedding, starts from strictly planar Tutte and grid drawings, and spreads them with forces under which the straight-line drawing cannot acquire a crossing (the smoothed curves are audited as usual; see spread rounds); sphere-stereo lays the diagram out on the unit sphere (3D Kamada-Kawai, as the 3D XYZ pipeline) and stereographically projects it from the pole farthest from all strands -- the method of choice for links whose rings lie in near-orthogonal planes (e.g. Edwards-Venn AM5), which collapse in boundary-pinned layouts (the pole's face becomes the outer region; combine with relax passes / min separation); planar is safest; spring and kamada are aesthetic force-directed alternatives that are audited for false crossings.",
+    "layout": "2D preview/image layout. tutte is usually smooth and clean; shaped-tutte pins the Tutte boundary to a chosen shape (see tutte shape); holed-tutte pins two faces (outer + auto-picked central hole) to the outer/inner outlines of a holed shape (ring/annulus) so the diagram wraps around a central hole; cylinder-tutte draws the same kind of ring -- the puncture face on an outer circle, an auto-picked hole face (swap inner/outer face exchanges them) on an inner circle of hole ratio -- as a Tutte embedding of the cylinder: in log-polar coordinates the ring is a strip, which is convex, so the straight-line drawing does not fold where holed-tutte's plane solve does (small rings, large holes; e.g. the 3-ring cyclic rubber-band chain), and a symmetric diagram comes out exactly symmetric (no 3-D layout or seed involved); spread-tutte is the layout for diagrams with many TRIVIAL crossings -- kinks and bigons from Reidemeister moves, which every Tutte solve crushes to points: it makes every crossing square a face of the embedding, starts from strictly planar Tutte and grid drawings, and spreads them with forces under which the straight-line drawing cannot acquire a crossing (the smoothed curves are audited as usual; see spread rounds); sphere-stereo lays the diagram out on the unit sphere (3D Kamada-Kawai, as the 3D XYZ pipeline) and stereographically projects it from the pole farthest from all strands -- the method of choice for links whose rings lie in near-orthogonal planes (e.g. Edwards-Venn AM5), which collapse in boundary-pinned layouts (the pole's face becomes the outer region; combine with relax passes / min separation); planar is safest; spring and kamada are aesthetic force-directed alternatives that are audited for false crossings.",
     "tutte_shape": "Boundary shape for the shaped-tutte and holed-tutte layouts: circle, ellipse, rectangle, or rounded-rectangle. All shapes are convex, so the Tutte solve stays valid. For holed-tutte this is the shape of both the outer and inner ring outlines.",
-    "puncture_face": "Tutte-family layouts (tutte / shaped-tutte / holed-tutte / spread-tutte) must send one planar face to the OUTER (unbounded) region -- geometrically the sphere is 'punctured' at that face and the diagram is laid flat around it. The largest face is used by default; when several faces tie for the largest boundary the pick is otherwise arbitrary (it depends on the internal face-traversal order), so the drawing could jump between runs. Enter the crossing IDs on the boundary of the face you want punctured, e.g. c1,c3,c5 -- the note below and the preview log list the tie faces to choose from. Blank or 'auto' keeps the canonical largest face; a non-tied face's signature is also accepted to pin it explicitly. (On holed-tutte's kamada wreath path a selection is applied only when the chosen face is one of the ring's encircling faces.)",
-    "hole_ratio": "Holed-tutte inner (hole) outline size as a fraction of the outer outline, in (0,1). Smaller values give a bigger hole/thinner ring wall; larger values give a small hole. Only used when layout is holed-tutte. Default: 0.4.",
-    "hole_swap": "Holed-tutte: swap which of the two chosen boundary FACES is pinned to the OUTER outline and which to the INNER (hole) outline, then re-solve. This is a structural change (a different face ends up on the rim), NOT a simple inside-out flip -- for that, use 'invert ring'. Only used when layout is holed-tutte.",
+    "puncture_face": "Tutte-family layouts (tutte / shaped-tutte / holed-tutte / cylinder-tutte / spread-tutte) must send one planar face to the OUTER (unbounded) region -- geometrically the sphere is 'punctured' at that face and the diagram is laid flat around it. The largest face is used by default; when several faces tie for the largest boundary the pick is otherwise arbitrary (it depends on the internal face-traversal order), so the drawing could jump between runs. Enter the crossing IDs on the boundary of the face you want punctured, e.g. c1,c3,c5 -- the note below and the preview log list the tie faces to choose from. Blank or 'auto' keeps the canonical largest face; a non-tied face's signature is also accepted to pin it explicitly. (On holed-tutte's kamada wreath path a selection is applied only when the chosen face is one of the ring's encircling faces.)",
+    "hole_ratio": "Holed-tutte / cylinder-tutte inner (hole) outline size as a fraction of the outer outline, in (0,1). Larger values give a bigger hole and a thinner ring wall; smaller values a small hole and a wider ring. Values outside [0.05, 0.95] are clamped (a non-positive or non-finite one means 0.4); for cylinder-tutte a large hole ratio can fold the drawing -- the hole's rim pokes past the outer rim's chords and the log reports straight-line crossings -- from about 0.6 on some diagrams (the 3-ring rubber-band chain) and 0.8 on others. Only used when layout is holed-tutte or cylinder-tutte. Default: 0.4.",
+    "hole_swap": "Holed-tutte: swap which of the two chosen boundary FACES is pinned to the OUTER outline and which to the INNER (hole) outline, then re-solve. This is a structural change (a different face ends up on the rim), NOT a simple inside-out flip -- for that, use 'invert ring'. Only used when layout is holed-tutte or cylinder-tutte (for cylinder-tutte the punctured face becomes the hole and the auto-picked hole face goes outside).",
     "invert_ring": "Holed-tutte: turn the ring inside-out (invert inner/outer outlines).  It reflects every crossing's radius about the ring's mid-line, so whatever is currently near the inner hole ends up on the outside and vice versa -- the same diagram, flipped radially (the mid-line curve is unchanged).  Unlike 'swap inner/outer face' (which re-solves with the two boundary faces exchanged), this keeps the layout and just flips it. Only used when layout is holed-tutte.",
     "ring_tilt": "Holed-tutte ring tilt in degrees (0-90): the viewing angle of the ring seen as the wall of a bucket. The flat annulus is the top-down view of a bucket whose wall carries the crossings. At 90 (default) you look straight down the bucket -> the flat top-view wreath, with the closed principal curve running around the whole circumference. As you lower it, the bucket rotates about the horizontal axis so its wall opens toward a side view (0 = fully side-on). The tilt lifts each crossing onto the 3D bucket wall and projects it, so it redistributes the crossings along the tilted ring rather than rigidly rotating the finished picture. Only used when layout is holed-tutte.",
     "min_sep": "Minimum separation between non-incident strand pieces, as a fraction of the diagram span (equivalently discourages very shallow near-parallel crossings). A post-layout relaxation pushes closer pieces apart while a spring keeps the overall layout; larger values separate more but can distort. 0 = off. Try 0.02-0.05. Applies to all 2D layouts.",
     "ring_equalize": "holed-tutte only. Strength 0..1 of a radial histogram equalization applied after the harmonic ring solve: each crossing keeps its angle but its radial position across the ring width is remapped so the radial distribution becomes uniform (1 = fully even, 0 = off, values between blend). This directly decongests diagrams whose strands crowd at the rims (typical for large closed structures such as the fishtail closure, because the barycentric solve compresses interior detail exponentially toward the pinned boundaries). May introduce flagged false crossings at extreme values; combine with 'relax passes' and 'min separation'. Default: 0.0.",
     "enforce_symmetry": "When the DT has a cyclic ROTATIONAL symmetry -- each component is the next one shifted by 2n/k positions, so a 2*pi/k turn maps the whole link to itself -- snap the drawing onto exact k-fold rotational symmetry. Two things happen when a symmetry is detected: ring-equalize is disabled (it redistributes crossings around the ring and would break the symmetric arrangement, tangling the layout), and the near-symmetric layout is orbit-averaged so the k rotated copies coincide exactly. It is a no-op for links with no detected symmetry, or when the layout does not already sit close to that rotation (e.g. a wrap axis that hides the symmetry -- try the tertiary axis, which often reveals it). Applies to all 2D layouts but is most useful with holed-tutte. Default: on.",
     "wrap_axis": "holed-tutte only. Which closed 'principal curved axis' the layout wraps the diagram around, derived from a 3D torus layout of the crossing graph whose three principal axes are the widest (W), middle (M) and thinnest (T) spread. 'primary' (default) projects onto the (W, M) plane -- the link's donut plane, the usual wreath. 'secondary' projects onto (W, T) -- the closed curve PERPENDICULAR to the primary (the hole/torus axis swapped in for the middle axis). 'tertiary' projects onto (M, T) -- the plane perpendicular to the WIDEST axis, i.e. the curved axis orthogonal to both primary and secondary. For links whose two ring systems lie in near-orthogonal planes (e.g. the Edwards-Venn family) the alternate axes give genuinely different, often clearer views; for other links they are just alternate framings. Combine with 'flatten orthogonal' / ring tilt as usual. Default: primary.",
-    "flatten_orthogonal": "holed-tutte only. A ring lying in a plane roughly PERPENDICULAR to the diagram (edge-on, e.g. two of the rings in the Edwards-Venn family) collapses under the boundary-pinned harmonic solve onto a straight line through the center, so it overlaps everything and reads as a bar rather than a loop. When on, each such near-collinear component is redrawn as a 'D': a straight DIAMETER through the centre carrying all its crossings, plus a perfect SEMICIRCLE joining the diameter's two ends. The two flat rings share two crossings: the one where the diameters cross stays at the CENTER, and the other (the OUT crossing) is where the two D's meet. The D's are concentric: the HORIZONTAL ring is the OUTER D (diameter along x, semicircle over the top of radius R_out), the VERTICAL ring the INNER D (diameter along y, semicircle bulging LEFT of radius R_in), and the inner semicircle's leftmost point (the OUT crossing) lands on the outer diameter. Each crossing keeps its own axis position so both diameters are symmetric about the centre; the diameter/semicircle junctions are genuine right-angle corners drawn as exact line + circle geometry. Only the flat components' strands move: crossings shared with a round component keep their exact position (the round wreath is untouched). See 'flatten outer radius' (the outer D's radius) and 'flatten separation' (radial gap between the two D's). Compatible with hole ratio / swap / invert / ring tilt / equalize / min separation. Default: off.",
-    "flatten_outer_radius": "holed-tutte 'flatten orthogonal' only. Radius of the OUTER 'D' -- the horizontal ring's diameter half-length and its return-semicircle radius -- in units of the flat ring's diameter. Larger makes both D's bigger so their semicircles wrap farther around the other (round) rings. Default: 1.1.",
-    "flatten_separation": "holed-tutte 'flatten orthogonal' only. Radial gap between the two nested 'D's, in units of the ring's diameter: the INNER D's radius = outer radius - separation. Larger separates the vertical (inner) semicircle farther inside the horizontal (outer) one. Default: 0.25.",
+    "flatten_orthogonal": "holed-tutte and cylinder-tutte. A ring lying in a plane roughly PERPENDICULAR to the diagram (edge-on, e.g. two of the rings in the Edwards-Venn family) collapses under the boundary-pinned harmonic solve onto a straight line through the center, so it overlaps everything and reads as a bar rather than a loop. When on, each such near-collinear component is redrawn as a 'D': a straight DIAMETER through the centre carrying all its crossings, plus a perfect SEMICIRCLE joining the diameter's two ends. The two flat rings share two crossings: the one where the diameters cross stays at the CENTER, and the other (the OUT crossing) is where the two D's meet. The D's are concentric: the HORIZONTAL ring is the OUTER D (diameter along x, semicircle over the top of radius R_out), the VERTICAL ring the INNER D (diameter along y, semicircle bulging LEFT of radius R_in), and the inner semicircle's leftmost point (the OUT crossing) lands on the outer diameter. Each crossing keeps its own axis position so both diameters are symmetric about the centre; the diameter/semicircle junctions are genuine right-angle corners drawn as exact line + circle geometry. Only the flat components' strands move: crossings shared with a round component keep their exact position (the round wreath is untouched). See 'flatten outer radius' (the outer D's radius) and 'flatten separation' (radial gap between the two D's). Compatible with hole ratio / swap / invert / ring tilt / equalize / min separation. Default: off. cylinder-tutte (V5.8) draws such a pair the way Edwards' construction of Venn diagrams does (Maes & Cerf's Brunnian links, the BL_Edw series): it looks for the two rings that cross each other exactly twice and come out STRAIGHT when those two crossings are the cylinder's poles -- one at the centre, the other at infinity (puncture face cK names the one at infinity, swap inner/outer exchanges them) -- so the circle and the cogwheels come out concentric and symmetric round the centre, then draws the pair as the two D's (the higher-numbered ring is the outer D; the BL_Edw sessions' rotate -90 turns it into the vertical one, closed on the right).  Each qualifying pair is tried with either crossing at the centre and in both in-plane mirror images (the same DT code); a pair holding the requested crossing comes first, then the requested orientation, then the straightest pair, and the first drawing that audits clean is kept -- if the requested orientation is not clean in either mirror image the poles are exchanged and the log says so.  The log names the poles as drawn.  If no pair qualifies, or the flattened drawing has more defects than the plain cylinder drawing, the plain cylinder layout is drawn and the log says so.",
+    "flatten_outer_radius": "holed-tutte / cylinder-tutte 'flatten orthogonal' only. Radius of the OUTER 'D' -- the horizontal ring's diameter half-length and its return-semicircle radius -- in units of the flat ring's diameter. Larger makes both D's bigger so their semicircles wrap farther around the other (round) rings. Default: 1.1.",
+    "cylinder_spread": "cylinder-tutte with 'flatten orthogonal' only (V5.8): after the cylinder solve, spread the circle and the cogwheels for this many rounds (0 = off; 600 is what the BL_Edw drawings use).  The solve spaces the rings by graph distance between the two poles, so with many rings they crowd into a thin band (Edw_6: all 44 crossings among the round rings in an annulus about 10% of the drawing wide, radius 0.25-0.36 of its span); the spread pushes crossings closer than the diagram's mean crossing spacing apart while a spring holds each node to the cylinder's own barycentre.  Every node moves at most 0.95 x its distance-to-the-nearest-strand safe radius per round, so the straight-line drawing cannot gain a crossing; each round is averaged over the two mirror symmetries, so the axes stay straight; the poles and the outermost crossing on each half-axis are pinned, so the D's keep their size.  Edw_6: closest crossing pair 0.030 -> 0.057 of the drawing, 0 false crossings; about 1-5 s.  Skipped, with a note in the log, when the drawing is not mirror-symmetric about the two straight rings or the solve's straight-line drawing already has crossings (the spread keeps a planar drawing planar, it cannot untangle one; a lower hole ratio may help), and not kept when its drawing audits worse than the solve's.  CLI: --cylinder-spread.",
+    "flatten_separation": "holed-tutte / cylinder-tutte 'flatten orthogonal' only. Radial gap between the two nested 'D's, in units of the ring's diameter: the INNER D's radius = outer radius - separation. Larger separates the vertical (inner) semicircle farther inside the horizontal (outer) one. Default: 0.25.",
     "relax_passes": "Number of planarity-guarded relaxation passes applied after ANY 2D layout (0 = off). Each pass moves every non-pinned node toward the centroid of its graph neighbours while equalizing incident edge lengths toward the median; a pass that would create a straight-edge crossing is rejected and retried at half strength, so the layout can never lose planarity. Use 5-30 for congested diagrams. Runtime grows with passes x edges^2 (bounding-box pruned). Default: 0.",
     "relax_strength": "Step size 0..1 of each relaxation pass (see 'relax passes'). Larger is faster but rejected more often near tight spots. Default: 0.5.",
     "proj_elev": "3D projection viewpoint elevation in degrees (matplotlib convention: 90 = looking straight down the +z axis, 0 = side view). Used by the 'current' view of the 3D projection window and saved projections. Default: 25.",
@@ -1173,8 +1339,8 @@ GUI_HELP_TEXT = {
     "tutte_auto_aspect": "Shaped-tutte auto aspect. When on, the boundary long/short ratio is measured from the diagram's own elongation (the PCA spread ratio of a circular Tutte solve) so a naturally long-thin knot gets a long-thin boundary. It does NOT equalize strand lengths. When off, the manual tutte aspect is used. Independent of orientation.",
     "tutte_auto_orient": "Shaped-tutte auto orient (independent of auto aspect). Controls the on-screen framing only. When on, the whole diagram is rotated so its intrinsic (circular-Tutte) PCA elongation axis is horizontal; the tutte shape outline then appears tilted by 'tutte orient deg'. When off, the shape's long axis is left horizontal instead (the PCA axis then appears tilted). The global 'rotate degrees' field is applied on top of either mode.",
     "tutte_orient": "Shaped-tutte shape tilt in degrees: the angle by which the tutte shape's aspect (long) axis is tilted AWAY FROM the diagram's intrinsic PCA elongation axis. 0 = shape long axis aligned with the PCA axis. Unlike a final rotation, this actually re-stretches the diagram into a boundary pointed in a new direction relative to the diagram's natural elongation. Only meaningful for non-circular shapes (a circle has no aspect axis). Turn on 'show shape outline' and 'show PCA axis' to see the angle between them. Any value; wraps at 360.",
-    "show_tutte_outline": "Overlay the layout's shape outline(s), in both the live preview and any saved image. For shaped-tutte: the boundary outline and its aspect (long) axis. For holed-tutte: both the outer and inner ring outlines. Only shown for the shaped-tutte / holed-tutte layouts.",
-    "show_tutte_pca": "Overlay the layout's principal axis, in both the live preview and any saved image. For shaped-tutte: the diagram's intrinsic (circular-Tutte) PCA elongation axis (with 'show shape outline', the angle between the two equals 'tutte orient deg'). For holed-tutte: the mid-ring closed principal curved axis. Only shown for the shaped-tutte / holed-tutte layouts.",
+    "show_tutte_outline": "Overlay the layout's shape outline(s), in both the live preview and any saved image. For shaped-tutte: the boundary outline and its aspect (long) axis. For holed-tutte and cylinder-tutte: both the outer and inner ring outlines. Only shown for the shaped-tutte / holed-tutte / cylinder-tutte layouts.",
+    "show_tutte_pca": "Overlay the layout's principal axis, in both the live preview and any saved image. For shaped-tutte: the diagram's intrinsic (circular-Tutte) PCA elongation axis (with 'show shape outline', the angle between the two equals 'tutte orient deg'). For holed-tutte: the mid-ring closed principal curved axis (for cylinder-tutte the mid-ring circle). Only shown for the shaped-tutte / holed-tutte / cylinder-tutte layouts.",
     "surface_shape": "Target surface for the shaped-kamada sphere layout: ellipsoid, cylinder, or torus. The spherical construction is warped onto this surface and the over/under crossing offset follows the local surface normal. Only used when sphere layout is shaped-kamada.  capped-cylinder (V5.7) is a CLOSED cylinder -- side wall plus two end discs -- with its own layout: the chain runs along the cylinder's axis, its two end rings lie on the two end discs, and the middle rings follow in order up the wall.  The layout is Kamada-Kawai stress minimised ON the can, started from a lift of the 2-D drawing that puts one point inside each end ring at the disc centres, and every step is certified to keep the layout an embedding, so it cannot fold the way the spherical layout folds an elongated chain.  The finished curve is projected from the centre onto concentric closed cylinders, which keeps the link exactly.  See 'end rings'.",
     "surface_end_rings": "V5.7. Only for the capped-cylinder surface: which two components lie on the two end discs, as 0-based indices such as 0,7.  'auto' (default) takes the two end rings of a chain -- the components with a single neighbour when the components are linked one after another -- and 'none' (or a link that is not a chain) uses the deepest point of the 2-D drawing and its outside as the two disc centres instead.  The can's half-height / radius is 3 unless auto aspect is off, when 'surface aspect' sets it.",
     "cube_style": "For the cubic-kamada sphere layout, how strands are drawn on the cube.  'smooth' maps them as smooth curves on the cube faces (like the sphere), with over/under a bump onto the concentric cube at +/- the crossing offset.  'angled' and 'grid' (V5.7) WIRE the diagram over the cube's faces: every crossing sits on a node of an N x N grid per face with its two strands along the two face axes, and every connector is an axis-aligned path on the surface grid that no other strand touches, so strands turn only 90 degrees (within a face, or folding over a cube edge) and cross only at right angles.  'angled' makes each crossing a right-angle bridge: the over-strand steps out by the crossing offset along the face normal, runs over the crossing point and steps back (the under-strand steps in).  'grid' is a grid diagram in 3-D: on each face the strands along one axis (the face's over axis) run on the outer shell and the strands along the other axis on the inner shell, a strand changes level with a post wherever it turns, and a crossing is simply the outer strand passing the inner one -- no bridge.  Both are correct by construction: the order of the four ports around every crossing is the diagram's own, read from its planar embedding, and the connectors never touch, so the result is the DT diagram whatever route they take (the topology audit still runs).  A detected cyclic symmetry is aligned with a matching cube axis (4-fold to a face, 3-fold to a body diagonal, 2-fold to an edge) and the wiring is then exactly symmetric where the style allows; else the diagram's PCA axis.  The status log reports the grid, the corner count and how far the crossings moved to reach their grid nodes.  Only used when sphere layout is cubic-kamada.",
@@ -2399,7 +2565,8 @@ def _circle_intersections(c1, r1, c2, r2):
 
 
 def _flatten_orthogonal_rings(pos, model, center, flatness_thr=0.18,
-                              outer_radius=1.1, separation=0.25, stub=0.02):
+                              outer_radius=1.1, separation=0.25, stub=0.02,
+                              out_crossing=None):
     """
     Redraw 'orthogonal' (edge-on) link components as two nested 'D' shapes.
 
@@ -2439,6 +2606,13 @@ def _flatten_orthogonal_rings(pos, model, center, flatness_thr=0.18,
     gap between the two D's, so the inner radius ``R_in = R_out - separation``.
     ``pos`` is keyed on gadget nodes in the pre-framing solve frame (the collapsed
     rings are axis-aligned and ``center`` is ~origin).  Returns a new ``pos`` dict.
+
+    ``out_crossing`` (cylinder-tutte, V5.8): the crossing index that must become
+    the OUT crossing, used for a ring where it sits between the ring's two
+    extreme crossings (its two ring neighbours are the extremes); otherwise, and
+    by default (None, holed-tutte), the OUT crossing is found by geometry as
+    before.  On a ring with four crossings both runs between the extremes hold
+    one shared crossing, and geometry picked whichever came first.
     """
     comp_positions = model["comp_positions"] if model else None
     if not comp_positions:
@@ -2517,6 +2691,12 @@ def _flatten_orthogonal_rings(pos, model, center, flatness_thr=0.18,
         if len(short) > run(i_hi, i_lo, m).__len__():
             short = run(i_hi, i_lo, m)
         arc_c = [i for i in short[1:-1] if movable(pos_cross[Pci[i]])]
+        if out_crossing is not None:
+            forced = [i for i in range(m) if pos_cross[Pci[i]] == out_crossing
+                      and movable(out_crossing)
+                      and {(i - 1) % m, (i + 1) % m} == {i_lo, i_hi}]
+            if forced:
+                arc_c = forced
         if not arc_c:
             continue
         rings.append(dict(ci=ci, A=A, B=B, S=S, m=m, Pci=Pci, mid=mid, u=u,
@@ -2662,6 +2842,22 @@ def _flatten_orthogonal_rings(pos, model, center, flatness_thr=0.18,
     return pos
 
 
+def _report_hole_swap(rep, outside, hole, crossing_ids):
+    """--hole-swap (holed-tutte, cylinder-tutte) puts the selected puncture face
+    in the centre as the hole: make the [puncture] report name the face that is
+    really outside (it named the hole) and say so."""
+    picked = rep.get("chosen")
+    applied = bool(rep.get("requested")) and bool(rep.get("matched"))
+    rep["chosen"] = _format_face_signature(_face_signature(outside, crossing_ids))
+    rep["chosen_size"] = int(len(outside))
+    rep["tie"] = False
+    rep["swapped"] = picked
+    if rep.get("requested"):
+        rep["matched"] = False
+        if applied:   # (not where holed-tutte's kamada path kept its own outer face)
+            rep["made_hole"] = True
+
+
 def holed_tutte_layout(G, emb, shape="circle", aspect=1.0, corner_radius=0.0,
                        hole_ratio=0.4, swap=False, auto_aspect=False,
                        orient_degrees=0.0, auto_orient=True, ring_tilt=90.0,
@@ -2795,18 +2991,31 @@ def holed_tutte_layout(G, emb, shape="circle", aspect=1.0, corner_radius=0.0,
                 coords_p, outer, hole = coords_k, outer_c, hole_c
                 use_kamada = True
 
-    # If a puncture face was requested but the kamada ring geometry kept a
-    # different outer face, record that the selection did not take effect here.
-    if (use_kamada and puncture_face is not None and punctured_outer is not None
+    # The kamada ring geometry picks its own outer face.  When that is not the
+    # selected face, the report must name the face really used (it named the
+    # selected one, so the log said "requested face X not applied ...; kept X"
+    # and the default log named a face that was not outside at all), and a
+    # requested face is recorded as not applied on this path.
+    if (use_kamada and punctured_outer is not None
             and set(outer) != set(punctured_outer)
             and puncture_report):
-        _prev = puncture_report[-1].get("note", "")
-        puncture_report[-1]["note"] = (
-            (_prev + "; " if _prev else "")
-            + "holed-tutte kamada wreath kept its own outer face; puncture "
-            "selection not applied on this path (try 'swap inner/outer face')"
-        )
-        puncture_report[-1]["matched"] = False
+        _rep = puncture_report[-1]
+        _rep["chosen"] = _format_face_signature(_face_signature(outer, crossing_ids))
+        _rep["chosen_size"] = int(len(outer))
+        _prev = _rep.get("note", "")
+        if puncture_face is not None:
+            _rep["note"] = (
+                (_prev + "; " if _prev else "")
+                + "holed-tutte kamada wreath kept its own outer face; puncture "
+                "selection not applied on this path (try 'swap inner/outer face', "
+                "or the cylinder-tutte layout, which always honours it)"
+            )
+            _rep["matched"] = False
+        else:
+            _rep["note"] = (
+                (_prev + "; " if _prev else "")
+                + "the holed-tutte kamada wreath used its own outer face"
+            )
 
     if coords_p is None:
         # Circular-probe fallback: pin the selected/largest face to a unit circle
@@ -2834,6 +3043,15 @@ def holed_tutte_layout(G, emb, shape="circle", aspect=1.0, corner_radius=0.0,
                 puncture_report=None,
             )
 
+    if puncture_report and invert_ring:
+        # turning the ring inside out moves whatever was near the hole outside:
+        # which face ends up outside is not known here
+        _rep = puncture_report[-1]
+        _rep["note"] = ((_rep.get("note") + "; ") if _rep.get("note") else "") + (
+            "invert ring turns the drawing inside out, so the face named here is "
+            "not necessarily the one drawn outside")
+    elif swap and puncture_report:
+        _report_hole_swap(puncture_report[-1], hole, outer, crossing_ids)
     shp = _normalize_tutte_shape(shape)
     if auto_aspect and shp in ("ellipse", "rectangle", "rounded-rectangle"):
         aspect = float(np.clip(_pca_axis_ratio_2d(coords_p), 1.0, 6.0))
@@ -4030,6 +4248,953 @@ def spread_tutte_layout(G, emb, rounds=SPREAD_ROUNDS_DEFAULT, puncture_face=None
     return best[1]
 
 
+def _point_inside_polygon(poly):
+    """A point strictly inside the simple polygon ``poly`` (k x 2), or None.
+
+    Tries the vertex mean, then the points halfway between it and each vertex,
+    then the centroid of every three consecutive vertices, and returns the
+    first one that the even-odd rule puts inside and that is farther than
+    1e-9 of the span from every edge.  A face of a (stellated) Tutte drawing
+    is star-shaped about its vertex mean, so the first candidate usually
+    answers."""
+    P = np.asarray(poly, float)
+    k = len(P)
+    if k < 3:
+        return None
+    span = float(np.ptp(P, axis=0).max() or 1.0)
+    A = P
+    B = np.roll(P, -1, axis=0)
+    AB = B - A
+    L2 = np.maximum(np.einsum("ij,ij->i", AB, AB), 1e-300)
+
+    def _inside(q):
+        ya, yb = A[:, 1], B[:, 1]
+        straddle = (ya > q[1]) != (yb > q[1])
+        with np.errstate(divide="ignore", invalid="ignore"):
+            x_cut = A[:, 0] + (q[1] - ya) * AB[:, 0] / (yb - ya)
+        if np.count_nonzero(straddle & (q[0] < x_cut)) % 2 == 0:
+            return False
+        t = np.clip(((q - A) * AB).sum(axis=1) / L2, 0.0, 1.0)
+        gap = np.hypot(*(A + t[:, None] * AB - q).T)
+        return float(gap.min()) > 1e-9 * span
+
+    m = P.mean(axis=0)
+    cands = ([m] + [0.5 * (m + p) for p in P]
+             + [(P[i - 1] + P[i] + P[(i + 1) % k]) / 3.0 for i in range(k)])
+    for q in cands:
+        if _inside(q):
+            return q
+    return None
+
+
+def _rim_polygon_radius(theta, rim_theta, radius):
+    """Distance from the origin, along the ray at each angle in ``theta``, of
+    the polygon through the points at angles ``rim_theta`` on the circle of
+    ``radius`` (taken in angular order; the origin is inside it)."""
+    a = np.sort(np.mod(np.asarray(rim_theta, float), 2.0 * math.pi))
+    t = np.mod(np.asarray(theta, float), 2.0 * math.pi)
+    j = np.searchsorted(a, t, side="right") - 1          # the edge a[j] -> a[j + 1]
+    j = np.where(j < 0, len(a) - 1, j)
+    ta = a[j]
+    tb = a[(j + 1) % len(a)]
+    tb = np.where(tb <= ta, tb + 2.0 * math.pi, tb)
+    tt = np.where(t < ta, t + 2.0 * math.pi, t)
+    return radius * np.cos(0.5 * (tb - ta)) / np.cos(tt - 0.5 * (ta + tb))
+
+
+def _cylinder_solve(n, edges, wind, theta_ref, o_ids, h_ids, hole_ratio, profile="polygon",
+                    strip_out=None):
+    """
+    Barycentric drawing of a graph on the cylinder between two rims (see
+    `cylinder_tutte_layout`): s harmonic, 1 on the outer rim and 0 on the hole
+    rim; theta harmonic on the periodic cover (``wind`` holds 2 pi x the
+    winding of every directed edge), both rims at ``theta_ref`` and the hole
+    rim turned by the twist phi that leaves it no net torque (the energy's
+    minimum over phi; one extra unknown).  (s, theta) is mapped into the plane
+    radially between the two rim POLYGONS -- the outer rim's nodes on the unit
+    circle, the hole rim's on the circle of radius ``hole_ratio``, joined by
+    chords -- so a node strictly between the rims in s is strictly between
+    the drawn rims: mapping onto the circles instead let a node squeezed
+    against the outer rim fall outside a chord (granny knot, 8-ring chain).
+    ``profile="circle"`` maps onto the two circles instead: for rims that are
+    single crossing squares (the flattened poles of `cylinder_tutte_layout`),
+    whose four-corner "polygons" would square off every ring between them.
+    ``strip_out`` (a dict) receives ``s`` and ``theta`` (theta on the periodic
+    cover, which the plane positions give only mod 2 pi) for `_cylinder_spread`.
+    Returns (n x 2 positions, phi).
+    """
+    adj = [[] for _ in range(n)]
+    for a, b in edges:
+        adj[a].append(b)
+        adj[b].append(a)
+    o_set, h_set = set(o_ids), set(h_ids)
+    free = [i for i in range(n) if i not in o_set and i not in h_set]
+    col = {i: k for k, i in enumerate(free)}
+    nf = len(free)
+    A_s = np.zeros((nf, nf))
+    b_s = np.zeros(nf)
+    A_t = np.zeros((nf + 1, nf + 1))
+    b_t = np.zeros(nf + 1)
+    for i in free:
+        k = col[i]
+        A_s[k, k] = A_t[k, k] = float(len(adj[i]))
+        for j in adj[i]:
+            b_t[k] += wind[(i, j)]
+            if j in col:
+                A_s[k, col[j]] -= 1.0
+                A_t[k, col[j]] -= 1.0
+            else:
+                if j in o_set:
+                    b_s[k] += 1.0
+                b_t[k] += theta_ref[j]
+                if j in h_set:
+                    A_t[k, nf] -= 1.0
+    for i in h_ids:
+        for j in adj[i]:
+            if j in h_set:
+                continue          # both ends turn with phi
+            A_t[nf, nf] += 1.0
+            b_t[nf] += wind[(i, j)] - theta_ref[i]
+            if j in col:
+                A_t[nf, col[j]] -= 1.0
+            else:
+                b_t[nf] += theta_ref[j]
+    s_free = np.linalg.solve(A_s, b_s) if nf else np.zeros(0)
+    t_free = np.linalg.solve(A_t, b_t)
+    s = np.zeros(n)
+    s[list(o_ids)] = 1.0
+    theta = np.array(theta_ref, float)
+    for i in free:
+        s[i] = s_free[col[i]]
+        theta[i] = t_free[col[i]]
+    phi = float(t_free[nf])
+    theta[list(h_ids)] = np.asarray(theta_ref, float)[list(h_ids)] + phi
+    if strip_out is not None:
+        strip_out["s"] = s.copy()
+        strip_out["theta"] = theta.copy()
+    if profile == "circle":
+        r_out, r_in = 1.0, float(hole_ratio)
+    else:
+        r_out = _rim_polygon_radius(theta, theta[list(o_ids)], 1.0)
+        r_in = _rim_polygon_radius(theta, theta[list(h_ids)], float(hole_ratio))
+    rad = r_in + (r_out - r_in) * s
+    return np.column_stack([rad * np.cos(theta), rad * np.sin(theta)]), phi
+
+
+CYLINDER_FLAT_TOL = 0.02   # a pole pair's two rings must come out this straight (minor/major spread)
+CYLINDER_SPREAD_ROUNDS = 600   # the rounds measured on BL_Edw_4/5/6 (--cylinder-spread)
+CYLINDER_SPREAD_STEP = 0.2      # a node moves 0.2 x its force per round ...
+CYLINDER_SPREAD_T0 = 0.3        # ... at most 0.3 k at the start, cooled linearly to 0 ...
+CYLINDER_SPREAD_GUARD = 0.95    # ... and at most 0.95 x its PrEd safe radius
+
+
+def _cylinder_spread(X, strip, edges, wind, o_ids, h_ids, hole_ratio, model, G, nodes, idx,
+                     pole_rings, rounds, stats=None):
+    """
+    Planarity-guarded spread of the two-pole cylinder layout (cylinder-tutte
+    --flatten-orthogonal --cylinder-spread ROUNDS): the user's "spread-holed-
+    tutte" on top of the cylinder solve.  The solve spaces the rings by graph
+    distance between the two poles, so in Edwards' n = 6 diagram all 44
+    crossings among the circle and the three cogwheels fall in an annulus about
+    10% of the drawing wide (radius 0.25-0.36 of its span), with an empty disc
+    inside it and empty room out to the D's.
+
+    Every round each free node feels (k = sqrt(pi R0^2 / n), R0 = the extent of
+    the round rings; kc the same per crossing): the cylinder's own spring, a
+    pull toward the barycentre of its neighbours in strip coordinates (s,
+    theta on the cover, with the windings) -- the solve's Jacobi step, so the
+    solve is the fixed point; a linear repulsion between crossing centres
+    closer than kc, applied to all four corners -- the force that decongests;
+    a weak node-edge repulsion inside k (keeps the guard from freezing nodes
+    onto edges); spread-tutte's port pull (strands straight through crossings,
+    0.7) and segment smoothing (0.5); a soft wall at 1.02 x the radius of the
+    outermost axis crossing, keeping the rings inside the D frame.  The step is
+    min(0.2 |F|, a cap cooled from 0.3 k to 0, 0.95 x the node's PrEd safe
+    radius) -- so the straight-line drawing keeps its embedding -- and each
+    round is averaged over the drawing's D2 group (the node permutations of
+    the two axis reflections and the half-turn, read off the solve), so the
+    axis rings stay straight and the result is exactly mirror-symmetric.  The
+    two pole squares and the outermost crossing on each half-axis are pinned:
+    the D frame depends only on those.  If the solve is not D2-symmetric, or the
+    final straight-line drawing has a crossing, X is returned unchanged.
+
+    Ported from a prototype that four independent strategies were measured
+    against (radial remaps, a reweighted solve, an angular + radial optimiser):
+    on Edw_6 the closest crossing pair goes from 0.030 to 0.057 of the drawing,
+    the 10th percentile from 0.030 to 0.079; Edw_5 becomes a regular star
+    weave; all 0 false crossings.  Deterministic (numpy only).  Options that
+    were tried and measured as no better (polar smoothing, square gadgets,
+    crossing smoothing, pulling every ring round) are not included.
+    """
+    n = len(nodes)
+    X = np.array(X, float)
+    X0 = X.copy()
+    o_ids, h_ids = list(o_ids), list(h_ids)
+    comp_of = model["comp_of"]
+    cycles = _gadget_cycles(G)
+    ca, cb = pole_rings
+    k_out, k_in = nodes[o_ids[0]][0], nodes[h_ids[0]][0]
+
+    def ring_ids(ci):
+        out = []
+        for p in model["comp_positions"][ci]:
+            kk, r = model["pos_cross"][p], model["pos_role"][p]
+            out += [idx[(kk, "in_" + r)], idx[(kk, "out_" + r)], idx[("seg", p)]]
+        return out
+
+    def skip(why):
+        if stats is not None:
+            stats["skipped"] = why
+        return X0
+
+    centre = X[h_ids].mean(axis=0)
+    span = float(np.ptp(X, axis=0).max()) or 1.0
+    ids_a, ids_b = ring_ids(ca), ring_ids(cb)
+    axes = [np.linalg.svd(X[ids] - X[ids].mean(axis=0), full_matrices=False)[2][0] for ids in (ids_a, ids_b)]
+    # the D2 group as node permutations (g X[i] = X[p[i]])
+    from scipy.spatial import cKDTree
+    tree = cKDTree(X)
+    perms = []
+    for R in [2.0 * np.outer(u, u) / float(u @ u) - np.eye(2) for u in axes] + [-np.eye(2)]:
+        d, j = tree.query((X - centre) @ R.T + centre)
+        if d.max() > 1e-6 * span or len(set(j.tolist())) != n:
+            return skip("the solve is not mirror-symmetric about the two straight rings")
+        perms.append((R, j))
+    hr = float(hole_ratio)
+    theta = np.array(strip["theta"], float)
+    e_u = np.array([a for a, b in edges], int)
+    e_v = np.array([b for a, b in edges], int)
+    m = len(edges)
+    inc_mask = np.zeros((n, m), bool)
+    inc_mask[e_u, np.arange(m)] = True
+    inc_mask[e_v, np.arange(m)] = True
+    nb_i, nb_j = np.r_[e_u, e_v], np.r_[e_v, e_u]
+    nb_w = np.array([wind[(int(a), int(b))] for a, b in zip(nb_i, nb_j)], float)
+    deg = np.bincount(nb_i, minlength=n).astype(float)
+    on_axis = np.zeros(n, bool)
+    on_axis[ids_a] = True
+    on_axis[ids_b] = True
+    fixed = np.zeros(n, bool)
+    fixed[o_ids] = True
+    fixed[h_ids] = True
+    round_ring = ~on_axis & ~fixed
+    if not round_ring.any():
+        return skip("there is no ring besides the two straight ones")
+    R0 = float(np.hypot(*(X[round_ring] - centre).T).max())
+    # the outermost crossing of each axis ring with a round ring, on each half-axis: pinned
+    # (only this piece's crossings: a split diagram is laid out piece by piece)
+    hl = []
+    for ci, u in ((ca, axes[0]), (cb, axes[1])):
+        best = {}
+        for kk, c in enumerate(model["crossings"]):
+            if kk not in cycles:
+                continue
+            pair = {comp_of[c["odd"]], comp_of[abs(c["even"])]}
+            if ci not in pair or pair == {ca, cb}:
+                continue
+            q = float((X[[idx[v] for v in cycles[kk]]].mean(axis=0) - centre) @ u)
+            if (q > 0) not in best or abs(q) > best[q > 0][0]:
+                best[q > 0] = (abs(q), kk)
+        for q, kk in best.values():
+            fixed[[idx[v] for v in cycles[kk]]] = True
+            hl.append(q)
+    R_wall = 1.02 * (max(hl) if hl else R0)
+    gad = np.array([[idx[v] for v in cyc] for kk, cyc in sorted(cycles.items()) if kk != k_out], int)
+    ports = []
+    for kk, cyc in cycles.items():
+        if kk in (k_out, k_in):
+            continue
+        for c in cyc:
+            outn = [u for u in G[c] if u not in cyc]
+            if len(outn) == 1:
+                ports.append((idx[c], idx[outn[0]], [idx[x] for x in cyc]))
+    port_c = np.array([q[0] for q in ports], int)
+    port_s = np.array([q[1] for q in ports], int)
+    port_g = np.array([q[2] for q in ports], int).reshape(-1, 4)
+    seg_mid = np.array([(idx[v], idx[nb[0]], idx[nb[1]]) for v in nodes
+                        if isinstance(v, tuple) and len(v) == 2 and v[0] == "seg"
+                        for nb in [list(G[v])] if len(nb) == 2], int).reshape(-1, 3)
+    k = math.sqrt(math.pi * R0 ** 2 / n)
+    kc = math.sqrt(math.pi * R0 ** 2 / len(cycles))
+    rounds = int(rounds)
+    for it in range(rounds):
+        V = X - centre
+        rv = np.hypot(V[:, 0], V[:, 1])
+        sv = (rv - hr) / (1.0 - hr)
+        # the cylinder's spring: toward the strip barycentre of the neighbours
+        s_bar = np.bincount(nb_i, weights=sv[nb_j], minlength=n) / deg
+        t_bar = np.bincount(nb_i, weights=theta[nb_j] + nb_w, minlength=n) / deg
+        r_bar = hr + (1.0 - hr) * s_bar
+        F = centre + np.column_stack([r_bar * np.cos(t_bar), r_bar * np.sin(t_bar)]) - X
+        # crossing centres closer than kc push apart (all four corners)
+        Cc = X[gad].mean(axis=1)
+        diff = Cc[:, None, :] - Cc[None, :, :]
+        dist = np.hypot(diff[..., 0], diff[..., 1])
+        np.fill_diagonal(dist, np.inf)
+        mag = np.where(dist < kc, kc - dist, 0.0)
+        Fc = (diff / np.maximum(dist, 1e-12)[..., None] * mag[..., None]).sum(axis=1)
+        for j in range(4):
+            F[gad[:, j]] += Fc
+        # weak node-edge repulsion inside k; the safe radii for the guard
+        r_safe, Dm = _spread_safe_radii(X, e_u, e_v, inc_mask)
+        close = np.argwhere(Dm < k)
+        if len(close):
+            i_n, j_e = close[:, 0], close[:, 1]
+            A = X[e_u[j_e]]
+            AB = X[e_v[j_e]] - A
+            L2 = np.maximum(np.einsum("ij,ij->i", AB, AB), 1e-300)
+            t = np.clip(np.einsum("ij,ij->i", X[i_n] - A, AB) / L2, 0.0, 1.0)
+            away = X[i_n] - (A + t[:, None] * AB)
+            dd = np.maximum(np.hypot(away[:, 0], away[:, 1]), 1e-300)
+            push = 0.01 * np.maximum(k * k / np.maximum(dd, 1e-6 * k) - k, 0.0)[:, None] * away / dd[:, None]
+            np.add.at(F, i_n, push)
+            np.add.at(F, e_u[j_e], -0.5 * (1.0 - t)[:, None] * push)
+            np.add.at(F, e_v[j_e], -0.5 * t[:, None] * push)
+        # strands straight through their crossings; segment nodes smooth
+        if len(port_c):
+            cen = X[port_g].mean(axis=1)
+            u = X[port_c] - cen
+            u /= np.maximum(np.hypot(u[:, 0], u[:, 1]), 1e-300)[:, None]
+            reach = np.hypot(*(X[port_s] - X[port_c]).T)
+            pull = 0.7 * (X[port_c] + reach[:, None] * u - X[port_s])
+            np.add.at(F, port_s, pull)
+            np.add.at(F, port_c, -pull)
+        if len(seg_mid):
+            pull = 0.5 * (0.5 * (X[seg_mid[:, 1]] + X[seg_mid[:, 2]]) - X[seg_mid[:, 0]])
+            np.add.at(F, seg_mid[:, 0], pull)
+            np.add.at(F, seg_mid[:, 1], -0.5 * pull)
+            np.add.at(F, seg_mid[:, 2], -0.5 * pull)
+        # soft wall inside the D frame
+        gap = R_wall - rv
+        act = round_ring & (gap < k)
+        mag_w = np.maximum(k * k / np.maximum(gap[act], 1e-6 * k) - k, 0.0)
+        F[act] -= (0.5 * mag_w)[:, None] * V[act] / np.maximum(rv[act], 1e-300)[:, None]
+        F[fixed] = 0.0
+        # step: proportional, cooled, PrEd-guarded; then the D2 average
+        fm = np.hypot(F[:, 0], F[:, 1])
+        T = k * CYLINDER_SPREAD_T0 * (1.0 - it / float(max(rounds, 1)))
+        step = np.minimum(np.minimum(CYLINDER_SPREAD_STEP * fm, T), CYLINDER_SPREAD_GUARD * r_safe)
+        Xn = X + F * (step / np.maximum(fm, 1e-300))[:, None]
+        acc = Xn.copy()
+        for R, perm in perms:
+            acc += (Xn[perm] - centre) @ R.T + centre
+        Xn = acc / (1 + len(perms))
+        Xn[fixed] = X0[fixed]
+        a_old = np.arctan2(X[:, 1] - centre[1], X[:, 0] - centre[0])
+        a_new = np.arctan2(Xn[:, 1] - centre[1], Xn[:, 0] - centre[0])
+        theta = theta + (a_new - a_old + math.pi) % (2.0 * math.pi) - math.pi
+        X = Xn
+    n_cross = _straight_line_crossings(X, e_u, e_v) if m > 1 else 0
+    if n_cross:
+        return skip("the spread straight-line drawing had %d crossing(s); kept the solve" % n_cross)
+    if stats is not None:
+        stats["rounds"] = rounds
+        stats["max_move"] = float(np.hypot(*(X - X0).T).max() / span)
+    return X
+
+
+def _piece_defects(model, pos, cycles, piece):
+    """Defects (false + undrawn crossings, the exact audit) of one connected
+    piece's drawing: ``cycles`` its crossings, ``piece`` its components.  A
+    split diagram is laid out piece by piece, so its pieces are audited alone;
+    a connected diagram is audited exactly as prepare_diagram audits it."""
+    excl = model.get("flatten_exclude") or set()
+    centers = {k: np.mean([pos[(k, r)] for r in _GADGET_ROLES if (k, r) not in excl], axis=0)
+               for k in sorted(cycles)}
+    whole = len(cycles) == len(model["crossings"])
+    res = audit_false_crossings_detail(model, pos, centers,
+                                       components=None if whole else sorted(piece))
+    return len(res["false"]) + len(res["missing"])
+
+
+def _cylinder_flat_poles(G, emb_c, faces, model, nodes, idx, reference, hole_ratio,
+                         swap, puncture_face, crossing_ids, puncture_report, notes,
+                         outer_radius, separation, spread_rounds=0):
+    """
+    cylinder-tutte with --flatten-orthogonal: Edwards' construction of Venn
+    diagrams (Maes & Cerf's Brunnian links AM_n, the BL_Edw series) drawn as
+    the paper draws it -- two rings that are straight lines through the centre,
+    closed far out (here as holed-tutte's two 'D's), with the circle and the
+    cogwheels concentric round the centre.
+
+    On the sphere the two straight rings are great circles through two poles:
+    the two crossings they share.  So both rims of the cylinder are crossing
+    squares: the hole is one shared crossing (the centre) and the outer rim
+    the other (at infinity).  Every pair of rings that cross each other exactly
+    twice is tried; the pair qualifies when the cylinder solve with its two
+    crossings as poles draws both rings straight (spread across the line at
+    most CYLINDER_FLAT_TOL of the spread along it).  The solve maps onto
+    circles (``profile="circle"``): a square's corners would square off the
+    rings, and the far crossing is redrawn anyway.  Then the layout is turned
+    so the higher-numbered of the two rings lies on x and
+    `_flatten_orthogonal_rings` draws both as 'D's and moves the far crossing
+    to where they meet: the higher-numbered ring is the outer D, which the
+    BL_Edw sessions' rotate -90 turns into the vertical D closed on the right,
+    as in Maes & Cerf (the ring each step adds is the vertical rectangle).
+    ``puncture_face`` naming one of the two shared crossings puts that one at
+    infinity, ``swap`` exchanges them; otherwise the lower-numbered crossing
+    is the centre.
+    Which pair, which of its crossings at the centre, and which in-plane
+    mirror image (the same DT code; the 'D's have a fixed handedness, outer D
+    over the top and inner D to the left): a pair holding the requested
+    crossing first, then the preferred orientation (as above), the solve as
+    it is before its mirror image, the straightest (flatness compared to 1e-9
+    only: a symmetric link has several exactly straight pairs that differ by
+    rounding), the lower-numbered rings -- and of those the first whose 'D'
+    drawing audits clean (exact audit, Invariant 1b, of this piece alone),
+    else the one with the fewest defects.  The intended far crossing is
+    handed to `_flatten_orthogonal_rings` as ``out_crossing`` (on a ring with
+    four crossings it otherwise picks one by geometry), and the poles the log
+    and the [puncture] report name are read off the drawing.  On the
+    Borromean rings rounding used to pick the pair, the log named the poles
+    the wrong way round, and 7 of 12 pole requests drew 11 defects; now
+    every request draws cleanly, in the requested orientation where either
+    mirror image allows it (else the log says the poles were exchanged).  A
+    pair whose rings did not both become D's (fewer than three crossings on a
+    ring: the Hopf link) does not count.  The spread (`_cylinder_spread`)
+    runs only on a planar straight-line solve and is kept only if its
+    drawing audits no worse.  The notes go to ``notes``; the caller keeps
+    them only if the flattened drawing is kept.
+    Measured on BL_Edw_4/5/6 (hole ratio 0.1, min-sep 0.01, the sessions'
+    D radius 0.6 / separation 0.05): the axis rings straight to 1e-12, the
+    circle round, the cogwheels' 2 / 4 / 8 lobes symmetric, 0 false crossings.
+    Returns (positions, defects, {"rings": (a, b)}) or None when no pair
+    qualifies or none became two D's
+    (the caller then draws the plain cylinder layout).
+    """
+    cycles = _gadget_cycles(G)
+    comp_of = model["comp_of"]
+    comp_positions = model["comp_positions"]
+    pair_x = {}
+    for k, c in enumerate(model["crossings"]):
+        ca, cb = comp_of[c["odd"]], comp_of[abs(c["even"])]
+        if ca != cb:
+            pair_x.setdefault((min(ca, cb), max(ca, cb)), []).append(k)
+    square_of = {}
+    by_set = {frozenset(cyc): k for k, cyc in cycles.items()}
+    for f in faces:
+        if len(f) == 4 and frozenset(f) in by_set:
+            square_of[by_set[frozenset(f)]] = f
+    want = frozenset(puncture_face) if puncture_face else None
+    hr = float(hole_ratio)
+    if not np.isfinite(hr) or hr <= 0.0:
+        hr = 0.4
+    hr = min(max(hr, 0.05), 0.95)
+    two_pi = 2.0 * math.pi
+    edges = [(idx[u], idx[v]) for u, v in G.edges() if u != v]
+    e_u = np.array([a for a, b in edges], int)
+    e_v = np.array([b for a, b in edges], int)
+
+    def ring_nodes(ci):
+        out = []
+        for p in comp_positions[ci]:
+            k = model["pos_cross"][p]
+            r = model["pos_role"][p]
+            out += [(k, "in_" + r), (k, "out_" + r), ("seg", p)]
+        return out
+
+    def flatness(X, ci):
+        pts = np.array([X[idx[v]] for v in ring_nodes(ci)])
+        sv = np.linalg.svd(pts - pts.mean(axis=0), compute_uv=False)
+        return float(sv[1] / sv[0]) if sv[0] > 1.0e-12 else 1.0
+
+    # this piece's rings: a split diagram is laid out (and audited) piece by piece
+    piece = sorted({comp_of[model["crossings"][k]["odd"]] for k in cycles}
+                   | {comp_of[abs(model["crossings"][k]["even"])] for k in cycles})
+    other_arcs = dict(model.get("flatten_arcs") or {})
+    other_excl = set(model.get("flatten_exclude") or set())
+    lab = lambda k: str(crossing_ids[k]) if crossing_ids is not None and k < len(crossing_ids) else "c%d" % (k + 1)
+    cands = []
+    for (ca, cb), ks in sorted(pair_x.items()):
+        if len(ks) != 2 or any(k not in square_of for k in ks):
+            continue
+        k_in, k_out = sorted(ks)
+        if want is not None and want == frozenset(_face_signature(square_of[k_in], crossing_ids)):
+            k_in, k_out = k_out, k_in
+        if swap:
+            k_in, k_out = k_out, k_in
+        sigs = {k: frozenset(_face_signature(square_of[k], crossing_ids)) for k in ks}
+        # both orientations: which pole is the centre matters (the Borromean
+        # rings draw cleanly with one crossing of a pair at the centre and with
+        # 11 defects with the other); the preferred one is tried first
+        for flip in (0, 1):
+            ki, ko = (k_out, k_in) if flip else (k_in, k_out)
+            hole, outer = square_of[ki], square_of[ko]
+            X0, _ref = reference(outer)
+            if X0 is None:
+                continue
+            o_ids = [idx[v] for v in outer]
+            h_ids = [idx[v] for v in hole]
+            centre = _point_inside_polygon(X0[h_ids])
+            if centre is None:
+                continue
+            theta_ref = np.arctan2(X0[:, 1] - centre[1], X0[:, 0] - centre[0])
+            wind = {}
+            for a, b in edges:
+                d = float(theta_ref[b] - theta_ref[a])
+                w = two_pi * round((((d + math.pi) % two_pi) - math.pi - d) / two_pi)
+                wind[(a, b)] = w
+                wind[(b, a)] = -w
+            strip = {}
+            try:
+                X, phi = _cylinder_solve(len(nodes), edges, wind, theta_ref, o_ids, h_ids, hr,
+                                         profile="circle", strip_out=strip)
+            except np.linalg.LinAlgError:
+                continue
+            flat = max(flatness(X, ca), flatness(X, cb))
+            if flat > CYLINDER_FLAT_TOL:
+                continue
+            # A symmetric link has several exactly straight pairs whose flatness
+            # differs only by rounding (about 1e-16 to 7e-16 on the Borromean
+            # rings), so it is compared to 1e-9 only.  Each solve is also tried
+            # in its in-plane mirror image (the same DT code): the 'D's have a
+            # fixed handedness (outer D over the top, inner D to the left), and
+            # on the Borromean rings exactly one of the two images draws cleanly.
+            # Order: a pair holding the requested crossing, the preferred
+            # orientation, as solved before mirrored, the straightest, the
+            # lower-numbered rings.
+            asked = want is not None and want in sigs.values()
+            for mirror in (0, 1):
+                cands.append(dict(X=X, flat=flat, ca=ca, cb=cb, k_in=ki, k_out=ko, pref_out=k_out,
+                                  mirror=mirror, asked=asked, strip=strip, o_ids=o_ids,
+                                  h_ids=h_ids, wind=wind, seq=len(cands)))
+    if not cands:
+        notes.append("flatten-orthogonal: no two rings crossing each other twice come out straight "
+                     "with those two crossings as the poles; drawn without flattening")
+        return None
+
+    def rank(cd, k_out_drawn):
+        return (0 if cd["asked"] else 1, 0 if k_out_drawn == cd["pref_out"] else 1,
+                cd["mirror"], round(cd["flat"], 9), cd["seq"])
+
+    cands.sort(key=lambda cd: rank(cd, cd["k_out"]))
+
+    def draw_ds(cd, X):
+        # the higher-numbered ring along x: flatten makes the ring nearest x the
+        # outer D (the sessions' rotate -90 then makes it the vertical D on the right)
+        pts = np.array([X[idx[v]] for v in ring_nodes(cd["cb"])])
+        u = np.linalg.svd(pts - pts.mean(axis=0), full_matrices=False)[2][0]
+        ang = math.atan2(float(u[1]), float(u[0]))
+        c_, s_ = math.cos(-ang), math.sin(-ang)
+        X = X @ np.array([[c_, s_], [-s_, c_]])
+        O = np.mean(X, axis=0)
+        if cd["mirror"]:
+            X = X.copy()
+            X[:, 1] = 2.0 * O[1] - X[:, 1]
+        pos = {v: X[idx[v]].copy() for v in nodes}
+        pos = _flatten_orthogonal_rings(pos, model, O,
+                                        outer_radius=float(outer_radius),
+                                        separation=float(separation),
+                                        out_crossing=cd["k_out"])
+        arcs = dict(model.get("flatten_arcs") or {})
+        excl = set(model.get("flatten_exclude") or set())
+        # both rings must really be D's: a ring with fewer than three crossings
+        # is left as it was (the Hopf link), and the note would then be wrong
+        drawn = cd["ca"] in arcs and cd["cb"] in arcs
+        k_out_drawn, defects = cd["k_out"], None
+        if drawn:
+            # the pole roles are read off the drawing: the OUT crossing is the
+            # one far from the diameters' intersection (the D construction picks
+            # it by geometry when out_crossing cannot be used)
+            cen = {k: np.mean([pos[(k, r)] for r in _GADGET_ROLES if (k, r) not in excl], axis=0)
+                   for k in (cd["k_in"], cd["k_out"])}
+            far = max(cen, key=lambda k: float(np.hypot(*(cen[k] - O))))
+            k_out_drawn = far
+            defects = _piece_defects(model, pos, cycles, piece)
+        return pos, drawn, defects, arcs, excl, k_out_drawn
+
+    # in that order, the first drawing that audits clean; else the fewest defects
+    pick = None
+    for cd in cands:
+        pos, drawn, defects, arcs, excl, k_od = draw_ds(cd, cd["X"])
+        if not drawn:
+            continue
+        key = (defects, rank(cd, k_od))
+        if pick is None or key < pick[0]:
+            pick = (key, cd, pos, defects, arcs, excl, k_od)
+        if not defects and k_od == cd["k_out"] == cd["pref_out"]:
+            break
+    model["flatten_arcs"], model["flatten_exclude"] = dict(other_arcs), set(other_excl)
+    if pick is None:
+        notes.append("flatten-orthogonal: %s straight ring pair(s) found, but the 'D' construction "
+                     "did not apply to them (it needs three or more crossings on each ring); "
+                     "drawn without flattening" % len({(cd["ca"], cd["cb"]) for cd in cands}))
+        return None
+    _key, cd, pos, defects, arcs, excl, k_out = pick
+    X = cd["X"]
+    ca, cb = cd["ca"], cd["cb"]
+    k_in = cd["k_in"] if k_out == cd["k_out"] else cd["k_out"]
+    n_cross = _straight_line_crossings(X, e_u, e_v) if len(edges) > 1 else 0
+    spread_note = ""
+    if int(spread_rounds or 0) > 0:
+        if n_cross:
+            # the guarded spread keeps a planar drawing planar; it cannot untangle one
+            spread_note = ("; spread skipped: the solve already has %d straight-line crossing(s) "
+                           "(a lower --hole-ratio may remove them)" % n_cross)
+        else:
+            st = {}
+            Xs = _cylinder_spread(X, cd["strip"], edges, cd["wind"], cd["o_ids"], cd["h_ids"], hr,
+                                  model, G, nodes, idx, (ca, cb), int(spread_rounds), stats=st)
+            if "skipped" in st:
+                spread_note = "; spread skipped: %s" % st["skipped"]
+            else:
+                pos_s, drawn_s, defects_s, arcs_s, excl_s, k_od_s = draw_ds(cd, Xs)
+                if drawn_s and k_od_s == k_out and defects_s <= defects:
+                    pos, defects, arcs, excl = pos_s, defects_s, arcs_s, excl_s
+                    spread_note = ("; spread %d rounds (guarded, mirror-symmetric; largest move "
+                                   "%.3f of the drawing)" % (st["rounds"], st["max_move"]))
+                else:
+                    spread_note = ("; spread not kept: its drawing has %s defect(s) against %d"
+                                   % (defects_s if drawn_s else "no 'D'", defects))
+    model["flatten_arcs"] = dict(other_arcs)
+    model["flatten_arcs"].update(arcs)
+    model["flatten_exclude"] = set(other_excl) | excl
+    choice = ""
+    if len(cands) > 1:
+        choice = "; %d pole choices (pair, orientation, mirror image) qualify, %s" % (
+            len(cands), "the first that draws cleanly kept" if defects == 0
+            else "none draws cleanly: the one with the fewest defects (%d) kept" % defects)
+    if cd["mirror"]:
+        choice += "; drawn in its in-plane mirror image (the same DT code)"
+    if k_out != cd["pref_out"]:
+        choice += ("; %s at infinity did not draw cleanly in either mirror image, so the two "
+                   "poles are exchanged" % lab(cd["pref_out"]))
+    notes.append(
+        "flatten-orthogonal: rings %d and %d drawn as 'D's -- their crossings %s (centre) and %s "
+        "(at infinity) are the poles (rings straight to %.1e); circle map, hole ratio %.2f; %s%s%s"
+        % (ca + 1, cb + 1, lab(k_in), lab(k_out), cd["flat"], hr,
+           "straight-line drawing planar before the D's" if n_cross == 0
+           else "%d straight-line crossing(s) before the D's (a lower --hole-ratio may remove "
+           "them; the BL_Edw sessions use 0.1)" % n_cross, choice, spread_note))
+    if puncture_report:
+        rep = puncture_report[-1]
+        far_sig = frozenset(_face_signature(square_of[k_out], crossing_ids))
+        if rep.get("requested") and frozenset(puncture_face) != far_sig:
+            rep["matched"] = False
+            if cd["asked"] and swap and want == frozenset(_face_signature(square_of[k_in], crossing_ids)):
+                why = "--hole-swap puts the requested crossing at the centre"
+                rep["made_hole"] = True
+            elif cd["asked"]:
+                why = ("flatten-orthogonal: the requested crossing at infinity did not draw cleanly, "
+                       "so the pair's other crossing is outside")
+            else:
+                why = "flatten-orthogonal puts the far crossing of the two flat rings outside"
+        elif rep.get("requested") and swap and cd["asked"]:
+            why = ("flatten-orthogonal: --hole-swap not applied -- the requested crossing at the "
+                   "centre did not draw cleanly in either mirror image")
+        else:
+            why = "flatten-orthogonal: the far crossing of the two flat rings is outside"
+        rep["note"] = ((rep.get("note") + "; ") if rep.get("note") else "") + why
+        rep["chosen"] = _format_face_signature(far_sig)
+        rep["chosen_size"] = 4
+        rep["tie"] = False
+    return pos, defects, {"rings": (ca + 1, cb + 1)}
+
+
+def cylinder_tutte_layout(G, emb, hole_ratio=0.4, swap=False, puncture_face=None,
+                          crossing_ids=None, puncture_report=None, report_out=None,
+                          meta_out=None, model=None, flatten_orthogonal=False,
+                          flatten_outer_radius=1.1, flatten_separation=0.25,
+                          cylinder_spread=0):
+    """
+    The 'cylinder-tutte' layout: holed-tutte's picture -- the punctured face
+    on an outer circle, a second face as a central hole on a circle of radius
+    ``hole_ratio`` -- solved as a Tutte embedding of the CYLINDER, so that the
+    straight-line drawing does not fold.
+
+    Why: holed-tutte pins both rims and solves the barycentric system in the
+    plane, where the ring between the rims is not convex, so a barycentre can
+    land inside the hole.  On the 3-ring cyclic rubber-band chain with its two
+    triangles as rims (c8+c16+c24 outside, c2+c10+c18 the hole) that solve has
+    15-140 straight-line crossings at every hole ratio 0.15-0.55 and every
+    twist of the inner rim (a ring of structure is drawn inside the hole);
+    the 4-ring chain folds from hole ratio 0.25 on.  In log-polar coordinates
+    (s, theta) the two rims are the two edges of a strip, and a strip IS
+    convex: s is the harmonic function that is 1 on the outer rim and 0 on
+    the hole rim, theta the harmonic function on the strip's periodic cover
+    (every edge carries its winding across the cut theta = pi, read off a
+    planar reference drawing), so the cover of the graph is drawn
+    barycentrically between two parallel lines -- Tutte's setting.  Then
+    (s, theta) is mapped radially between the two drawn rims (`_cylinder_solve`),
+    which takes the strip onto the annulus one-to-one.
+
+    1. `crossing_face_embedding`; the outer face is chosen among the
+       DIAGRAM's faces by `select_outer_face` (--puncture-face, [puncture]
+       report), as for spread-tutte.
+    2. A strictly planar reference: `stellated_tutte_start` with that face
+       outside (the exact `grid_planar_start` if the Tutte start is not
+       clean).  The hole is the face `_pick_hole_face` picks on it:
+       vertex-disjoint from the outer face, encircling the centre, deepest.
+       ``swap`` exchanges the two faces (the reference is redrawn with the new
+       outer face).
+    3. Windings: theta of every node about a point strictly inside the hole
+       face of the reference (`_point_inside_polygon`); an edge's winding
+       makes its angle the short way round, which is exact for a straight
+       segment that misses that point, so every face but the two rims winds 0.
+    4. Both rims keep their reference angles; the hole rim also turns by the
+       twist phi that minimises the energy (zero net torque on it), one extra
+       unknown of the linear system.
+    5. The map back to the plane bends straight edges into spirals, so the
+       straight-line drawing is checked for crossings.  A part of the diagram
+       hanging off two points collapses onto a line in any Tutte solve, and a
+       collapsed part pressed against a rim can then cross it (granny knot: 4
+       straight-line crossings); only then the solve is repeated with a centre
+       node in every face but the two rims (a triangulation does not
+       degenerate; the centre's windings come from walking round its face).
+       Not always: it puts extra wiggles into the clasps of drawings that the
+       plain solve gets right.  The outcome is reported.
+
+    Measured: the cyclic rubber-band chains of 3-6 rings (the two n-gons as
+    rims) at hole ratios 0.15 / 0.25 / 0.40 -- 0 straight-line crossings in all
+    twelve, twist <= 0.5 deg; rendered, 0 false crossings, and with symmetry
+    enforcement each drawing exactly n-fold.  Over 64 drawings with a hole (the
+    23 BL-series sessions, 4BL, Borromean, Hopf, trefoil, figure-eight, 5_2,
+    granny, the 8-ring chain, a 30-crossing backtrack knot; default and swapped
+    faces) every straight-line drawing is planar and the rendered audit is clean except
+    granny swapped (10), the elongated 8-ring chain with its default face
+    (14 at hole ratios 0.15-0.3, 22 at the default 0.4 -- an annulus does not
+    suit a chain) and the kinky backtrack knot (4;
+    spread-tutte is the layout for kinks).  A diagram with no face
+    vertex-disjoint from the outer one (two kinked unknots) gets plain tutte.
+    With ``flatten_orthogonal`` (and ``model``) the rims are instead two
+    crossing squares and two rings are drawn as 'D's: see
+    `_cylinder_flat_poles` (Edwards' Venn diagrams, the BL_Edw links).
+    ``report_out`` (a list) receives one-line notes for the log; ``meta_out``
+    the two rim circles and the mid-ring circle for the outline / PCA
+    overlays (kind 'holed', as holed-tutte's).  Returns positions, or None if
+    there is no usable hole face.
+    """
+    notes = report_out if report_out is not None else []
+    try:
+        _hr_in = float(hole_ratio)
+    except (TypeError, ValueError):
+        _hr_in = float("nan")
+    _hr_used = min(max(_hr_in if np.isfinite(_hr_in) and _hr_in > 0.0 else 0.4, 0.05), 0.95)
+    if _hr_used != _hr_in:
+        notes.append("hole ratio %g is outside [0.05, 0.95]: used %.2f" % (_hr_in, _hr_used))
+    cycles = _gadget_cycles(G)
+    emb_c = crossing_face_embedding(G)
+    if emb_c is None:
+        notes.append("no embedding with every crossing square a face exists; kept networkx's embedding")
+        emb_c = emb
+    faces = planar_faces(emb_c)
+    if not faces:
+        return None
+    # the crossing squares are faces of this embedding but not of the diagram
+    squares = {frozenset(cyc) for cyc in cycles.values()}
+    diagram_faces = [f for f in faces if not (len(f) == 4 and frozenset(f) in squares)] or faces
+    outer = select_outer_face(
+        diagram_faces, crossing_ids=crossing_ids, prefer=puncture_face,
+        report_out=puncture_report, layout_name="cylinder-tutte",
+    )
+    nodes = list(G.nodes())
+    idx = {v: i for i, v in enumerate(nodes)}
+    N = len(nodes)
+
+    def _reference(face_out):
+        # a strictly planar straight-line drawing with face_out outside
+        try:
+            P_t = stellated_tutte_start(G, emb_c, face_out)
+            cr, cl = straight_line_clearance(P_t, G)
+            if cr == 0 and cl >= SPREAD_START_MIN:
+                return np.array([np.asarray(P_t[v], float) for v in nodes]), "stellated Tutte"
+        except np.linalg.LinAlgError:
+            pass
+        for rot in SPREAD_GRID_ROTATIONS:
+            P_g, cr_g = grid_planar_start(G, emb_c, face_out, rotation=rot)
+            if P_g is not None and cr_g == 0:
+                return np.array([np.asarray(P_g[v], float) for v in nodes]), "integer grid"
+        return None, None
+
+    # this piece's crossings and rings: a split diagram is laid out piece by
+    # piece, and one piece must not wipe another's 'D' arcs
+    piece = set()
+    if model is not None:
+        for kk in cycles:
+            c = model["crossings"][kk]
+            piece |= {model["comp_of"][c["odd"]], model["comp_of"][abs(c["even"])]}
+
+    def _clear_piece_arcs():
+        if model is not None:
+            model["flatten_arcs"] = {ci: v for ci, v in (model.get("flatten_arcs") or {}).items()
+                                     if ci not in piece}
+            model["flatten_exclude"] = {kr for kr in (model.get("flatten_exclude") or set())
+                                        if kr[0] not in cycles}
+
+    def _plain_layout(outer, notes):
+        X0, ref_name = _reference(outer)
+        if X0 is None:
+            notes.append("no strictly planar reference drawing could be made")
+            return None
+        hole = _pick_hole_face(diagram_faces, set(outer), X0, idx, G,
+                               X0[[idx[v] for v in outer]].mean(axis=0))
+        if hole is None:
+            notes.append("no face is vertex-disjoint from the outer face, so there is no hole to open")
+            return None
+        how = "auto-picked"
+        if swap:
+            outer, hole = hole, outer
+            how = "swapped with the punctured face"
+            X0, ref_name = _reference(outer)
+            if X0 is None:
+                notes.append("no strictly planar reference drawing with the swapped outer face")
+                return None
+            if puncture_report:
+                _report_hole_swap(puncture_report[-1], outer, hole, crossing_ids)
+        if len(set(outer)) != len(outer) or len(set(hole)) != len(hole):
+            notes.append("a rim face is not a simple cycle")
+            return None
+        o_ids = [idx[v] for v in outer]
+        h_ids = [idx[v] for v in hole]
+        centre = _point_inside_polygon(X0[h_ids])
+        if centre is None:
+            notes.append("no point found inside the hole face of the reference drawing")
+            return None
+        theta_ref = np.arctan2(X0[:, 1] - centre[1], X0[:, 0] - centre[0])
+        two_pi = 2.0 * math.pi
+        edges = [(idx[u], idx[v]) for u, v in G.edges() if u != v]
+        wind = {}                     # 2 pi x the winding of the directed edge
+        for a, b in edges:
+            d = float(theta_ref[b] - theta_ref[a])
+            w = two_pi * round((((d + math.pi) % two_pi) - math.pi - d) / two_pi)
+            wind[(a, b)] = w
+            wind[(b, a)] = -w
+        hr = float(hole_ratio)
+        if not np.isfinite(hr) or hr <= 0.0:
+            hr = 0.4
+        hr = min(max(hr, 0.05), 0.95)
+        e_u = np.array([a for a, b in edges], int)
+        e_v = np.array([b for a, b in edges], int)
+        try:
+            X, phi = _cylinder_solve(N, edges, wind, theta_ref, o_ids, h_ids, hr)
+        except np.linalg.LinAlgError:
+            notes.append("the cylinder solve is singular")
+            return None
+        n_cross = _straight_line_crossings(X, e_u, e_v) if len(edges) > 1 else 0
+        solve_note = "straight-line drawing planar"
+        if n_cross:
+            # A part of the diagram hanging off two points collapses onto a line in
+            # any Tutte solve (granny knot: 4 straight-line crossings).  A centre
+            # node in every face but the two rims makes the cylinder graph a
+            # triangulation, whose barycentric drawing does not degenerate; the
+            # windings of its edges come from walking round the face, so they are
+            # consistent by construction.  Only used when needed: it puts extra
+            # wiggles into the clasps of drawings the plain solve gets right.
+            ext_edges = list(edges)
+            ext_wind = dict(wind)
+            ext_theta = [float(t) for t in theta_ref]
+            rims = {frozenset(outer), frozenset(hole)}
+            for f in faces:
+                if len(set(f)) != len(f) or len(f) < 3 or frozenset(f) in rims:
+                    continue
+                fi = [idx[v] for v in f]
+                steps = [(fi[p - 1], fi[p % len(fi)]) for p in range(1, len(fi) + 1)]
+                if any(st not in wind for st in steps):
+                    continue
+                lift = [ext_theta[fi[0]]]
+                for a, b in steps:
+                    lift.append(lift[-1] + ext_theta[b] - ext_theta[a] + wind[(a, b)])
+                if abs(lift[-1] - lift[0]) > 1e-6:
+                    continue          # winds round the hole: left as it is
+                lift = lift[:-1]
+                l_c = float(np.mean(lift))
+                t_c = (l_c + math.pi) % two_pi - math.pi
+                ci = len(ext_theta)
+                ext_theta.append(t_c)
+                for v_i, l_v in zip(fi, lift):
+                    off = (l_v - ext_theta[v_i]) - (l_c - t_c)
+                    ext_edges.append((ci, v_i))
+                    ext_wind[(ci, v_i)] = off
+                    ext_wind[(v_i, ci)] = -off
+            try:
+                X_st, phi_st = _cylinder_solve(len(ext_theta), ext_edges, ext_wind,
+                                               np.array(ext_theta), o_ids, h_ids, hr)
+                X_st = X_st[:N]
+                n_cross_st = _straight_line_crossings(X_st, e_u, e_v)
+            except np.linalg.LinAlgError:
+                n_cross_st = None
+            if n_cross_st is not None and n_cross_st < n_cross:
+                solve_note = ("the plain solve had %d straight-line crossing(s), so every other "
+                              "face got a centre node: %s"
+                              % (n_cross, "straight-line drawing planar" if n_cross_st == 0
+                                 else "%d straight-line crossing(s) left" % n_cross_st))
+                X, phi, n_cross = X_st, phi_st, n_cross_st
+            else:
+                solve_note = "%d straight-line crossing(s)" % n_cross
+        notes.append(
+            "outer face %s, hole %s (%s); reference: %s; twist of the hole rim %.2f deg; %s"
+            % (_format_face_signature(_face_signature(outer, crossing_ids)),
+               _format_face_signature(_face_signature(hole, crossing_ids)), how, ref_name,
+               math.degrees(phi), solve_note))
+        if meta_out is not None:
+            ang = np.linspace(0.0, two_pi, 720, endpoint=False)
+            circle = np.column_stack([np.cos(ang), np.sin(ang)])
+            meta_out.clear()
+            meta_out["kind"] = "holed"
+            meta_out["pinned_nodes"] = [nodes[i] for i in o_ids + h_ids]
+            meta_out["aspect_value"] = 1.0
+            meta_out["boundary_outer"] = circle.copy()
+            meta_out["boundary_inner"] = hr * circle
+            meta_out["medial"] = 0.5 * (1.0 + hr) * circle
+        return {v: X[idx[v]].copy() for v in nodes}
+
+    _clear_piece_arcs()      # no stale 'D' arcs from an earlier solve of this piece
+    if int(cylinder_spread or 0) > 0 and not (flatten_orthogonal and model is not None):
+        notes.append("--cylinder-spread applies only with --flatten-orthogonal; ignored")
+    if not (flatten_orthogonal and model is not None):
+        return _plain_layout(outer, notes)
+    rep = puncture_report[-1] if puncture_report else None
+    rep_before = dict(rep) if rep is not None else None
+    flat_notes = []           # kept only if the flattened drawing is
+    got = _cylinder_flat_poles(
+        G, emb_c, faces, model, nodes, idx, _reference, hole_ratio, swap,
+        puncture_face, crossing_ids, puncture_report, flat_notes,
+        flatten_outer_radius, flatten_separation, spread_rounds=cylinder_spread)
+    if got is not None and not got[1]:
+        notes.extend(flat_notes)
+        if meta_out is not None:
+            meta_out.clear()
+        return got[0]
+    if got is None:
+        notes.extend(flat_notes)
+        if int(cylinder_spread or 0) > 0:
+            notes.append("--cylinder-spread not applied: it spreads the flattened drawing only")
+        _clear_piece_arcs()
+        return _plain_layout(outer, notes)
+    # the flattened drawing has defects: keep it only if the plain one is no better
+    P_flat, defects, info = got
+    arcs, excl = dict(model["flatten_arcs"]), set(model["flatten_exclude"])
+    rep_flat = dict(rep) if rep is not None else None
+    if rep is not None:
+        rep.clear()
+        rep.update(rep_before)
+    _clear_piece_arcs()
+    plain_notes = []
+    P_plain = _plain_layout(outer, plain_notes)
+    if P_plain is not None:
+        d_plain = _piece_defects(model, P_plain, cycles, piece)
+        if d_plain < defects:
+            notes.extend(plain_notes)
+            notes.append("flatten-orthogonal not kept: its best drawing (rings %d and %d as 'D's) "
+                         "has %d defect(s) (false or undrawn crossings), the plain cylinder layout "
+                         "%d%s" % (info["rings"] + (defects, d_plain,
+                                   "; --cylinder-spread not applied" if int(cylinder_spread or 0) > 0
+                                   else "")))
+            return P_plain
+        notes.extend(flat_notes)
+        notes.append("flatten-orthogonal drawing kept with %d defect(s): the plain cylinder "
+                     "layout has %d" % (defects, d_plain))
+    else:
+        notes.extend(flat_notes)
+    if rep is not None:
+        rep.clear()
+        rep.update(rep_flat)
+    model["flatten_arcs"], model["flatten_exclude"] = arcs, excl
+    if meta_out is not None:
+        meta_out.clear()
+    return P_flat
+
+
 def compute_positions_connected(G, layout, tutte_opts=None, meta_out=None):
     ok, emb = nx.check_planarity(G)
     if not ok:
@@ -4108,6 +5273,30 @@ def compute_positions_connected(G, layout, tutte_opts=None, meta_out=None):
             # Some connected planar graphs are singular for this simple
             # barycentric solve. NetworkX planar_layout is a safe fallback.
             return {n: np.asarray(xy, float) for n, xy in nx.planar_layout(G).items()}
+    if layout == "cylinder-tutte":
+        # holed-tutte's picture (punctured face outside, a hole face on an inner
+        # circle) solved as a Tutte embedding of the cylinder, which does not
+        # fold (see cylinder_tutte_layout); plain tutte when there is no hole.
+        rep = opts.get("cylinder_report")
+        P = cylinder_tutte_layout(
+            G, emb,
+            hole_ratio=float(opts.get("hole_ratio", 0.4)),
+            swap=bool(opts.get("hole_swap", False)),
+            puncture_face=_pface, crossing_ids=_cids, puncture_report=_prep,
+            report_out=rep, meta_out=meta_out, model=opts.get("model"),
+            flatten_orthogonal=bool(opts.get("flatten_orthogonal", False)),
+            flatten_outer_radius=float(opts.get("flatten_outer_radius", 1.1)),
+            flatten_separation=float(opts.get("flatten_separation", 0.25)),
+            cylinder_spread=int(opts.get("cylinder_spread", 0) or 0),
+        )
+        if P is None:
+            if rep is not None:
+                rep.append("fell back to the tutte layout")
+            try:
+                return tutte_layout_connected(G, emb, puncture_face=_pface, crossing_ids=_cids)
+            except np.linalg.LinAlgError:
+                return {n: np.asarray(xy, float) for n, xy in nx.planar_layout(G).items()}
+        return P
     if layout == "spread-tutte":
         # Crossing squares made faces of the embedding, a strictly planar start
         # (stellated Tutte or integer grid, the better spread kept), then the
@@ -4186,9 +5375,38 @@ def compute_positions(G, layout, tutte_opts=None, meta_out=None):
     packed = {}
     x_offset = 0.0
     gap = 0.75
-    for nodes in components:
+    # cylinder-tutte's [cylinder] notes say which piece they are about (each
+    # piece is laid out alone); the two option notes every piece repeats (the
+    # hole-ratio clamp, --cylinder-spread without flatten) are printed once
+    cyl_rep = (tutte_opts or {}).get("cylinder_report") if layout == "cylinder-tutte" else None
+    cyl_punct = (tutte_opts or {}).get("puncture_report") if layout == "cylinder-tutte" else None
+    cyl_model = (tutte_opts or {}).get("model")
+    for i_piece, nodes in enumerate(components):
         H = G.subgraph(nodes).copy()
+        n_before = len(cyl_rep) if cyl_rep is not None else 0
+        p_before = len(cyl_punct) if cyl_punct is not None else 0
         P = compute_positions_connected(H, layout, tutte_opts=tutte_opts)
+        if cyl_rep is not None:
+            rings = set()
+            if cyl_model is not None:
+                for k in _gadget_cycles(H):
+                    c = cyl_model["crossings"][k]
+                    rings |= {cyl_model["comp_of"][c["odd"]] + 1,
+                              cyl_model["comp_of"][abs(c["even"])] + 1}
+            head = "piece %d of %d (ring%s %s)" % (
+                i_piece + 1, len(components), "" if len(rings) == 1 else "s",
+                ", ".join(str(r) for r in sorted(rings)))
+            if cyl_punct is not None:
+                for rep in cyl_punct[p_before:]:
+                    rep["piece"] = head
+            new = cyl_rep[n_before:]
+            del cyl_rep[n_before:]
+            for note in new:
+                if note.startswith(("hole ratio ", "--cylinder-spread applies only")):
+                    if note not in cyl_rep:
+                        cyl_rep.append(note)
+                else:
+                    cyl_rep.append("%s: %s" % (head, note))
         coords = np.array(list(P.values()))
         mn = coords.min(axis=0)
         mx = coords.max(axis=0)
@@ -4906,18 +6124,21 @@ def _classify_strand_contacts(curves, true_passages=None, window=None,
     return _merge_contact_runs(rest, lens, reach=reach), missing
 
 
-def _drawing_curves_and_passages(model, P, centers, samples=26):
+def _drawing_curves_and_passages(model, P, centers, samples=26, components=None):
     """The dense 2-D component curves the audit checks (the same Catmull-Rom /
     flattened-'D' curves the drawing uses) and, per crossing, the two (curve,
-    dense index) pairs where its strands pass the crossing centre."""
+    dense index) pairs where its strands pass the crossing centre.
+    ``components`` (default: all) restricts it to those components -- one
+    piece of a split diagram, which cylinder-tutte lays out piece by piece."""
     curves, passages = [], {}
-    for ci in range(len(model["comp_positions"])):
+    for ci in (range(len(model["comp_positions"])) if components is None else components):
         ctrl, marks = component_controls(model, P, centers, ci)
         dense, starts = _component_dense(model, ctrl, ci, samples)
+        cj = len(curves)          # == ci when every component is audited
         curves.append(np.asarray(dense, float))
         for cidx, pos, _over in marks:
             if cidx < len(starts):
-                passages.setdefault(model["pos_cross"][pos], []).append((ci, int(starts[cidx])))
+                passages.setdefault(model["pos_cross"][pos], []).append((cj, int(starts[cidx])))
     passages = {k: tuple(v) for k, v in passages.items() if len(v) == 2}
     return curves, passages
 
@@ -4925,7 +6146,7 @@ def _drawing_curves_and_passages(model, P, centers, samples=26):
 _AUDIT_CACHE = {}
 
 
-def audit_false_crossings_detail(model, P, centers, samples=26):
+def audit_false_crossings_detail(model, P, centers, samples=26, components=None):
     """Exact audit of the 2-D drawing (fixed 2026-10-03).
 
     Returns ``{"false": [...], "missing": [...]}``: ``false`` lists every place
@@ -4940,11 +6161,14 @@ def audit_false_crossings_detail(model, P, centers, samples=26):
     0 against 10 + 2 undrawn crossings on 4BL's kamada drawing, 0 against 63 on
     the 8-ring chain's spring drawing).  Now nothing is excluded: every segment
     pair is tested exactly and each DT crossing claims only the one contact of
-    its own two strands at its centre."""
+    its own two strands at its centre.  ``components`` restricts the audit to
+    those components (one piece of a split diagram; default all)."""
     if not centers:
         return {"false": [], "missing": []}
     try:   # one result per drawing: prepare_diagram and render_diagram share it
-        key = (id(model), int(samples), hashlib.sha1(np.ascontiguousarray(np.array(
+        key = (id(model), int(samples),
+               None if components is None else tuple(int(c) for c in components),
+               hashlib.sha1(np.ascontiguousarray(np.array(
             [P[k] for k in sorted(P, key=str)] + [centers[k] for k in sorted(centers, key=str)],
             float)).tobytes()).hexdigest())
     except Exception:  # noqa: BLE001
@@ -4952,7 +6176,8 @@ def audit_false_crossings_detail(model, P, centers, samples=26):
     if key is not None and key in _AUDIT_CACHE:
         hit = _AUDIT_CACHE[key]
         return {"false": list(hit["false"]), "missing": list(hit["missing"])}
-    curves, passages = _drawing_curves_and_passages(model, P, centers, samples)
+    curves, passages = _drawing_curves_and_passages(model, P, centers, samples,
+                                                    components=components)
     false, missing = _classify_strand_contacts(curves, true_passages=passages,
                                                window=2 * samples)
     if key is not None:
@@ -12677,7 +13902,9 @@ def prepare_diagram(args, status_stream=None):
         "corner_radius": getattr(args, "tutte_corner_radius", 0.25),
         "decompress": getattr(args, "tutte_decompress", 0.0),
         "spread_rounds": getattr(args, "spread_rounds", SPREAD_ROUNDS_DEFAULT),
+        "cylinder_spread": int(getattr(args, "cylinder_spread", 0) or 0),
         "spread_report": [],
+        "cylinder_report": [],
         "com_expand": getattr(args, "tutte_com_expand", 0.0),
         "auto_aspect": bool(getattr(args, "tutte_auto_aspect", True)),
         # Shaped-tutte orientation is now handled inside the layout solve: the
@@ -12727,24 +13954,47 @@ def prepare_diagram(args, status_stream=None):
     # --puncture-face (see select_outer_face).
     for _note in tutte_opts.get("spread_report") or []:
         out.write("[spread] %s.\n" % _note)
+    for _note in tutte_opts.get("cylinder_report") or []:
+        out.write("[cylinder] %s.\n" % _note)
     puncture_report = tutte_opts.get("puncture_report") or []
-    if args.layout in ("tutte", "shaped-tutte", "holed-tutte", "spread-tutte"):
+    if args.layout in ("tutte", "shaped-tutte", "holed-tutte", "spread-tutte", "cylinder-tutte"):
         for rep in puncture_report:
+            if rep.get("piece"):      # cylinder-tutte, one piece of a split diagram
+                rep = dict(rep, layout="%s, %s" % (rep["layout"], rep["piece"]))
             cands = rep.get("candidates", [])
-            if rep.get("tie"):
+            if rep.get("swapped"):
+                out.write(
+                    "[puncture] %s: puncture face = %s (size %d), put outside by --hole-swap; "
+                    "%s is the hole.\n"
+                    % (rep["layout"], rep["chosen"], rep["chosen_size"], rep["swapped"])
+                )
+            elif rep.get("tie"):
                 out.write(
                     "[puncture] %s: %d faces tie for the largest boundary "
                     "(size %d); candidate puncture faces: %s. Using %s.\n"
                     % (rep["layout"], len(cands), rep["max_size"],
                        ", ".join(c["label"] for c in cands), rep["chosen"])
                 )
-            else:
+            elif rep.get("chosen_size", rep["max_size"]) == rep["max_size"]:
                 out.write(
                     "[puncture] %s: puncture face = %s (unique largest, size %d).\n"
                     % (rep["layout"], rep["chosen"], rep["max_size"])
                 )
+            else:
+                out.write(
+                    "[puncture] %s: puncture face = %s (size %d; the largest face has %d).\n"
+                    % (rep["layout"], rep["chosen"], rep["chosen_size"], rep["max_size"])
+                )
             if rep.get("requested"):
-                if rep.get("matched"):
+                if rep.get("made_hole"):
+                    out.write(
+                        "[puncture]   requested face %s made the hole by --hole-swap%s; %s is "
+                        "outside.\n"
+                        % (rep["requested"],
+                           (" (%s)" % rep["note"]) if rep.get("note") else "",
+                           rep["chosen"])
+                    )
+                elif rep.get("matched"):
                     out.write(
                         "[puncture]   pinned requested face %s%s.\n"
                         % (rep["requested"],
@@ -12768,7 +14018,22 @@ def prepare_diagram(args, status_stream=None):
             strength=float(getattr(args, "relax_strength", 0.5) or 0.0),
             pinned=(tutte_guides or {}).get("pinned_nodes"),
         )
+    _P_before_nudge = P
     P = nudge_min_separation(P, G, getattr(args, "min_sep", 0.0))
+    if args.layout == "cylinder-tutte" and P is not _P_before_nudge:
+        # The nudge has no planarity guard, and a cylinder-tutte drawing is
+        # tightly packed (node-edge clearance ~1e-3 of the drawing): measured,
+        # the 6-ring rubber-band chain at hole 0.25 went from 0 to 76 false
+        # crossings at --min-sep 0.02.  Keep the nudge only if the drawing
+        # audits no worse with it (other layouts are left exactly as they were).
+        _d = [len(_a["false"]) + len(_a["missing"]) for _a in (
+            audit_false_crossings_detail(model, _Q, crossing_centers(model, _Q))
+            for _Q in (_P_before_nudge, P))]
+        if _d[1] > _d[0]:
+            out.write("[cylinder] --min-sep %g skipped: the nudge would leave %d defect(s) "
+                      "(false or undrawn crossings) against %d without it.\n"
+                      % (float(getattr(args, "min_sep", 0.0)), _d[1], _d[0]))
+            P = _P_before_nudge
     # Snap a near-symmetric layout onto exact k-fold symmetry (no-op unless the DT
     # is symmetric AND the layout already sits close to that rotation).
     if _sym is not None:
@@ -13207,6 +14472,14 @@ def run_pipeline(args, status_stream=None):
 
     return 0
 
+def _nonnegative_int(text):
+    """argparse type: an integer >= 0."""
+    v = int(text)
+    if v < 0:
+        raise argparse.ArgumentTypeError("must be at least 0 (got %d)" % v)
+    return v
+
+
 def _positive_int(text):
     """argparse type: an integer >= 1."""
     v = int(text)
@@ -13313,13 +14586,18 @@ def build_arg_parser():
     )
     ap.add_argument(
         "--layout",
-        choices=["tutte", "shaped-tutte", "holed-tutte", "spread-tutte", "sphere-stereo", "planar", "spring", "kamada"],
+        choices=["tutte", "shaped-tutte", "cylinder-tutte", "holed-tutte", "spread-tutte", "sphere-stereo", "planar", "spring", "kamada"],
         default="tutte",
         help=(
             "Layout engine. 'tutte' is default. 'shaped-tutte' pins the Tutte "
             "boundary to a chosen convex shape (see --tutte-shape). 'holed-tutte' "
             "pins two faces (outer + auto-picked central hole) to the outer/inner "
-            "outlines of a holed shape and solves the ring. 'spread-tutte' is "
+            "outlines of a holed shape and solves the ring. 'cylinder-tutte' "
+            "draws the same kind of ring -- the --puncture-face face on an outer "
+            "circle, an auto-picked hole face (--hole-swap exchanges them) on an "
+            "inner circle of --hole-ratio -- as a Tutte embedding of the "
+            "cylinder, which does not fold where holed-tutte's plane solve does "
+            "(small rings, large holes). 'spread-tutte' is "
             "for diagrams with many trivial crossings -- kinks and bigons, which "
             "a Tutte solve crushes to points: it makes every crossing square a "
             "face of the embedding, starts from strictly planar Tutte and grid "
@@ -13425,7 +14703,7 @@ def build_arg_parser():
         metavar="cA,cB,...",
         help=(
             "Tutte-family layouts (tutte / shaped-tutte / holed-tutte / "
-            "spread-tutte): pin a "
+            "cylinder-tutte / spread-tutte): pin a "
             "specific planar face as the OUTER ('punctured') face -- the face "
             "sent to infinity when the sphere is laid flat -- by the crossing "
             "IDs on its boundary, e.g. --puncture-face c1,c3,c5. When several "
@@ -13470,8 +14748,10 @@ def build_arg_parser():
     ap.add_argument(
         "--hole-ratio", type=float, default=0.4,
         help=(
-            "For --layout holed-tutte: inner (hole) outline size as a fraction of "
-            "the outer outline, in (0,1). Smaller = bigger ring. Default: 0.4."
+            "For --layout holed-tutte / cylinder-tutte: inner (hole) outline size "
+            "as a fraction of the outer outline, in (0,1); clamped to [0.05, 0.95]. "
+            "Smaller = bigger ring.  For cylinder-tutte large values can fold the "
+            "drawing (from about 0.6 on some diagrams).  Default: 0.4."
         ),
     )
     ap.add_argument(
@@ -13479,7 +14759,10 @@ def build_arg_parser():
         dest="hole_swap",
         action="store_true",
         default=False,
-        help="For holed-tutte: swap which face is pinned to the outer vs inner outline.",
+        help=(
+            "For holed-tutte / cylinder-tutte: swap which face is pinned to the "
+            "outer vs inner outline."
+        ),
     )
     ap.add_argument(
         "--invert-ring",
@@ -13508,8 +14791,8 @@ def build_arg_parser():
         action="store_true",
         default=False,
         help=(
-            "For holed-tutte: rings that lie edge-on to the diagram collapse onto a "
-            "line through the center and overlap everything. This redraws each such "
+            "For holed-tutte and cylinder-tutte: rings that lie edge-on to the "
+            "diagram collapse onto a line through the center and overlap everything. This redraws each such "
             "component as a 'D': a straight diameter through the centre carrying its "
             "crossings plus a perfect semicircle joining the diameter's ends. The two "
             "flat rings become concentric D's -- the horizontal ring the outer one "
@@ -13517,23 +14800,46 @@ def build_arg_parser():
             "bulging left) -- meeting at the shared OUT crossing, with the other "
             "shared crossing at the centre. Diameters are symmetric about the centre "
             "and the diameter/semicircle junctions are right-angle corners. Round "
-            "components and true crossing positions are preserved."
+            "components and true crossing positions are preserved. With --layout "
+            "cylinder-tutte (V5.8) the pair is found first -- the two rings that "
+            "cross each other twice and come out straight when those two crossings "
+            "are the cylinder's poles (centre and infinity) -- which draws Edwards' "
+            "Venn-diagram links (BL_Edw) with a round circle and concentric, "
+            "symmetric cogwheels.  Of several such pairs the first that draws "
+            "cleanly is kept; a flattened drawing with more defects than the plain "
+            "cylinder drawing is replaced by it (the log says so)."
         ),
     )
     ap.add_argument(
         "--flatten-outer-radius", type=float, default=1.1,
         help=(
-            "For holed-tutte --flatten-orthogonal: radius of the OUTER 'D' (the "
-            "horizontal ring's diameter half-length and return-semicircle radius), "
+            "For holed-tutte / cylinder-tutte --flatten-orthogonal: radius of the "
+            "OUTER 'D' (the horizontal ring's diameter half-length and return-semicircle radius), "
             "in units of the flat ring's diameter. Larger = bigger D's whose "
             "semicircles wrap farther around the other rings. Default: 1.1."
         ),
     )
     ap.add_argument(
+        "--cylinder-spread", dest="cylinder_spread", type=_nonnegative_int, default=0,
+        metavar="ROUNDS",
+        help=(
+            "For --layout cylinder-tutte --flatten-orthogonal (Edwards' Venn-diagram "
+            "links): spread the circle and the cogwheels for ROUNDS rounds after the "
+            "cylinder solve, which crowds them into a thin band when there are many "
+            "rings.  Crossings closer than the mean crossing spacing push apart, a "
+            "spring holds each node to the cylinder's barycentre, every move is capped "
+            "at 0.95 x the node's safe radius (the straight-line drawing stays planar) "
+            "and each round is averaged over the two mirror symmetries.  Skipped "
+            "when the solve already has straight-line crossings, not kept when its "
+            "drawing audits worse.  0 = off "
+            "(default); %d is what the BL_Edw drawings use." % CYLINDER_SPREAD_ROUNDS
+        ),
+    )
+    ap.add_argument(
         "--flatten-separation", type=float, default=0.25,
         help=(
-            "For holed-tutte --flatten-orthogonal: radial gap between the two nested "
-            "'D's, in units of the ring's diameter (inner radius = outer radius - "
+            "For holed-tutte / cylinder-tutte --flatten-orthogonal: radial gap "
+            "between the two nested 'D's, in units of the ring's diameter (inner radius = outer radius - "
             "separation). Larger tucks the vertical (inner) semicircle farther inside "
             "the horizontal (outer) one. Default: 0.25."
         ),
@@ -14245,7 +15551,7 @@ def run_gui(initial_args):
         return 1
 
     apply_tk_window_icon(root, tk)
-    root.title("draw_dt_original_labelsV5_7")
+    root.title("draw_dt_original_labelsV5_8")
     root.geometry("1320x860")
     root.minsize(1050, 680)
 
@@ -14644,6 +15950,7 @@ def run_gui(initial_args):
     flatten_orthogonal_var = tk.BooleanVar(value=bool(getattr(initial_args, "flatten_orthogonal", False)))
     flatten_outer_radius_var = tk.StringVar(value=str(getattr(initial_args, "flatten_outer_radius", 1.1)))
     flatten_separation_var = tk.StringVar(value=str(getattr(initial_args, "flatten_separation", 0.25)))
+    cylinder_spread_var = tk.StringVar(value=str(getattr(initial_args, "cylinder_spread", 0)))
     _init_wrap = getattr(initial_args, "wrap_axis", None)
     if not _init_wrap:
         _init_wrap = "secondary" if bool(getattr(initial_args, "secondary_axis", False)) else "primary"
@@ -14726,7 +16033,7 @@ def run_gui(initial_args):
     ttk.Label(settings, text="layout").grid(row=row, column=0, sticky="w", pady=3)
     ttk.Combobox(
         settings, textvariable=layout_var,
-        values=["tutte", "shaped-tutte", "holed-tutte", "spread-tutte", "sphere-stereo", "planar", "spring", "kamada"],
+        values=["tutte", "shaped-tutte", "cylinder-tutte", "holed-tutte", "spread-tutte", "sphere-stereo", "planar", "spring", "kamada"],
         width=15, state="readonly"
     ).grid(row=row, column=1, sticky="w", pady=3)
     add_help_button(row, "layout")
@@ -14829,6 +16136,8 @@ def run_gui(initial_args):
               help_key="flatten_outer_radius", key="flatten_outer_radius")
     add_entry("flatten separation", flatten_separation_var,
               help_key="flatten_separation", key="flatten_separation")
+    add_entry("cylinder spread rounds", cylinder_spread_var,
+              help_key="cylinder_spread", key="cylinder_spread")
     add_entry("ring tilt deg", ring_tilt_var, help_key="ring_tilt", key="ring_tilt")
     add_entry("min separation", min_sep_var, help_key="min_sep", key="min_sep")
     add_entry("ring equalize", ring_equalize_var,
@@ -15395,21 +16704,23 @@ def run_gui(initial_args):
         # applies to any non-circular shape regardless of the auto-orient framing.
         _set_dynamic("tutte_orient", shaped_family and t_shape != "circle")
         # Puncture-face selection applies to every Tutte-family layout.
-        _set_dynamic("puncture_face", shaped_family or layout in ("tutte", "spread-tutte"))
+        is_cylinder_tutte = (layout == "cylinder-tutte")
+        _set_dynamic("puncture_face", shaped_family or layout in ("tutte", "spread-tutte", "cylinder-tutte"))
         _set_dynamic("spread_rounds", layout == "spread-tutte")
-        _set_dynamic("show_tutte_outline", shaped_family)
-        _set_dynamic("show_tutte_pca", shaped_family)
-        # holed-tutte only.
-        _set_dynamic("hole_ratio", is_holed_tutte)
-        _set_dynamic("hole_swap", is_holed_tutte)
+        _set_dynamic("show_tutte_outline", shaped_family or is_cylinder_tutte)
+        _set_dynamic("show_tutte_pca", shaped_family or is_cylinder_tutte)
+        # holed-tutte (hole ratio / swap also cylinder-tutte).
+        _set_dynamic("hole_ratio", is_holed_tutte or is_cylinder_tutte)
+        _set_dynamic("hole_swap", is_holed_tutte or is_cylinder_tutte)
         _set_dynamic("invert_ring", is_holed_tutte)
         _set_dynamic("wrap_axis", is_holed_tutte)
-        _set_dynamic("flatten_orthogonal", is_holed_tutte)
+        _set_dynamic("flatten_orthogonal", is_holed_tutte or is_cylinder_tutte)
         # The flatten radius/separation fields only matter when the flatten
-        # checkbox is on (and the layout is holed-tutte), so follow both.
-        flatten_on = is_holed_tutte and bool(flatten_orthogonal_var.get())
+        # checkbox is on (and the layout is holed- or cylinder-tutte).
+        flatten_on = (is_holed_tutte or is_cylinder_tutte) and bool(flatten_orthogonal_var.get())
         _set_dynamic("flatten_outer_radius", flatten_on)
         _set_dynamic("flatten_separation", flatten_on)
+        _set_dynamic("cylinder_spread", is_cylinder_tutte and bool(flatten_orthogonal_var.get()))
         _set_dynamic("ring_tilt", is_holed_tutte)
         _set_dynamic("ring_equalize", is_holed_tutte or layout == "sphere-stereo")
         _set_dynamic("tutte_decompress", tutte_family)
@@ -15516,6 +16827,7 @@ def run_gui(initial_args):
             flatten_orthogonal=bool(flatten_orthogonal_var.get()),
             flatten_outer_radius=_float_value(flatten_outer_radius_var, "flatten outer radius"),
             flatten_separation=_float_value(flatten_separation_var, "flatten separation"),
+            cylinder_spread=max(0, _int_value(cylinder_spread_var, "cylinder spread rounds")),
             wrap_axis=str(wrap_axis_var.get() or "primary"),
             ring_tilt=_float_value(ring_tilt_var, "ring tilt deg"),
             min_sep=_float_value(min_sep_var, "min separation"),
@@ -15645,17 +16957,23 @@ def run_gui(initial_args):
                 auto_aspect_value_lbl.configure(text="")
             # Report the punctured face / tie faces next to the puncture field.
             prep = state.get("puncture_report") if isinstance(state, dict) else None
-            if prep and layout_var.get() in ("tutte", "shaped-tutte", "holed-tutte", "spread-tutte"):
+            if prep and layout_var.get() in ("tutte", "shaped-tutte", "holed-tutte", "spread-tutte", "cylinder-tutte"):
                 r0 = prep[0]
-                if r0.get("tie"):
+                if r0.get("swapped"):
+                    txt = "puncture: %s (swapped; %s is the hole)" % (r0["chosen"], r0["swapped"])
+                elif r0.get("tie"):
                     txt = "tie (%d): %s  →  %s" % (
                         len(r0["candidates"]),
                         " | ".join(c["label"] for c in r0["candidates"]),
                         r0["chosen"],
                     )
-                else:
+                elif r0.get("chosen_size", r0["max_size"]) == r0["max_size"]:
                     txt = "puncture: %s (unique largest)" % r0["chosen"]
-                if r0.get("requested") and not r0.get("matched"):
+                else:
+                    txt = "puncture: %s (size %d)" % (r0["chosen"], r0["chosen_size"])
+                if r0.get("requested") and r0.get("made_hole"):
+                    txt += "  [requested face is the hole]"
+                elif r0.get("requested") and not r0.get("matched"):
                     txt += "  [requested not applied]"
                 puncture_note_lbl.configure(text=txt)
             else:
@@ -16426,6 +17744,7 @@ def run_gui(initial_args):
         "wrap_axis": wrap_axis_var,
         "flatten_outer_radius": flatten_outer_radius_var,
         "flatten_separation": flatten_separation_var,
+        "cylinder_spread": cylinder_spread_var,
         "min_sep": min_sep_var, "ring_equalize": ring_equalize_var,
         "relax_passes": relax_passes_var, "relax_strength": relax_strength_var,
         "proj_elev": proj_elev_var, "proj_azim": proj_azim_var,
@@ -16648,6 +17967,7 @@ def run_gui(initial_args):
         flatten_orthogonal_var,
         flatten_outer_radius_var,
         flatten_separation_var,
+        cylinder_spread_var,
         ring_tilt_var,
         min_sep_var,
         ring_equalize_var,

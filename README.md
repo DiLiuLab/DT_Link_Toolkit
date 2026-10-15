@@ -33,7 +33,7 @@ Development notes and version history are in [DEVELOPMENT_LOG.md](DEVELOPMENT_LO
 DT_Link_Toolkit.py               Universal launcher for all tools below
 strand_passage_guiV4_2.py        Strand-passage explorer: GUI, --nongui, --demo
 link_engine_v4_0.py              Diagram engine and SnapPy bridge
-draw_dt_original_labelsV5_7.py   DT parser, layout, renderer, XYZ audit, and GUI
+draw_dt_original_labelsV5_8.py   DT parser, layout, renderer, XYZ audit, and GUI
 audit_xyz.py                     Audit a 3D XYZ curve against its signed DT link
 check_two_dt.py                  Standalone SnapPy/Sage DT-comparison utility
 find_link_in_snappy.py           Search SnapPy link databases for DT matches
@@ -58,7 +58,7 @@ LICENSE                          MIT license
 Import chain:
 
 ```text
-strand_passage_guiV4_2 -> link_engine_v4_0 -> draw_dt_original_labelsV5_7
+strand_passage_guiV4_2 -> link_engine_v4_0 -> draw_dt_original_labelsV5_8
 ```
 
 `score_diagramV2_5.py` names none of its helpers: it loads the newest
@@ -224,7 +224,7 @@ If the path does not end in `.xlsx`, the script adds it first. For example,
 directory and basename of the spreadsheet path.
 
 Custom displayed crossing IDs use the same syntax as
-`draw_dt_original_labelsV5_7.py`.  The combined
+`draw_dt_original_labelsV5_8.py`.  The combined
 `--crossing-labels` option detects assignment-style text as a crossing map,
 and a plain list as crossing order.
 
@@ -254,7 +254,7 @@ Drawing settings:
 - Strand-passage drawings default to `shaped-tutte` with `tutte shape =
   ellipse` and `tutte aspect = 1.0`.
 - In the GUI, click `Load drawing session` to load a JSON session saved by
-  `draw_dt_original_labelsV5_7.py`. The saved 2-D drawing settings then apply to
+  `draw_dt_original_labelsV5_8.py`. The saved 2-D drawing settings then apply to
   the root diagram and following strand-passage diagrams.
 - In batch/demo modes, use `--drawing-session path/to/session.json`. If the
   session contains a DT code it is used when `--dt` is not supplied; explicit
@@ -266,7 +266,7 @@ Drawing settings:
 Standalone drawing and audited XYZ export:
 
 ```bash
-sage -python draw_dt_original_labelsV5_7.py --dt "DT: [(4,6,2)]"
+sage -python draw_dt_original_labelsV5_8.py --dt "DT: [(4,6,2)]"
 sage -python audit_xyz.py link_sphere.xyz "DT: [(4,6,2)]"
 ```
 
@@ -347,7 +347,7 @@ V5.7 adds a **negative `--crossing-offset`**, which selects the opposite
 handedness of the exported 3-D curve:
 
 ```bash
-draw_dt_original_labelsV5_7.py --dt "DT: [(-6,-8,-10,-4,-2)]" \
+draw_dt_original_labelsV5_8.py --dt "DT: [(-6,-8,-10,-4,-2)]" \
   --xyz-output link.xyz --crossing-offset=-5
 ```
 
@@ -378,7 +378,7 @@ glTF file (`--shells-glb`; GUI `3D XYZ` tab, `'Save XYZ' also writes surface
 shells (.glb)`):
 
 ```bash
-draw_dt_original_labelsV5_7.py --dt "DT: [(4,6,2)]" --xyz-output link.xyz --shells-glb
+draw_dt_original_labelsV5_8.py --dt "DT: [(4,6,2)]" --xyz-output link.xyz --shells-glb
 ```
 
 Every sphere layout lifts the strands off a base surface by the crossing
@@ -522,7 +522,7 @@ about the spacing and keep the corners exactly.
   the other layouts.
 
 ```bash
-draw_dt_original_labelsV5_7.py --dt "DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]" \
+draw_dt_original_labelsV5_8.py --dt "DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]" \
   --sphere-layout cubic-kamada --cube-style grid --xyz bl4_cube.xyz --save-projections
 ```
 
@@ -595,7 +595,7 @@ spherogram and `dt_converter` assign to the DT code (writhe +3 for
 `DT: [(4,6,2)]`); use a negative offset for the mirror.
 
 ```bash
-draw_dt_original_labelsV5_7.py --dt "DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]" \
+draw_dt_original_labelsV5_8.py --dt "DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]" \
   --sphere-layout grid-diagram --xyz bl4_grid3d.xyz --shells-glb --save-projections --proj-views top,current
 ```
 
@@ -630,7 +630,7 @@ The layout takes about two minutes for the 48-crossing chain (it is cached
 within a run, so `--save-projections` reuses it).
 
 ```bash
-draw_dt_original_labelsV5_7.py --dt "DT: [(16,-10), (32,-26,-2,-18,24,4), (8,-14,40,-34,12,-6,-42,48), (28,-20,56,-50,22,-30,-58,64), (44,-36,72,-66,38,-46,-74,80), (60,-52,86,-82,54,-62,-88,92), (76,-68,94,70,-78,-96), (-90,84)]" \
+draw_dt_original_labelsV5_8.py --dt "DT: [(16,-10), (32,-26,-2,-18,24,4), (8,-14,40,-34,12,-6,-42,48), (28,-20,56,-50,22,-30,-58,64), (44,-36,72,-66,38,-46,-74,80), (60,-52,86,-82,54,-62,-88,92), (76,-68,94,70,-78,-96), (-90,84)]" \
   --sphere-layout shaped-kamada --surface-shape capped-cylinder \
   --xyz chain_can.xyz --shells-glb --save-projections --proj-views current,front
 ```
@@ -651,7 +651,7 @@ sheet's arc radius (the inner layer would fold). Shells and the mapped
 skeleton (the sheet's grid lines) are exported as for the other layouts.
 
 ```bash
-draw_dt_original_labelsV5_7.py \
+draw_dt_original_labelsV5_8.py \
   --dt "DT: [(16,-10), (32,-26,-2,-18,24,4), (8,-14,40,-34,12,-6,-42,48), (28,-20,56,-50,22,-30,-58,64), (44,-36,72,-66,38,-46,-74,80), (60,-52,86,-82,54,-62,-88,92), (76,-68,94,70,-78,-96), (-90,84)]" \
   --layout shaped-tutte --tutte-shape ellipse --no-tutte-auto-aspect --tutte-aspect 3.5 \
   --sphere-layout sheet --sheet-bend 120 --sheet-twist 180 --sphere-radius 200 --crossing-offset 6 \
@@ -735,7 +735,7 @@ all linking numbers 0, every 7-ring sublink an unlink; consecutive ring planes
 the axis; D2.
 
 ```bash
-draw_dt_original_labelsV5_7.py \
+draw_dt_original_labelsV5_8.py \
   --dt "DT: [(16,-10), (32,-26,-2,-18,24,4), (8,-14,40,-34,12,-6,-42,48), (28,-20,56,-50,22,-30,-58,64), (44,-36,72,-66,38,-46,-74,80), (60,-52,86,-82,54,-62,-88,92), (76,-68,94,70,-78,-96), (-90,84)]" \
   --layout shaped-tutte --tutte-shape ellipse --no-tutte-auto-aspect --tutte-aspect 3.5 \
   --sphere-layout chain --xyz chain_segments.xyz --shells-glb --glb-rod-diameter 3 \
@@ -807,7 +807,7 @@ same shape up to a rotation).
 The structure of the relax-from-correct picture (`chain8_relaxed_from_sheet_tubes.png`):
 
 ```bash
-python3 draw_dt_original_labelsV5_7.py \
+python3 draw_dt_original_labelsV5_8.py \
   --dt "DT: [(16,-10), (32,-26,-2,-18,24,4), (8,-14,40,-34,12,-6,-42,48), (28,-20,56,-50,22,-30,-58,64), (44,-36,72,-66,38,-46,-74,80), (60,-52,86,-82,54,-62,-88,92), (76,-68,94,70,-78,-96), (-90,84)]" \
   --layout shaped-tutte --tutte-shape ellipse --no-tutte-auto-aspect --tutte-aspect 3.5 \
   --sphere-layout chain --chain-form folded --crossing-offset 5 \
@@ -868,6 +868,56 @@ sets the rounds per start: about 2 s at 25 crossings, 5-10 s at 40-60, 40 s
 at 100.  The puncture face is honoured and is never a crossing square; a
 kink or bigon puncture is flagged in the log, because the whole diagram then
 sits inside it.  `--tutte-decompress` and `--tutte-com-expand` do not apply.
+
+`--layout cylinder-tutte` (V5.8; GUI: layout `cylinder-tutte`) draws the
+same kind of ring as `holed-tutte` -- one face outside, a second face as a
+central hole -- but cannot fold.  `holed-tutte` solves the ring in the plane,
+where a node can be pulled into the hole: the 3-ring cyclic rubber-band chain
+with its two triangles as the rims has 15-140 straight-line crossings at every
+hole ratio.  `cylinder-tutte` solves it on a cylinder (log-polar coordinates:
+the ring becomes a strip, which is convex, so Tutte's theorem applies) and maps
+the result back between the two rims.  The outer face is the `--puncture-face`
+face (default: the largest), the hole is picked automatically (the deepest face
+sharing no node with the outer one) and `--hole-swap` exchanges the two;
+`--hole-ratio` sets the hole's size.  A `[cylinder]` log line names both rims
+and confirms the straight-line drawing is planar.  No 3-D layout or random seed
+is involved, so a symmetric diagram comes out exactly symmetric (with
+`--enforce-symmetry`, the default).  For example, the 3-ring chain as a 3-fold
+wreath, the outer triangle `c8,c16,c24` matching the handedness of the 5- and
+6-ring drawings:
+
+```bash
+python3 draw_dt_original_labelsV5_8.py \
+  --dt "[(44,-36,24,-18,38,-46,-26,32), (12,-4,40,-34,6,-14,-42,48), (28,-20,8,-2,22,-30,-10,16)]" \
+  --layout cylinder-tutte --puncture-face c8,c16,c24 --hole-ratio 0.25 \
+  --hide-labels --no-arrows --line-width 3 --gap-frac 0.01 --min-sep 0.02 --no-xyz
+```
+
+With `--flatten-orthogonal`, `cylinder-tutte` draws Edwards' construction of Venn
+diagrams the way Edwards and Maes & Cerf draw it (the BL_Edw links): it finds the
+two rings that cross each other twice and come out straight when those two
+crossings are the cylinder's poles (one at the centre, one at infinity), so the
+circle is round and the cogwheels concentric and symmetric, and then draws the
+two straight rings as `holed-tutte`'s two 'D' shapes (`--flatten-outer-radius`,
+`--flatten-separation`).  The log names the pair and the two poles.  Each
+qualifying pair is tried with either crossing at the centre and in both
+in-plane mirror images (the same DT code), and the first drawing with no false
+crossings is kept, in the requested orientation where possible (the log says
+when the poles had to be exchanged).  If no pair qualifies, or the flattened drawing has more
+false crossings than the plain cylinder drawing, the plain cylinder layout is
+drawn and the log says so.  With many rings the cylinder solve crowds the circle and the
+cogwheels into a thin band; `--cylinder-spread 600` (GUI `cylinder spread
+rounds`) spreads them after the solve under the same planarity guard as
+`spread-tutte`, keeping the drawing mirror-symmetric and the D's unchanged
+(Edw_6: closest crossing pair 0.030 -> 0.057 of the drawing).
+
+```bash
+python3 draw_dt_original_labelsV5_8.py \
+  --dt "[(16,10,12,14), (18,28,20,26), (2,24,6), (4,8,-22)]" \
+  --layout cylinder-tutte --flatten-orthogonal --hole-ratio 0.1 \
+  --flatten-outer-radius 0.6 --flatten-separation 0.05 --min-sep 0.01 \
+  --cylinder-spread 600 --rotate -90 --hide-labels --no-arrows --no-xyz
+```
 
 Extra `holed-tutte` controls:
 
@@ -1457,7 +1507,7 @@ To make the Python scripts directly executable on macOS/Linux:
 
 ```bash
 chmod +x strand_passage_guiV4_2.py
-chmod +x draw_dt_original_labelsV5_7.py
+chmod +x draw_dt_original_labelsV5_8.py
 chmod +x audit_xyz.py
 chmod +x check_two_dt.py
 chmod +x find_link_in_snappy.py
@@ -1502,7 +1552,7 @@ sage -python ./strand_passage_guiV4_2.py
   byte-identical rasters. The fallback stack also protects machines without
   Arial, which previously substituted silently. Text remains editable — this is
   deliberately not a switch to `svg.fonttype: 'path'` outlines.
-- Standalone SVGs from `draw_dt_original_labelsV5_7.py` use the same Arial
+- Standalone SVGs from `draw_dt_original_labelsV5_8.py` use the same Arial
   editable-text policy and roomier DT-label/crossing-ID boxes. Requested layouts
   are kept even when they create false crossings, with those artifacts
   highlighted and a metadata caption added to saved diagrams. Since
