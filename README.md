@@ -1262,7 +1262,10 @@ packed hex and compact spellings, the classical unsigned code, signed and
 extended Gauss codes, PD codes (plain and KnotTheory `X[...]`), braid words
 (plain and `BR[n,{...}]`), and Rolfsen / Alexander-Briggs / Thistlethwaite /
 torus names. It also
-reports the exterior's isometry signature, SnapPy's census names, and the
+reports the exterior's isometry signature, the link's names in SnapPy's tables
+(found from the exterior WITH its meridians, so they name this link and not
+merely another one with the same complement; the exterior's names in SnapPy's
+other censuses are listed separately), and the
 diagram's basic invariants, and on request (`--polynomials`) the link's
 Alexander, Conway, Jones and HOMFLY-PT polynomials. The input notation is
 detected automatically;

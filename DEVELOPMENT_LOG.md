@@ -4,6 +4,25 @@ DT Link Toolkit Development Log
 This file records version-specific development notes and implementation history.
 For installation and everyday usage, see README.md.
 
+dt_converter: link names from the exterior WITH its meridians (2026-10-17)
+------------------------------------------------------------------------
+* The `name` output used SnapPy's plain `identify()`, which matches the
+  exterior alone; different links can share an exterior, and on the 666
+  HTLinkExteriors entries of up to 10 crossings it named a DIFFERENT link for
+  53 of them (e.g. L7n2 as 5^2_1, L5a1 -- the Whitehead link -- though it is
+  7^2_8; L9n25 as 6^3_2, the Borromean rings, though it is 9^3_18; L10n105,
+  which has no Rolfsen-notation name, as 8^4_2).  `dt_names` now takes the
+  link's names from `identify(extends_to_link=True)` (isometries taking
+  meridians to meridians: the same link up to mirror image), keeps only names
+  from the link and knot tables (Rolfsen notation, Hoste-Thistlethwaite,
+  SnapPy's census of knots in S^3), and lists the exterior's names in the
+  other censuses separately ("its exterior is also m129, ..."); the "(0,0)"
+  filling suffix is dropped.  Self-test 1484 checks (4 new: L7n2, L9n25,
+  L8n1, L10n105; with the old lookup restored exactly those 4 fail).  On all
+  636 hyperbolic census entries the names now agree with the independently
+  built table of results_score_10X_V3 (data/alexander_briggs_names.csv), and
+  each includes the entry's own census name.
+
 draw_dt_original_labels V5.8: cylinder-tutte review fixes (2026-10-14)
 ----------------------------------------------------------------------
 * Two rounds of independent reviews of the new layout (code reviews,

@@ -1885,32 +1885,57 @@ def dt_isosig(diagram):
             % (type(exc).__name__, str(exc)[:140]))
 
 
+# Names from the tables whose meridians are a link's meridians: Rolfsen notation
+# (3_1, 6^2_3 -- SnapPy's LinkExteriors), Hoste-Thistlethwaite (K10a3, L6a1 --
+# HTLinkExteriors) and SnapPy's census of knots in S^3 (K5_22 -- CensusKnots).
+# Every other census (m129, s780, ooct01_00001, ...) names a manifold only.
+_LINK_TABLE_NAME = re.compile(r"^(\d+(\^\d+)?_\d+|[KL]\d+[an]\d+|K\d+_\d+)$")
+_FILLING_SUFFIX = re.compile(r"(\(-?\d+(\.\d+)?,-?\d+(\.\d+)?\))+$")
+
+
 def dt_names(diagram):
-    """Census names for this link, from the exterior.  Returns a list.
+    """Names for this LINK, and for its exterior.  Returns (link names,
+    exterior-only names, solution type or None).
+
+    Link names come from identify(extends_to_link=True), which keeps only the
+    isometries of the exteriors that take meridians to meridians -- the same
+    link, up to mirror image -- and only from the link and knot tables
+    (_LINK_TABLE_NAME).  Plain identify() matches the exterior alone, and
+    different links can share an exterior: on the 666 HTLinkExteriors entries
+    of up to 10 crossings it named a DIFFERENT link for 53 of them (measured
+    2026-10-17) -- L9n25 as 6^3_2, the Borromean rings, though it is 9^3_18;
+    L7n2 as 5^2_1, though it is 7^2_8; L10n105, which has no Rolfsen-notation
+    name, as 8^4_2.  The exterior-only names are those plain identify() finds
+    in the other censuses; they name the complement, which other links can
+    share, and are reported as such.  The "(0,0)" filling suffix is dropped.
 
     Empty is a real answer, not a failure: a non-hyperbolic link (a torus knot,
-    say) or one outside SnapPy's censuses simply has no match.  Because the
+    say) or one outside SnapPy's tables simply has no match.  Because the
     exteriors of a link and its mirror are homeomorphic, a name found this way
     identifies the link only up to mirror image."""
     if snappy_mod() is None:
         raise ConversionError("identifying a link by name needs SnapPy, which "
                               "is not importable here")
     link = diagram.link()
+    clean = lambda found: [_FILLING_SUFFIX.sub("", str(x)) for x in found]
     try:
         manifold = link.exterior()
-        ids = [str(x) for x in manifold.identify()]
+        linked = clean(manifold.identify(extends_to_link=True))
+        plain = clean(manifold.identify())
     except Exception as exc:                                     # noqa: BLE001
         raise ConversionError("SnapPy could not build/identify the exterior "
                               "(%s: %s)" % (type(exc).__name__, str(exc)[:140]))
-    if ids:
-        return ids, None
+    names = [n for n in linked if _LINK_TABLE_NAME.match(n)]
+    exterior = [n for n in plain if not _LINK_TABLE_NAME.match(n)]
+    if names or exterior:
+        return names, exterior, None
     # identify() returns [] both for "not in the census" and for "the exterior
     # is not hyperbolic, so the census lookup was never meaningful".  Ask which.
     try:
         soln = str(manifold.solution_type())
     except Exception:                                            # noqa: BLE001
         soln = "unknown"
-    return [], soln
+    return [], [], soln
 
 
 # --------------------------------------------------------------------------- #
@@ -2087,14 +2112,19 @@ def _emit_braid_kt(d, cache):
 
 
 def _emit_name(d, cache):
-    names, soln = dt_names(d)
+    names, exterior, soln = dt_names(d)
+    also = "; its exterior is also %s in SnapPy's other censuses" % ", ".join(exterior) if exterior else ""
     if names:
         _caveat(cache, "name",
-                "found from the exterior, which a link and its mirror image "
-                "share, so this names the link only UP TO MIRROR IMAGE. "
-                "Measured: 6_1 and its mirror have byte-identical volume and "
-                "isometry signature.")
-        return ", ".join(names)
+                "found from the exterior with its meridians, which a link and "
+                "its mirror image share, so this names the link only UP TO "
+                "MIRROR IMAGE. Measured: 6_1 and its mirror have byte-identical "
+                "volume and isometry signature.")
+        return ", ".join(names) + also
+    if exterior:
+        return ("(no link table names this link: its exterior is %s in SnapPy's "
+                "censuses, a name of the complement, which other links can "
+                "share)" % ", ".join(exterior))
     if soln and soln != "all tetrahedra positively oriented":
         return ("(no name: the exterior is not hyperbolic -- SnapPy reports "
                 "solution type %r -- so a census lookup cannot identify it. "
@@ -2387,9 +2417,11 @@ FORMAT_TABLE = (
          blurb="In: Rolfsen knots (3_1, 8_19), Alexander-Briggs links "
                "(6^2_3 -- also 6_3^2, 6^{2}_{3} or 6²₃; the flattened "
                "6_3_2 is refused as ambiguous when both readings exist), "
-               "Thistlethwaite (K10a3, L6a1) and torus (T(3,5)). Out: census "
-               "names found from the exterior, so only up to mirror image and "
-               "only for hyperbolic links."),
+               "Thistlethwaite (K10a3, L6a1) and torus (T(3,5)). Out: the "
+               "link's names in SnapPy's link and knot tables, found from the "
+               "exterior with its meridians (the same link, up to mirror image; "
+               "hyperbolic links only), then the exterior's names in the other "
+               "censuses."),
     dict(id="isosig", aliases=("isometry-signature", "snappy"),
          title="exterior isometry signature",
          parse=None, emit=_emit_isosig, carries_chirality=False,
@@ -4747,13 +4779,33 @@ def run_selftest(log=print, verbose=True):
             continue
         d = Diagram(comps, flips)
         try:
-            names, _soln = dt_names(d)
+            names, _ext, _soln = dt_names(d)
         except ConversionError as exc:
             log("  skip  identify %s (%s)" % (name, exc))
             skipped += 1
             continue
         check("name %s -> DT -> identify finds it back" % name,
-              any(name in s for s in names), "got %s" % (names,))
+              name in names, "got %s" % (names,))
+
+    # 4b. names are the LINK's, not just its exterior's (fixed 2026-10-17): these
+    # links share their exterior with a smaller one, which plain identify()
+    # named instead -- and L10n105, which has no Rolfsen-notation name, got 8^4_2
+    for name, right, wrong in (("L7n2", "7^2_8", "5^2_1"), ("L9n25", "9^3_18", "6^3_2"),
+                               ("L8n1", "8^2_16", "6^2_3"), ("L10n105", None, "8^4_2")):
+        if snappy_mod() is None or spherogram_mod() is None:
+            skipped += 1
+            continue
+        try:
+            comps, flips, _notes = name_to_dt(name)
+            names, ext, _soln = dt_names(Diagram(comps, flips))
+        except ConversionError as exc:
+            log("  skip  link names of %s (%s)" % (name, exc))
+            skipped += 1
+            continue
+        check("%s is named as itself, not by the link it shares an exterior with" % name,
+              name in names and wrong not in names and (right is None or right in names)
+              and not any(re.match(r"^\d+(\^\d+)?_\d+$", n) for n in names if right is None),
+              "got %s (exterior also %s)" % (names, ext))
 
     # 5. the --list-formats examples must be what the tool actually emits
     ex = parse_input(EXAMPLE_DIAGRAM)[0].with_flips_resolved()
