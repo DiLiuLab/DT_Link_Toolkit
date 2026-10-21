@@ -102,6 +102,26 @@ the curve shows its hand; the self-test checks the rule on the chiral
 from the in-plane mirror of that drawing -- signs opposite: +offset gives
 lk +2, spherogram's, either way.)
 
+A FLIP VECTOR after the DT code (version 1.1, 2026-10-18; 'DT: [(6, -10),
+(2,), (12, -4), (8,)], [1,0,0,1,1,0]', one bit per crossing, bit k for the
+crossing with odd label 2k+1, spherogram's convention) names the realisation
+instead: the drawing script draws it (model["flips"]), the candidate drawings
+are re-drawn with it, and the reference signs are those of (code, vector)
+(``decide_handedness(..., flips=)``), so a positive offset builds THAT
+realisation and a negative one its mirror image.  Where the drawing's diagram
+would be another realisation (mixed signs that no slab mirroring fixes) the
+build is refused with a ChainLayoutError instead of the [warn] below; the
+cache keys carry the vector.  Without a vector nothing changes.
+
+Still 1.1 (2026-10-20, round 4e): the command line refuses a DT code the
+drawing script's reader cannot parse -- alphabetical 'DT[daddcab]',
+prefix-less '8,6,2,4' -- in one [error] line through ChainLayoutError
+(_unparseable_refusal; the scorer's wording: what this tool reads, and that
+dt_converter.py converts other spellings), exit 1; it ended in a traceback
+whose message named a per-process object address ('<ast.Name object at
+0x...>').  Only asked after the drawing script has raised a ValueError that
+is not user-facing, so every code that was read is unchanged.
+
 When the signs are MIXED the diagram is not prime (a chain of simply
 linked rings is a connected sum of Hopf links) and its summands can be
 reflected independently, so no global reflection can match.  If the
@@ -185,7 +205,7 @@ import time
 import numpy as np
 from scipy.spatial import cKDTree
 
-VERSION = "1.0"
+VERSION = "1.1"     # 1.1 (2026-10-18): DT code + flip vector (see the docstring)
 
 
 class ChainLayoutError(ValueError):
@@ -196,6 +216,185 @@ class ChainLayoutError(ValueError):
     ``[error]`` line instead of a traceback -- the message is the whole
     explanation, and the stack adds nothing to it."""
     user_facing = True
+
+
+# ---------------------------------------------------------------------------
+#  DT + flip vector input -- shared helper.  Every tool carries a BYTE-IDENTICAL
+#  copy of this block (from the BEGIN to the END marker), like the version
+#  resolver helpers of Invariant 26.  Needs only ``re``.
+#
+#  Spelling: 'DT: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]'.  One bit per
+#  crossing; bit k belongs to the crossing whose odd label is 2k+1 (the k-th
+#  DT entry).  spherogram/SnapPy convention: walk along the visit with the
+#  SMALLER label -- bit 0 when the other strand crosses from your right to
+#  your left, 1 when from left to right.  Complementing every bit reflects the
+#  page (the mirror image).  A prime diagram has exactly two legal vectors
+#  (complements); a code with k independently reflectable pieces has 2**k.
+# ---------------------------------------------------------------------------
+# BEGIN dt-flips helpers (keep identical in every tool)
+_DT_FLIPS_ERROR = ("could not read %r after the DT code as a flip vector "
+                   "(one 0/1 per crossing, e.g. 'DT: [(4, 6, 2)], [0,0,1]')")
+
+
+def split_dt_flips(text):
+    """Split 'DT: [...], [0,1,...]' into ('DT: [...]', [False, True, ...]).
+
+    Text with nothing after the DT code's closing bracket comes back
+    UNCHANGED with None, so a bare code takes exactly its old path; so does
+    an old multi-list spelling whose later lists hold more components
+    ('DT: [(-6,-8)], [(-4,-2)]').  Also read: ', 010001' / '; 010001' / no
+    separator, '(0,1,..)', spaces instead of commas, T/F and True/False, and
+    the tuple wrapper 'DT: ([(..)], [0,1,..])' (str() of spherogram's
+    DT_code(flips=True)).  A vector has one bit per entry of the code's list.
+    A trailing '# comment' is dropped (a bare code with one comes back
+    without it).  Any other text after the code raises ValueError -- it is
+    never ignored."""
+    s = str(text)
+    t = s.rstrip()
+    i = t.find("[")
+    if i < 0:
+        return s, None
+    depth, j = 0, -1
+    for j in range(i, len(t)):
+        if t[j] == "[":
+            depth += 1
+        elif t[j] == "]":
+            depth -= 1
+            if depth == 0:
+                break
+    if depth != 0:
+        if t.count("[") > 1:
+            raise ValueError("unbalanced brackets in %r: the code's list must "
+                             "close before a flip vector, e.g. "
+                             "'DT: [(4, 6, 2)], [0,0,1]'" % s[:80])
+        return s, None            # unbalanced: the caller's parser reports it
+    head, rest = t[:i], t[j + 1:]
+    note = rest.find("#")
+    base = s if note < 0 else t[:j + 1 + note].rstrip()
+    rest = (rest if note < 0 else rest[:note]).strip()
+    wrapped = head.rstrip().endswith("(") and rest.endswith(")")
+    if wrapped:
+        rest = rest[:-1].strip()
+    if not rest:
+        inner = t[i + 1:j]
+        if "(" in inner and re.search(r"\d", re.sub(r"\([^()]*\)", "", inner)):
+            raise ValueError("numbers outside the parenthesised components of "
+                             "%r: a flip vector goes AFTER the code's closing "
+                             "bracket, e.g. 'DT: [(4, 6, 2)], [0,0,1]'" % s[:80])
+        return base, None
+    code = (head.rstrip()[:-1] if wrapped else head) + t[i:j + 1]
+    body = rest[1:].strip() if rest[0] in ",;" else rest
+    if body and body[0] + body[-1] in ("[]", "()"):
+        body = body[1:-1].strip()
+    tokens = [x for x in re.split(r"[\s,;]+", body) if x]
+    bits = None
+    if len(tokens) == 1 and re.fullmatch(r"[01]+|[TFtf]+", tokens[0]):
+        bits = [ch in "1Tt" for ch in tokens[0]]
+    elif tokens and all(x.lower() in ("0", "1", "t", "f", "true", "false")
+                        for x in tokens):
+        bits = [x.lower() in ("1", "t", "true") for x in tokens]
+    labels = [int(v) for v in re.findall(r"\d+", t[i + 1:j])]
+    n = len(labels)
+    if bits is not None and len(bits) == n:
+        return code, bits
+    labels += [int(v) for v in re.findall(r"\d+", rest)]
+    if (len(labels) > n and sorted(labels) == list(range(2, 2 * len(labels) + 1, 2))
+            and not re.search(r"[^\s,;|()\[\]\d\-\u2212\u2012\u2013\u2014\ufe63\uff0d]", rest)):
+        return base, None         # more components: an old multi-list spelling
+    if bits is not None:
+        raise ValueError("the flip vector has %d entries but the code has %d "
+                         "crossings" % (len(bits), n))
+    raise ValueError(_DT_FLIPS_ERROR % rest)
+
+
+def format_dt_flips(dt_text, flips):
+    """'DT: [...]' + flips -> 'DT: [...], [0,1,...]' (dt_converter's spelling);
+    the bare text unchanged when flips is None."""
+    if flips is None:
+        return dt_text
+    return "%s, [%s]" % (str(dt_text).rstrip(),
+                         ",".join("1" if f else "0" for f in flips))
+
+
+def check_flips(comps, flips):
+    """Raise ValueError unless ``flips`` is a legal vector for the signed DT
+    code ``comps`` (a list of tuples of even integers): one bit per crossing,
+    and the diagram it describes lies on the sphere (every connected piece
+    has genus 0: faces == crossings + 2 x pieces).  Pure Python; accepts the
+    kink vectors spherogram's DTcodec cannot build."""
+    entries = [int(e) for c in comps for e in c]
+    n = len(entries)
+    flips = [bool(f) for f in flips]
+    if len(flips) != n:
+        raise ValueError("the flip vector has %d entries but the code has %d "
+                         "crossings" % (len(flips), n))
+    cross, nxt, start = {}, {}, 1
+    for c in comps:
+        labels = list(range(start, start + 2 * len(c)))
+        for a, b in zip(labels, labels[1:] + labels[:1]):
+            nxt[a] = b
+        start += 2 * len(c)
+    for k, e in enumerate(entries):
+        cross[2 * k + 1] = cross[abs(e)] = k
+    if sorted(cross) != list(range(1, 2 * n + 1)):
+        raise ValueError("not a DT code: the even labels are not a "
+                         "permutation of 2..%d" % (2 * n))
+
+    def slots(p):                 # (in slot, out slot) of label p: S0 E1 N2 W3
+        k = cross[p]
+        small = min(2 * k + 1, abs(entries[k]))
+        if p != small:
+            return 1, 3
+        return (2, 0) if flips[k] else (0, 2)
+
+    other = {}
+    for p in range(1, 2 * n + 1):
+        q = nxt[p]
+        a, b = (cross[p], slots(p)[1]), (cross[q], slots(q)[0])
+        other[a], other[b] = b, a
+    seen, faces = set(), 0
+    for d in other:
+        if d in seen:
+            continue
+        faces += 1
+        while d not in seen:
+            seen.add(d)
+            k, sl = other[d]
+            d = (k, (sl + 1) % 4)
+    parent = list(range(n))
+
+    def root(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    for p in range(1, 2 * n + 1):
+        parent[root(cross[p])] = root(cross[nxt[p]])
+    pieces = len({root(k) for k in range(n)})
+    if faces != n + 2 * pieces:
+        raise ValueError(
+            "the flip vector %s is not a legal one for this DT code: it "
+            "describes no diagram on the sphere (%d faces; a planar diagram "
+            "with %d crossing(s) in %d piece(s) has %d)"
+            % ("".join("1" if f else "0" for f in flips), faces, n, pieces,
+               n + 2 * pieces))
+
+
+def flips_crossing_signs(comps, flips):
+    """Crossing signs (+1 / -1, in DT entry order) of the diagram (comps,
+    flips) in spherogram's convention, where a NEGATIVE entry means the even
+    visit is the over-crossing: negative exactly when
+    flip XOR (even visit over) XOR (even label < odd label)."""
+    out = []
+    for k, e in enumerate(int(e) for c in comps for e in c):
+        neg = bool(flips[k]) ^ (e < 0) ^ (abs(e) < 2 * k + 1)
+        out.append(-1 if neg else 1)
+    return out
+# END dt-flips helpers
+
+
+def _bits(flips):
+    return "".join("1" if f else "0" for f in flips)
 
 # --------------------------------------------------------------------------
 # parameters (the prototype's; internal units, see the module docstring)
@@ -1082,7 +1281,13 @@ def choose_drawing(model, P, centers, drawing="auto", negative_even=None, need_c
     candidate ('ellipse', 'spring', 'tutte'), or the first usable of the
     given drawing and the candidates ('auto').  Returns (model, curves,
     order, samples_in_model_order, which, tried); raises ChainLayoutError when no
-    drawing is usable."""
+    drawing is usable.
+
+    1.1: a model carrying a flip vector (model["flips"]) re-draws the
+    candidates WITH it (`dt_flips_string_from_model`: the code in
+    spherogram's convention plus the vector, so --negative-even over), so a
+    candidate is a drawing of the given realisation -- the drawing script
+    draws the vector or refuses."""
     D = _draw_module()
     drawing = str(drawing or "auto").strip().lower()
     if drawing not in DRAWING_CHOICES:
@@ -1097,9 +1302,18 @@ def choose_drawing(model, P, centers, drawing="auto", negative_even=None, need_c
             return model, curves, order, S, "given", tried
         if drawing == "given":
             raise ChainLayoutError("chain layout: the given 2-D drawing cannot be segmented (%s)" % why)
-    if negative_even is None:
-        negative_even = _negative_even_of(model)
-    dt = D.dt_string_from_model(model)
+    if model.get("flips") is not None:
+        # 1.1: the re-drawn candidates carry the vector; the code is in
+        # spherogram's convention, so it is read with --negative-even over
+        if not hasattr(D, "dt_flips_string_from_model"):
+            raise ChainLayoutError("chain layout: %s cannot re-draw a DT code with a flip vector"
+                                   % getattr(D, "__name__", "the drawing script"))
+        dt = D.dt_flips_string_from_model(model)
+        negative_even = "over"
+    else:
+        if negative_even is None:
+            negative_even = _negative_even_of(model)
+        dt = D.dt_string_from_model(model)
     import io as _io
     for name, extra in DRAWING_CANDIDATES:
         if drawing not in ("auto", name):
@@ -1205,10 +1419,19 @@ def _flat_at_cut(curves, c):
     return True
 
 
-def decide_handedness(model, samples, sphere_offset, curves=None):
+def decide_handedness(model, samples, sphere_offset, curves=None, flips=None):
     """Decide, EXACTLY, how the drawing must be lifted so that a positive
     offset realises dt_converter's (= spherogram's normalised) reading of
     the DT code and a negative offset its mirror.
+
+    1.1: with a flip vector -- ``flips``, else ``model["flips"]`` (the
+    drawing script sets it when the DT code carries one) -- the reading is
+    THAT realisation instead of the normalisation: r_k = the sign of
+    crossing k in (the model's code in spherogram's convention, the vector);
+    the bits describe the shadow, so they apply to that code whatever
+    --negative-even was.  Then 'mixed' with no slab mirroring that fixes it
+    (and 'unknown') is a ChainLayoutError: building the drawing's own
+    diagram would be another realisation than the one asked for.
 
     d_k = the drawing's sign at crossing k (drawing_signs), r_k = the
     reading's (dt_converter._crossing_signs of the resolved flip vector,
@@ -1235,13 +1458,25 @@ def decide_handedness(model, samples, sphere_offset, curves=None):
     neg = float(sphere_offset) < 0.0
     n = len(dsg)
     info = dict(code=comps, drawing_signs=dsg, n=n, slab_signs=None)
+    given = flips if flips is not None else model.get("flips")
+    if given is not None:
+        given = [bool(f) for f in given]
+        try:
+            check_flips(comps, given)
+        except ValueError as e:
+            raise ChainLayoutError("chain layout: %s" % e)
+        info.update(given_flips=given)
     try:
         _here_on_path()
         import dt_converter as C
-        ref = C.Diagram(comps).with_flips_resolved()
+        ref = C.Diagram(comps).with_flips_resolved() if given is None else C.Diagram(comps, given)
         walk = C.dt_walk(comps)
         rsg = C._crossing_signs(ref.flips, walk)
     except Exception as e:  # noqa: BLE001
+        if given is not None:
+            raise ChainLayoutError("chain layout: the crossing signs of the given flip vector %s could not "
+                                   "be computed (%s), so its realisation cannot be built"
+                                   % (_bits(given), str(e)[:80]))
         info.update(relation="unknown", reflect=neg, ref_signs=None, target_flips=None,
                     target_signs=[-x for x in dsg] if neg else list(dsg),
                     note="spherogram's reading could not be computed (%s); the drawing as drawn "
@@ -1256,15 +1491,22 @@ def decide_handedness(model, samples, sphere_offset, curves=None):
     tsg = [-x for x in rsg] if neg else list(rsg)
     tflips = [not f for f in rflips] if neg else list(rflips)
     info.update(relation=rel, agree=eq, ref_signs=rsg, ref_flips=rflips, drawing_flips=dflips)
+    # what the drawing is compared with: spherogram's reading, or (1.1) the given realisation
+    reading = ("spherogram's reading of the DT code" if given is None else
+               "the given realisation (flips %s)" % _bits(given))
     if rel == "equal":
         info.update(reflect=neg, target_signs=tsg, target_flips=tflips,
-                    note="the drawing realises spherogram's reading of the DT code (signs equal at "
-                         "%d/%d crossings)" % (n, n))
+                    note="the drawing realises %s (signs equal at %d/%d crossings)" % (reading, n, n)
+                    if given is not None else
+                    "the drawing realises spherogram's reading of the DT code (signs equal at "
+                    "%d/%d crossings)" % (n, n))
         return info
     if rel == "opposite":
         info.update(reflect=not neg, target_signs=tsg, target_flips=tflips,
-                    note="the drawing is the in-plane mirror of spherogram's reading (signs opposite "
-                         "at %d/%d crossings)" % (n, n))
+                    note="the drawing is the in-plane mirror of %s (signs opposite at %d/%d crossings)"
+                    % (reading, n, n) if given is not None else
+                    "the drawing is the in-plane mirror of spherogram's reading (signs opposite "
+                    "at %d/%d crossings)" % (n, n))
         return info
     # mixed: try mirroring whole slabs (connected-sum summands)
     why = None
@@ -1309,13 +1551,21 @@ def decide_handedness(model, samples, sphere_offset, curves=None):
             sig = [-x for x in sig]
             reflect = True
         info.update(reflect=reflect, slab_signs=sig, target_signs=tsg, target_flips=tflips,
-                    note=("the drawing agrees with spherogram's reading at only %d of %d crossings: the "
+                    note=("the drawing agrees with %s at only %d of %d crossings: the "
                           "diagram is a connected sum and its summands can be reflected independently; "
                           "slab(s) %s mirrored through the page (each a summand: its cuts meet the link "
                           "in 2 points)%s"
-                          % (eq, n, ", ".join(str(k) for k, x in enumerate(sig) if x < 0) or "none",
+                          % ("spherogram's reading" if given is None else reading,
+                             eq, n, ", ".join(str(k) for k, x in enumerate(sig) if x < 0) or "none",
                              " and the finished curve reflected" if reflect else "")))
         return info
+    if given is not None:
+        # 1.1: the realisation was NAMED -- the drawing's own diagram would be another one
+        raise ChainLayoutError(
+            "chain layout: the 2-D drawing shows the flip vector %s, which agrees with the given %s at "
+            "only %d of %d crossings, and %s -- so the given realisation cannot be built from this "
+            "drawing (the drawing's own diagram would be another realisation of the DT code)"
+            % (_bits(dflips), _bits(given), eq, n, why))
     info.update(reflect=neg, target_signs=[-x for x in dsg] if neg else list(dsg),
                 target_flips=[not f for f in dflips] if neg else list(dflips),
                 note=("the drawing's crossing signs agree with spherogram's reading at only %d of %d "
@@ -2346,12 +2596,20 @@ def build_chain_xyz_components(model, P, centers, sphere_radius=50.0, sphere_off
     out_spacing = spacing / s
 
     model_used, curves, order, S_model, which, tried = choose_drawing(model, P, centers, drawing=drawing)
-    hand = decide_handedness(model_used, S_model, off, curves=curves)
+    # 1.1: a flip vector on the ORIGINAL model names the realisation (a re-drawn
+    # candidate carries it too, but the caller's model is the authority)
+    given = model.get("flips")
+    if given is None:
+        hand = decide_handedness(model_used, S_model, off, curves=curves)
+    else:
+        hand = decide_handedness(model_used, S_model, off, curves=curves, flips=given)
     sl_signs = hand.get("slab_signs")
     key = (VERSION, effective_code(model_used),
            tuple(np.round(np.vstack([c['xy'] for c in curves]).ravel(), 12).tolist()),
            thickness, lift, twist, rounds, symmetrize,
            None if sl_signs is None else tuple(sl_signs))
+    if given is not None:
+        key = key + (tuple(bool(f) for f in given),)     # a flips run never shares a bare entry
     cached = key in _CACHE
     if cached:
         internal, rep = _CACHE[key]
@@ -2464,6 +2722,9 @@ def build_chain_xyz_components(model, P, centers, sphere_radius=50.0, sphere_off
                    "in chain order" if feat['centres_monotone'] else "NOT in chain order",
                    ", ".join("%.1f" % v for v in feat['plane_angles_deg'])))
     realises = "spherogram's reading of the DT code" if off > 0 else "the mirror of spherogram's reading"
+    if given is not None:
+        realises = ("the given realisation (flips %s)" % _bits(given) if off > 0 else
+                    "the mirror image of the given realisation (flips %s)" % _bits(given))
     if hand['relation'] in ("equal", "opposite"):
         msgs.append("[chain] handedness: %s; %s offset -> %s (%s)."
                     % (hand['note'], "positive" if off > 0 else "negative", realises,
@@ -3629,7 +3890,11 @@ def _build_folded_chain(model, P, centers, sphere_radius, sphere_offset, xyz_spa
                                "chain -- round end rings, each clasp a bundle of parallel bights through the "
                                "next ring (c crossings = 2 x bights x bights).  Use --chain-form perpendicular."
                                % e)
-    hand = decide_handedness(model_used, S_model, off, curves=curves)
+    given = model.get("flips")        # 1.1: the realisation named by a flip vector
+    if given is None:
+        hand = decide_handedness(model_used, S_model, off, curves=curves)
+    else:
+        hand = decide_handedness(model_used, S_model, off, curves=curves, flips=given)
     sl_signs = hand.get("slab_signs")
     symmetrize = str(symmetrize or "auto").strip().lower()
     if symmetrize not in SYMMETRIZE_CHOICES:
@@ -3638,6 +3903,8 @@ def _build_folded_chain(model, P, centers, sphere_radius, sphere_offset, xyz_spa
            tuple(np.round(np.vstack([c['xy'] for c in curves]).ravel(), 12).tolist()),
            preset, float(budget), optimizer, symmetrize, None if sl_signs is None else tuple(sl_signs),
            band_v, ring_v)
+    if given is not None:
+        key = key + (tuple(bool(f) for f in given),)     # a flips run never shares a bare entry
     cached = key in _CACHE
     if cached:
         tube_comps, rep = _CACHE[key]
@@ -3733,6 +4000,9 @@ def _build_folded_chain(model, P, centers, sphere_radius, sphere_offset, xyz_spa
                    ", ".join("%.1f" % v for v in feat['fold_planes_deg']) or "-",
                    ", ".join("%.1f" % v for v in feat['band_twist_deg']) or "-", clr, clr * tube))
     realises = "spherogram's reading of the DT code" if off > 0 else "the mirror of spherogram's reading"
+    if given is not None:
+        realises = ("the given realisation (flips %s)" % _bits(given) if off > 0 else
+                    "the mirror image of the given realisation (flips %s)" % _bits(given))
     if hand['relation'] in ("equal", "opposite") or (hand['relation'] == "mixed" and sl_signs is not None):
         msgs.append("[chain] handedness: %s; %s offset -> %s%s."
                     % (hand['note'], "positive" if off > 0 else "negative", realises,
@@ -3796,6 +4066,30 @@ def _mirror_drawing(obj):
     return a
 
 
+def _unparseable_refusal(dt):
+    """The one-line refusal of a DT code the drawing script's reader cannot parse, or None when it reads it (or
+    refuses it with its own user-facing error) -- round 4e, 2026-10-20, the drawing script's _unparseable_refusal
+    with this tool's name: the scorer's wording, what is read and that dt_converter.py converts other spellings,
+    without the per-process object address of literal_eval's message ('<ast.Name object at 0x...>')."""
+    D = _draw_module()
+    try:
+        D.parse_dt_flips(dt)
+    except ValueError as exc:
+        if getattr(exc, "user_facing", False):
+            return None
+        why = " ".join(re.sub(r" at 0x[0-9A-Fa-f]+", "", str(exc)).split()) or type(exc).__name__
+        try:
+            text = split_dt_flips(str(dt))[0].strip()
+        except ValueError:
+            text = str(dt).strip()
+        return ("the chain layout cannot parse the DT code %s (%s): it reads signed DT codes written as lists of "
+                "nonzero even integers, e.g. 'DT: [(4, 6, 2)]', optionally followed by a flip vector.  "
+                "dt_converter.py -i \"%s\" --to dt converts other spellings (alphabetical, packed hex, Gauss, PD, "
+                "braid words, names) to that one (--to dt-flips adds the flip vector) and says what is wrong with a "
+                "code it cannot read" % (text, why[:160], text))
+    return None
+
+
 def _prepare(dt, extra=()):
     import io as _io
     D = _draw_module()
@@ -3809,7 +4103,11 @@ def run_selftest(quiet=False, full=False):
     against spherogram's reading: the connected-sum path), the chiral prime
     2-ring chain L4a1 from its own and from its in-plane mirrored drawing
     (the 'equal' and 'opposite' paths), determinism; with ``full`` the
-    8-ring chain too (~2 minutes)."""
+    8-ring chain too (~2 minutes).  1.1: DT code + flip vector -- the 4-ring
+    chain with given vectors at both offset signs (signed linking numbers
+    predicted from the vector's own crossing signs), L4a1 with 0011 / 1100,
+    the refusal of a drawing whose diagram would be another realisation, an
+    illegal vector, and the command line's one-line [error]."""
     fails = []
     n_checks = [0]
 
@@ -4001,6 +4299,73 @@ def run_selftest(quiet=False, full=False):
     check(kf == 200 and FS2.stats['steps'] > 0 and FS2.cert.state(FS2.X)[0],
           "FIRE (the prototype's dynamics) on the 4-ring start: %d steps, %d accepted, state certified"
           % (kf, FS2.stats['steps']))
+    # 7. (1.1) DT code + flip vector: the GIVEN realisation at +offset, its
+    # mirror image at -offset -- the signed linking numbers predicted from
+    # the vector's own crossing signs (the shared flips_crossing_signs, not
+    # dt_converter); refusals of an illegal vector and of a drawing whose
+    # diagram would be another realisation
+    vecs = [("100110", (5.0, -5.0)), ("011001", (5.0,))] + ([("110100", (5.0,))] if full else [])
+    for bits, offs in vecs:
+        try:
+            dv = _prepare(CHAIN4 + ", [%s]" % ",".join(bits), ELLIPSE_ARGS)
+        except ValueError as e:
+            check(False, "4-ring chain with flips %s: drawn (%s)" % (bits, e))
+            continue
+        fl = [b == "1" for b in bits]
+        lk_pred = reference_linking(dv["model"], flips_crossing_signs(effective_code(dv["model"]), fl))
+        for off in offs:
+            rep = {}
+            try:
+                out = build_chain_xyz_components(dv["model"], dv["P"], dv["centers"], sphere_offset=off,
+                                                 rounds=2, status_messages=[], report_out=rep)
+            except ChainLayoutError as e:
+                check(False, "4-ring chain with flips %s at offset %+g builds (%s)" % (bits, off, e))
+                continue
+            lk = linking_numbers(out, np.random.default_rng(7))
+            want = lk_pred if off > 0 else -lk_pred
+            check(np.array_equal(lk, want) and rep.get('check', {}).get('status') in ("ok", "unavailable")
+                  and rep['handedness'].get('given_flips') == fl,
+                  "4-ring chain with flips %s at offset %+g: signed linking numbers %s = %sthe vector's %s, "
+                  "self-check %s" % (bits, off, lk[np.triu_indices(4, 1)].astype(int).tolist(),
+                                     "" if off > 0 else "minus ",
+                                     lk_pred[np.triu_indices(4, 1)].astype(int).tolist(),
+                                     rep.get('check', {}).get('status')))
+    for bits, lk_want in (("0011", -2), ("1100", 2)):
+        dv = _prepare(L4A1 + ", [%s]" % ",".join(bits), ELLIPSE_ARGS)
+        rep = {}
+        try:
+            out = build_chain_xyz_components(dv["model"], dv["P"], dv["centers"], sphere_offset=5.0,
+                                             rounds=2, status_messages=[], report_out=rep)
+            lk = int(round(linking_numbers(out, np.random.default_rng(7))[0, 1]))
+        except ChainLayoutError as e:
+            lk = "error: %s" % e
+        check(lk == lk_want, "L4a1 with flips %s at offset +5: lk %s (want %+d)" % (bits, lk, lk_want))
+    # a drawing whose crossing signs are MIXED against the given vector, with
+    # no segmentation to mirror summands: refused (the bare code would build
+    # the drawing's own diagram with a [warn])
+    m0, _c0, _o0, S0, _w0, _t0 = choose_drawing(data["model"], data["P"], data["centers"])
+    dfl = decide_handedness(m0, S0, 5.0)["drawing_flips"]
+    legal = [v for v in ("001011", "001110", "011001", "011100", "100011", "100110", "110001", "110100")
+             if [b == "1" for b in v] not in (dfl, [not f for f in dfl])]
+    try:
+        decide_handedness(m0, S0, 5.0, flips=[b == "1" for b in legal[0]])
+        check(False, "given flips %s against a drawing of %s, no segmentation: refused" % (legal[0], _bits(dfl)))
+    except ChainLayoutError as e:
+        check("cannot be built" in str(e),
+              "given flips %s against a drawing of %s, no segmentation: refused (%s)"
+              % (legal[0], _bits(dfl), str(e)[:60]))
+    try:
+        decide_handedness(m0, S0, 5.0, flips=[False] * 6)
+        check(False, "an illegal flip vector refused")
+    except ChainLayoutError as e:
+        check("not a legal one" in str(e), "an illegal flip vector refused: %s" % str(e)[:70])
+    import io as _io
+    import contextlib as _ctx
+    err = _io.StringIO()
+    with _ctx.redirect_stderr(err):
+        rc = main(["--dt", CHAIN4 + ", [0,0,0,0,0,0]"])
+    check(rc == 1 and err.getvalue().startswith("[error] ") and err.getvalue().count("\n") == 1,
+          "command line: an illegal vector is one [error] line, exit 1 (%s)" % err.getvalue().strip()[:70])
     if full:
         d8 = _prepare(CHAIN8, ELLIPSE_ARGS)
         msgs, rep = [], {}
@@ -4047,7 +4412,12 @@ def main(argv=None):
     ap = argparse.ArgumentParser(
         description="Segment-and-reunite 3-D layout of a linear chain link (one ring linked only "
                     "with its neighbours).  The drawing script offers it as --sphere-layout chain.")
-    ap.add_argument("--dt", help="signed DT code of the chain")
+    ap.add_argument("--dt", help="signed DT code of the chain, optionally followed by a flip vector naming "
+                                 "ONE realisation, e.g. 'DT: [(6, -10), (2,), (12, -4), (8,)], "
+                                 "[1,0,0,1,1,0]' (bit k for the crossing with odd label 2k+1, "
+                                 "spherogram's convention; complementing every bit = the mirror image): "
+                                 "a positive --offset then builds that realisation, a negative one its "
+                                 "mirror image")
     ap.add_argument("--xyz", help="write the curve here (blank-line separated components)")
     ap.add_argument("--radius", type=float, default=50.0, help="sphere radius (scale): default 50")
     ap.add_argument("--offset", type=float, default=5.0,
@@ -4083,7 +4453,19 @@ def main(argv=None):
     if not a.dt:
         ap.error("--dt is required (or --selftest)")
     # 'auto' starts from the elliptical drawing (and falls back to the others)
-    data = _prepare(a.dt, ELLIPSE_ARGS)
+    try:
+        data = _prepare(a.dt, ELLIPSE_ARGS)
+    except ValueError as e:
+        # 1.1: the drawing script's refusals (an illegal flip vector, a layout
+        # that drew another realisation) are one [error] line; a genuine bug
+        # keeps its traceback.  Round 4e: so is a code its reader cannot parse
+        if not getattr(e, "user_facing", False):
+            why = _unparseable_refusal(a.dt)
+            if why is None:
+                raise
+            e = ChainLayoutError(why)
+        print("[error] %s" % e, file=sys.stderr)
+        return 1
     try:
         out = build_chain_xyz_components(data["model"], data["P"], data["centers"], sphere_radius=a.radius,
                                          sphere_offset=a.offset, xyz_spacing=a.spacing, twist=a.twist,

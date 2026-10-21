@@ -1,10 +1,139 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-strand_passage_guiV4_2.py  (V4.2)
+strand_passage_guiV4_3.py  (V4.3)
 =================================
 
 Interactive strand-passage explorer with component-colour preservation.
+
+What is new in V4.3
+-------------------
+* DT codes may carry a FLIP VECTOR: ``--dt``, the GUI's DT field, a drawing
+  session's ``texts.dt`` and ``--demo`` accept
+  ``DT: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]`` (also ', 010001', '(0,1,..)',
+  T/F, str() of spherogram's DT_code(flips=True)).  A signed DT code alone
+  does not fix the diagram -- the code above is the granny knot, its mirror
+  or the SQUARE knot -- and the vector names one: bit k belongs to the k-th DT
+  entry (odd label 2k+1); walking along the visit with the smaller label,
+  bit 0 = the other strand crosses from your right to your left (spherogram /
+  SnapPy convention); complementing every bit is the mirror image.  An
+  illegal vector (wrong length, or no diagram on the sphere) is refused.
+  With a vector the realisation is kept through every step: the diagram
+  carries its crossing signs (``link_engine_v4_1``), a passage keeps the
+  vector (a crossing change does not touch the shadow), Simplify and every
+  SnapPy step build links with ``DTcodec(comps, flips)`` and export verified
+  (DT, flips) pairs, and the Jones polynomials are those of the given
+  realisation.  Measured (``--nongui`` under Sage): on
+  ``DT: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]`` (the square knot) the
+  passages at DT entries 0, 4 and 5 give the LEFT-handed trefoil and those at
+  1-3 the right-handed one; V4.2, which read the bare code as the granny, gave
+  the right-handed trefoil for all six.
+* ``--nongui`` with a vector: the DT columns of the passage sheets carry the
+  vector ('DT_code_before_simplify' etc. in the flips spelling) and new
+  columns ``dt_flip_vector_before_simplify`` / ``_after_simplify`` /
+  ``_chosen`` (named apart from ``flipped_crossing`` / ``arriving_flips``,
+  which mean CROSSING CHANGES); ``card_index`` gains ``dt_flip_vector``;
+  ``run_info`` gains ``input_dt_flip_vector``; the overview cards are drawn
+  and captioned with their vectors, and the header's start code is no longer
+  cut at 66 characters (it is wrapped instead).  With ``--negative-even under``
+  the code is first rewritten in spherogram's convention (entries negated;
+  the vector, a property of the shadow, is unchanged).
+* Fix: ``advance`` rebuilt the direct after-passage diagram from
+  ``to_signed_dt()`` -- always in the 'over' convention -- with the caller's
+  ``negative_even``, so with ``--negative-even under`` every crossing of the
+  direct diagram was switched relative to the passage actually made (the
+  engine's SnapPy rebuild had the same bug).  Both now read it as 'over'.
+* Fix (same root cause): ``--nongui --negative-even under`` handed the
+  user's BARE code to SnapPy as is, i.e. in the 'over' convention.  The link
+  SnapPy analysed was nevertheless the right one -- spherogram picks the
+  realisation of ``-X`` that is ``X``'s seen from the other side, so a bare
+  code and its negation read as the same link (measured: writhe, Jones and
+  linking matrix equal on 59 codes, the corpus and all its crossing
+  changes) -- but the workbook mixed conventions ('under' direct codes next
+  to SnapPy's 'over' codes) and the overview drew every card, SnapPy's
+  codes included, in 'under': each SnapPy-simplified card showed the
+  diagram with every crossing switched.  The bare code is now rewritten in
+  the 'over' convention first, exactly as a flips code already was: an
+  [info] line, the run_info row ``negative_even_note``, every code and
+  ``flipped_crossing`` label in 'over', every card drawn as its code.
+  'over' runs are unchanged.
+* A bare code (no vector) gives exactly the V4.2 results otherwise -- unless
+  the composite gate flags it (2026-10-19).  A bare code fixes a connected
+  sum or split union only up to reflecting its parts independently, and
+  every bare re-read lets spherogram choose again: measured on the bare
+  granny, ``--nongui`` gave every passage the right-handed trefoil's Jones
+  polynomial for the square-reading code (3 of the 6 are left-handed), a
+  non-minimal granny input was re-rooted onto the square knot in 6 of 7
+  workbooks, and Simplify showed the square knot for the granny 10 times in
+  10.  A bare root that ``link_engine.composite_danger`` flags (two or more
+  independently reflectable parts knotted or linked; never a prime link) is
+  now followed as spherogram reads it (``link_engine.spherogram_reading``:
+  the realisation ``snappy.Link(bare)`` builds) through the flips machinery
+  above -- the GUI's root, ``--nongui`` and ``--demo``, with one [info] line
+  (``--nongui``: the flips columns and ``run_info``'s
+  ``dt_flip_vector_note``).  If spherogram cannot read the code a [warn]
+  says so and the bare run goes ahead as before.  Simplify and every
+  passage on a bare diagram go through the engine's gated
+  ``snappy_global_simplification``, which keeps a flagged code's
+  realisation the same way.  Unflagged runs are unchanged.
+* The carried realisation (2026-10-19, second pass of the gate).  Every
+  bare root now CARRIES its realisation -- spherogram's reading, or
+  dt_converter's mended reading for a flagged root spherogram reads
+  illegally (the split 'DT: [(4,6,2),(10,12,8)]' ran into "Link isn't
+  planar"; it now runs as 001001) -- and a passage keeps the vector.  It
+  is written out (the flips spelling, the ``dt_flip_vector_*`` and card
+  ``dt_flip_vector`` columns, '' on the other rows of that sheet) ONLY on
+  codes the composite gate flags, and it is followed from the first flagged
+  code on.  ``--nongui``'s bare re-reads all keep it there: the source
+  simplification (a root re-rooted onto a flagged code follows the
+  simplified link's own vector: the 10-crossing prime diagram of the square
+  knot 'DT: [(14, -8, 10, -2, 16, 18, 20, -6, -4, 12)]' used to give six
+  right-handed trefoils in the Jones column, now three of each hand), each
+  passage (a flagged direct code follows the carried vector), SnapPy's
+  flagged simplified code (its own vector: 8_19's passage at -2 is the
+  granny in every run), the chosen code, the second-pass roots and the
+  reconciliation.  In the GUI a passage whose direct code is flagged follows
+  the carried vector, not spherogram's reading of the direct code.  A flagged
+  bare root's run (round 2: every code with its vector) now writes vectors
+  only on its flagged codes.  A run that meets no flagged code is unchanged.
+* (2026-10-19, round 4) No bare decode hangs any more: importing the engine
+  installs dt_converter's guard on spherogram's flips-free DT decoder, which
+  raises DecoderLoop where it would loop for ever ('DT: [(8,6,2,4)]', a
+  trefoil with a kink: ``--nongui`` and ``--demo`` never returned, and the
+  GUI's Load froze).  ``--nongui`` on a bare root spherogram cannot build
+  (DecoderLoop, 'not enough values to unpack' on a kink, 'PD code isn't
+  consistent' or "Link isn't planar" on split codes) used to end in a
+  traceback; it now follows a legal reading of it -- spherogram's own where
+  only its string parser fails, dt_converter's (the smallest flip vector
+  spherogram builds), or a legal flip vector spherogram builds read off a
+  planar embedding (``link_engine.buildable_legal_flips``) -- with one [info]
+  line, exit 0 (the root is written with that vector, every other code the
+  composite gate does not flag still bare); a root with no reading at all, or
+  with no crossings, is one [error]
+  line, exit 2.  A FLAGGED root spherogram's decoder cannot read is followed
+  the same way in the GUI, ``--demo`` and ``--nongui`` (it was read bare
+  with a [warn]).  A bare code that no diagram on the sphere has
+  ('DT: [(4,6,8,10,2)]', 'DT: [(8,10,12),(2,4,6)]') is refused in one line
+  by ``--nongui`` and ``--demo`` and in the error window of the GUI's Load;
+  each ended in a traceback.  Codes spherogram reads run exactly as before.
+* (2026-10-20, round 4b) The [info] lines and the ``dt_flip_vector_note`` of
+  a followed unflagged root say that the root is written with its vector
+  (they said only flagged codes were); the one-line no-diagram refusal of
+  ``--nongui`` / ``--demo`` quotes the code without its '# comment'; every
+  bare ``snappy.Link`` read goes through ``_bare_snappy_link``, which retries
+  the decoder guard's installation if it failed at import.
+* (2026-10-20, round 4d) ``--nongui`` and ``--demo`` on a BARE code the
+  parser cannot read -- an alphabetical 'DT[daddcab]', a prefix-less
+  '8,6,2,4' -- print one [error] line in the scorer's wording
+  (``_unparseable_text``: what this tool reads, and that dt_converter.py
+  converts other spellings), exit 2; they ended in a traceback, with a
+  per-process object address in it.  ``--nongui`` on an unflagged root
+  with an EMPTY component that spherogram cannot read ('DT: [(8,6,2,4),
+  ()]': dt_converter refuses the empty component) no longer advises a flip
+  vector -- spherogram builds no realisation with a trailing empty
+  component -- but names the component to drop (without it the run
+  follows a reading, exit 0).  Codes that ran run exactly as before.
+* Imports ``draw_dt_original_labelsV5_9.py`` and ``link_engine_v4_1.py``.
 
 What is new in V4.2
 -------------------
@@ -155,17 +284,18 @@ What is new in V3.2
   operation order; topologically identical structures are merged into one card.
 
 Non-interactive spreadsheet (behaves like the old strand_pass_sage.py):
-    sage -python strand_passage_guiV4_2.py --nongui \
+    sage -python strand_passage_guiV4_3.py --nongui \
         --dt "DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]" \
         --out strand_passage_results.xlsx
 
 Interactive run:
-    sage -python strand_passage_guiV4_2.py                 # SnapPy enabled
-    sage -python strand_passage_guiV4_2.py --dt "DT: [(4,6,2)]"
-    python3 strand_passage_guiV4_2.py --gui-backend agg    # if TkAgg won't load
+    sage -python strand_passage_guiV4_3.py                 # SnapPy enabled
+    sage -python strand_passage_guiV4_3.py --dt "DT: [(4,6,2)]"
+    sage -python strand_passage_guiV4_3.py --dt "DT: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]"
+    python3 strand_passage_guiV4_3.py --gui-backend agg    # if TkAgg won't load
 
 Headless cascade figure (no display needed):
-    python3 strand_passage_guiV4_2.py --dt "DT: [(4,6,2)]" --demo 2 1 --out chain.png
+    python3 strand_passage_guiV4_3.py --dt "DT: [(4,6,2)]" --demo 2 1 --out chain.png
 """
 
 from __future__ import annotations
@@ -187,13 +317,13 @@ import numpy as np
 # backend so Sage/macOS never fails before the GUI's own backend fallback runs.
 os.environ.setdefault("MPLBACKEND", "Agg")
 
-import draw_dt_original_labelsV5_8 as D          # noqa: E402
-import link_engine_v4_0 as E                       # noqa: E402
+import draw_dt_original_labelsV5_9 as D          # noqa: E402
+import link_engine_v4_1 as E                       # noqa: E402
 
 TAB10_NAMES = ["blue", "orange", "green", "red", "purple",
                "brown", "pink", "gray", "olive", "cyan"]
 DEFAULT_DT = "DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]"
-VERSION = "4.2"
+VERSION = "4.3"
 OVERVIEW_FONT_FAMILY = "Arial"
 OVERVIEW_TEXT_BOX_PAD = 0.42
 OVERVIEW_DIAGRAM_DT_LABEL_BOX_PAD = 0.22
@@ -209,6 +339,177 @@ TILE = 2.4
 # Fallback click/hover radius (data units) for a diagram with a single crossing,
 # where there is no neighbour distance to calibrate against.
 SINGLE_CROSSING_RADIUS = 0.28
+
+
+# --------------------------------------------------------------------------- #
+#  DT + flip vector (V4.3).  The block between the BEGIN and END markers is the
+#  toolkit's shared helper, byte-identical in every tool that reads DT text.
+#  'DT: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]': bit k belongs to the k-th DT
+#  entry (odd label 2k+1); walk along the visit with the SMALLER label -- bit 0
+#  when the other strand crosses from your right to your left.  Complementing
+#  every bit reflects the page (the mirror image).  The components themselves
+#  are read by link_engine's parse_dt_flips.
+# --------------------------------------------------------------------------- #
+# BEGIN dt-flips helpers (keep identical in every tool)
+_DT_FLIPS_ERROR = ("could not read %r after the DT code as a flip vector "
+                   "(one 0/1 per crossing, e.g. 'DT: [(4, 6, 2)], [0,0,1]')")
+
+
+def split_dt_flips(text):
+    """Split 'DT: [...], [0,1,...]' into ('DT: [...]', [False, True, ...]).
+
+    Text with nothing after the DT code's closing bracket comes back
+    UNCHANGED with None, so a bare code takes exactly its old path; so does
+    an old multi-list spelling whose later lists hold more components
+    ('DT: [(-6,-8)], [(-4,-2)]').  Also read: ', 010001' / '; 010001' / no
+    separator, '(0,1,..)', spaces instead of commas, T/F and True/False, and
+    the tuple wrapper 'DT: ([(..)], [0,1,..])' (str() of spherogram's
+    DT_code(flips=True)).  A vector has one bit per entry of the code's list.
+    A trailing '# comment' is dropped (a bare code with one comes back
+    without it).  Any other text after the code raises ValueError -- it is
+    never ignored."""
+    s = str(text)
+    t = s.rstrip()
+    i = t.find("[")
+    if i < 0:
+        return s, None
+    depth, j = 0, -1
+    for j in range(i, len(t)):
+        if t[j] == "[":
+            depth += 1
+        elif t[j] == "]":
+            depth -= 1
+            if depth == 0:
+                break
+    if depth != 0:
+        if t.count("[") > 1:
+            raise ValueError("unbalanced brackets in %r: the code's list must "
+                             "close before a flip vector, e.g. "
+                             "'DT: [(4, 6, 2)], [0,0,1]'" % s[:80])
+        return s, None            # unbalanced: the caller's parser reports it
+    head, rest = t[:i], t[j + 1:]
+    note = rest.find("#")
+    base = s if note < 0 else t[:j + 1 + note].rstrip()
+    rest = (rest if note < 0 else rest[:note]).strip()
+    wrapped = head.rstrip().endswith("(") and rest.endswith(")")
+    if wrapped:
+        rest = rest[:-1].strip()
+    if not rest:
+        inner = t[i + 1:j]
+        if "(" in inner and re.search(r"\d", re.sub(r"\([^()]*\)", "", inner)):
+            raise ValueError("numbers outside the parenthesised components of "
+                             "%r: a flip vector goes AFTER the code's closing "
+                             "bracket, e.g. 'DT: [(4, 6, 2)], [0,0,1]'" % s[:80])
+        return base, None
+    code = (head.rstrip()[:-1] if wrapped else head) + t[i:j + 1]
+    body = rest[1:].strip() if rest[0] in ",;" else rest
+    if body and body[0] + body[-1] in ("[]", "()"):
+        body = body[1:-1].strip()
+    tokens = [x for x in re.split(r"[\s,;]+", body) if x]
+    bits = None
+    if len(tokens) == 1 and re.fullmatch(r"[01]+|[TFtf]+", tokens[0]):
+        bits = [ch in "1Tt" for ch in tokens[0]]
+    elif tokens and all(x.lower() in ("0", "1", "t", "f", "true", "false")
+                        for x in tokens):
+        bits = [x.lower() in ("1", "t", "true") for x in tokens]
+    labels = [int(v) for v in re.findall(r"\d+", t[i + 1:j])]
+    n = len(labels)
+    if bits is not None and len(bits) == n:
+        return code, bits
+    labels += [int(v) for v in re.findall(r"\d+", rest)]
+    if (len(labels) > n and sorted(labels) == list(range(2, 2 * len(labels) + 1, 2))
+            and not re.search(r"[^\s,;|()\[\]\d\-\u2212\u2012\u2013\u2014\ufe63\uff0d]", rest)):
+        return base, None         # more components: an old multi-list spelling
+    if bits is not None:
+        raise ValueError("the flip vector has %d entries but the code has %d "
+                         "crossings" % (len(bits), n))
+    raise ValueError(_DT_FLIPS_ERROR % rest)
+
+
+def format_dt_flips(dt_text, flips):
+    """'DT: [...]' + flips -> 'DT: [...], [0,1,...]' (dt_converter's spelling);
+    the bare text unchanged when flips is None."""
+    if flips is None:
+        return dt_text
+    return "%s, [%s]" % (str(dt_text).rstrip(),
+                         ",".join("1" if f else "0" for f in flips))
+
+
+def check_flips(comps, flips):
+    """Raise ValueError unless ``flips`` is a legal vector for the signed DT
+    code ``comps`` (a list of tuples of even integers): one bit per crossing,
+    and the diagram it describes lies on the sphere (every connected piece
+    has genus 0: faces == crossings + 2 x pieces).  Pure Python; accepts the
+    kink vectors spherogram's DTcodec cannot build."""
+    entries = [int(e) for c in comps for e in c]
+    n = len(entries)
+    flips = [bool(f) for f in flips]
+    if len(flips) != n:
+        raise ValueError("the flip vector has %d entries but the code has %d "
+                         "crossings" % (len(flips), n))
+    cross, nxt, start = {}, {}, 1
+    for c in comps:
+        labels = list(range(start, start + 2 * len(c)))
+        for a, b in zip(labels, labels[1:] + labels[:1]):
+            nxt[a] = b
+        start += 2 * len(c)
+    for k, e in enumerate(entries):
+        cross[2 * k + 1] = cross[abs(e)] = k
+    if sorted(cross) != list(range(1, 2 * n + 1)):
+        raise ValueError("not a DT code: the even labels are not a "
+                         "permutation of 2..%d" % (2 * n))
+
+    def slots(p):                 # (in slot, out slot) of label p: S0 E1 N2 W3
+        k = cross[p]
+        small = min(2 * k + 1, abs(entries[k]))
+        if p != small:
+            return 1, 3
+        return (2, 0) if flips[k] else (0, 2)
+
+    other = {}
+    for p in range(1, 2 * n + 1):
+        q = nxt[p]
+        a, b = (cross[p], slots(p)[1]), (cross[q], slots(q)[0])
+        other[a], other[b] = b, a
+    seen, faces = set(), 0
+    for d in other:
+        if d in seen:
+            continue
+        faces += 1
+        while d not in seen:
+            seen.add(d)
+            k, sl = other[d]
+            d = (k, (sl + 1) % 4)
+    parent = list(range(n))
+
+    def root(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    for p in range(1, 2 * n + 1):
+        parent[root(cross[p])] = root(cross[nxt[p]])
+    pieces = len({root(k) for k in range(n)})
+    if faces != n + 2 * pieces:
+        raise ValueError(
+            "the flip vector %s is not a legal one for this DT code: it "
+            "describes no diagram on the sphere (%d faces; a planar diagram "
+            "with %d crossing(s) in %d piece(s) has %d)"
+            % ("".join("1" if f else "0" for f in flips), faces, n, pieces,
+               n + 2 * pieces))
+
+
+def flips_crossing_signs(comps, flips):
+    """Crossing signs (+1 / -1, in DT entry order) of the diagram (comps,
+    flips) in spherogram's convention, where a NEGATIVE entry means the even
+    visit is the over-crossing: negative exactly when
+    flip XOR (even visit over) XOR (even label < odd label)."""
+    out = []
+    for k, e in enumerate(int(e) for c in comps for e in c):
+        neg = bool(flips[k]) ^ (e < 0) ^ (abs(e) < 2 * k + 1)
+        out.append(-1 if neg else 1)
+    return out
+# END dt-flips helpers
 
 
 def _looks_like_crossing_map(text):
@@ -344,7 +645,7 @@ def warn_if_no_sage():
         "[warning] Not running under Sage: Jones polynomials (and the SnapPy "
         "invariant colour-matching that relies on them) cannot be computed. "
         "For full functionality run this with 'sage -python "
-        "strand_passage_guiV4_2.py ...'.\n")
+        "strand_passage_guiV4_3.py ...'.\n")
 
 
 _DRAWING_STRING_KEYS = {
@@ -403,7 +704,7 @@ def normalize_drawing_options(options=None):
 
 
 def load_drawing_session(path):
-    """Read a session JSON written by ``draw_dt_original_labelsV5_4.py``.
+    """Read a session JSON written by ``draw_dt_original_labels*.py`` (V5.9).
 
     Returns a small dict with drawing options plus optional DT/crossing-label
     settings.  Unknown helper-only 3-D fields are ignored.
@@ -466,6 +767,19 @@ def advance(diagram, crossing_id, negative_even="over", use_snappy_global=True,
     based on a diagram that escaped ``simplify('global')`` plateaus.
 
     ``diagram`` itself is never mutated.
+
+    V4.3: ``to_signed_dt()`` writes the 'over' convention (a negative even
+    label = the even visit is over) whatever ``negative_even`` the root was
+    read with, so the direct diagram is rebuilt in 'over' (rebuilding it with
+    'under' switched every crossing).  A diagram that carries crossing signs
+    (its root had a flip vector) keeps its realisation: the passage keeps the
+    vector, and the direct diagram and SnapPy get the recomputed
+    (DT, flips) pair.  Round 3 (2026-10-19): a bare diagram that CARRIES a
+    realisation (its bare root's reading) keeps it the same way -- the direct
+    diagram carries the vector, and SnapPy simplifies that realisation when
+    the composite gate flags the direct code or a flagged code was met on the
+    way -- but writes it out only where the gate flags a code; otherwise
+    exactly as before.
     """
     if crossing_id not in diagram.crossings():
         raise ValueError("crossing c%d is not present" % (crossing_id + 1))
@@ -475,16 +789,45 @@ def advance(diagram, crossing_id, negative_even="over", use_snappy_global=True,
 
     working = diagram.copy()
     working.crossing_change(crossing_id)
-    dt_before, dt_ok = working.to_signed_dt()
+    flips_known = getattr(working, "crossing_signs", None) is not None
+    carried = None
+    if flips_known:
+        comps_before, flips_before, dt_ok = working.signed_dt_flips()
+        dt_before = (E.dt_flips_to_string(comps_before, flips_before)
+                     if dt_ok else None)
+    else:
+        dt_before, dt_ok = working.to_signed_dt()
+        # V4.3 (round 3): the realisation a bare run carries -- the passage
+        # keeps the vector; SnapPy gets the bare code and the diagram, and
+        # follows the vector where the code is flagged (or the carried
+        # realisation is active)
+        if dt_ok and getattr(working, "carry_signs", None) is not None:
+            _cc, _cf, _cok = working.carried_dt_flips()
+            if _cok and _cf is not None:
+                carried = _cf
 
     # Build the direct after-passage diagram from its DT so DT labels show and
     # component colours keep their original identity.
     direct = None
     if dt_ok:
         try:
-            direct = E.Diagram.from_dt_code(
-                D.parse_dt(dt_before), negative_even=negative_even,
-                component_colors=list(working.component_colors))
+            if flips_known:
+                direct = E.Diagram.from_dt_code(
+                    comps_before, negative_even="over",
+                    component_colors=list(working.component_colors),
+                    flips=flips_before)
+            elif carried is not None:
+                direct_code = D.parse_dt(dt_before)
+                direct = E.Diagram.from_dt_code(
+                    direct_code, negative_even="over",
+                    component_colors=list(working.component_colors),
+                    carry=carried,
+                    carry_active=bool(working.carry_active or (
+                        carried and E.composite_danger(direct_code)[0])))
+            else:
+                direct = E.Diagram.from_dt_code(
+                    D.parse_dt(dt_before), negative_even="over",
+                    component_colors=list(working.component_colors))
             direct.colours_tracked = getattr(diagram, "colours_tracked", True)
         except Exception:  # noqa: BLE001
             direct = None
@@ -555,10 +898,16 @@ def advance(diagram, crossing_id, negative_even="over", use_snappy_global=True,
 
 def simplify_current_diagram(diagram, negative_even="over", use_snappy_global=True,
                              backtrack_rounds=0, backtrack_steps=20):
-    """Simplify the current diagram directly with the active SnapPy settings."""
+    """Simplify the current diagram directly with the active SnapPy settings.
+
+    V4.3: a diagram that carries crossing signs is exported with its flip
+    vector, so SnapPy simplifies that realisation."""
     before = len(diagram.crossings())
     source_kind = getattr(diagram, "display_source", "continuity")
-    dt_now, dt_ok = diagram.to_signed_dt()
+    if getattr(diagram, "crossing_signs", None) is not None:
+        dt_now, dt_ok = diagram.to_signed_dt_flips()
+    else:
+        dt_now, dt_ok = diagram.to_signed_dt()
     if not use_snappy_global:
         snap = {"available": False, "source_dt": dt_now if dt_ok else None,
                 "operation": "manual_simplify",
@@ -608,7 +957,9 @@ def simplify_current_diagram(diagram, negative_even="over", use_snappy_global=Tr
 
 def properties_text(diagram, note, snap, passage_log, use_snappy_global=True):
     d = diagram
-    dt_now, dt_ok = d.to_signed_dt()
+    # V4.3: with its vector (round 3: a carried one only where the gate
+    # flags the code; a bare diagram exports exactly to_signed_dt)
+    dt_now, dt_ok = d.to_signed_dt_flips()
     lines = []
     lines.append(note)
     lines.append("")
@@ -695,6 +1046,9 @@ def properties_text(diagram, note, snap, passage_log, use_snappy_global=True):
         lines.append("   DT fed to SnapPy      : %s" % snap.get("source_dt"))
     if snap.get("simplified_dt"):
         lines.append("   SnapPy DT after global: %s" % snap.get("simplified_dt"))
+    if snap.get("composite_note"):
+        # V4.3 (2026-10-19): why a bare code is followed with a flip vector
+        lines.append("   composite gate        : %s" % snap.get("composite_note"))
     if snap.get("diagram_error"):
         lines.append("   diagram warning       : %s" % snap.get("diagram_error"))
     return "\n".join(lines)
@@ -707,11 +1061,29 @@ def render_chain(dt_string, clicks, out_path, negative_even="over",
                  use_snappy_global=True, backtrack_rounds=0, backtrack_steps=20,
                  crossing_order=None, crossing_map=None, crossing_input=None,
                  drawing_options=None):
-    """Simulate a click sequence and render original + each step as a panel row."""
+    """Simulate a click sequence and render original + each step as a panel row.
+
+    V4.3: ``dt_string`` may carry a flip vector; the realisation is kept.  A
+    bare root carries its realisation (``_bare_root_realisation``: one [info]
+    line when the composite gate flags it), shown where a code is flagged."""
     import matplotlib.pyplot as plt
 
-    start = E.Diagram.from_dt_code(D.parse_dt(dt_string),
-                                   negative_even=negative_even)
+    comps, flips = E.parse_dt_flips(dt_string)
+    carry, carry_active = None, False
+    if flips is None:
+        _refuse_unrealisable(comps)          # round 4: one line, not a traceback
+    if flips is None:
+        # round 3: the root's realisation is carried, shown where flagged
+        carry, flagged, line = _bare_root_realisation(comps, negative_even)
+        carry_active = bool(flagged and carry)
+        if line is not None:
+            print(line, file=sys.stderr if line.startswith("[warn]") else sys.stdout)
+    if flips is None:
+        start = E.Diagram.from_dt_code(comps, negative_even=negative_even,
+                                       carry=carry, carry_active=carry_active)
+    else:
+        start = E.Diagram.from_dt_code(comps, negative_even=negative_even,
+                                       flips=flips)
     _apply_crossing_display_options(
         start, crossing_order, crossing_map, crossing_input=crossing_input)
     start.display_source = "original"
@@ -784,7 +1156,8 @@ def _normalize_dt_code(raw):
 
 def strand_passage_nongui(snappy, dt_code, orig_components=None,
                           orig_crossings=None, backtrack_rounds=0,
-                          backtrack_steps=20):
+                          backtrack_steps=20, flips=None, carry=None,
+                          carry_active=False, return_meta=False):
     """
     All single strand passages on a link, choosing the DT code per V3.2 rule.
 
@@ -796,9 +1169,36 @@ def strand_passage_nongui(snappy, dt_code, orig_components=None,
 
     ``backtrack_rounds`` > 0 (V3.4) enables backtrack-assisted simplification so
     each SnapPy-simplified crossing count escapes ``simplify('global')`` plateaus.
+
+    ``flips`` (V4.3): the flip vector of ``dt_code`` (spherogram's 'over'
+    convention).  Then every link is built from (DT, flips), every SnapPy
+    export is a verified (DT, flips) pair, a passage keeps the vector, the DT
+    columns carry their vectors, three ``dt_flip_vector_*`` columns are added,
+    and the return value is ``(results, chosen_codes, chosen_flips)``.
+    Without it: exactly as before, ``(results, chosen_codes)``.
+
+    V4.3 (2026-10-19, round 3) -- a BARE code (``flips`` None) is run by
+    ``_strand_passage_carried``: ``carry`` is the realisation the run carries
+    for ``dt_code`` (spherogram's reading of a bare root, or what an earlier
+    pass handed on), ``carry_active`` whether it is in force (a code the
+    composite gate flags was met).  Codes the gate flags keep the
+    realisation and are written with their vectors; every other code, and
+    every row of a run in which nothing is flagged, exactly as before.
+    ``return_meta`` adds a third return value, one dict per row for the
+    chosen code: ``flips`` (the vector shown, or None), ``carry``, ``active``.
     """
+    if flips is None:
+        return _strand_passage_carried(
+            snappy, dt_code, orig_components=orig_components,
+            orig_crossings=orig_crossings, backtrack_rounds=backtrack_rounds,
+            backtrack_steps=backtrack_steps, carry=carry,
+            carry_active=carry_active, return_meta=return_meta)
     results = []
     chosen_codes = []
+    chosen_flips = []
+    with_flips = flips is not None
+    if with_flips:
+        flips = [bool(f) for f in flips]
 
     # First make the source diagram agree with the baseline crossing count used
     # for this pass.  Otherwise a later backtrack can discover that the parent
@@ -807,16 +1207,28 @@ def strand_passage_nongui(snappy, dt_code, orig_components=None,
     # how a second-pass row can appear to "increase" from a 10-crossing baseline
     # to a 12-crossing direct child.
     source_crossings = _crossing_count(dt_code)
-    link = snappy.Link(_dt_code_to_str(dt_code))
-    link = E.backtrack_simplify(snappy, link, mode='global',
-                                rounds=backtrack_rounds, steps=backtrack_steps)
+    if with_flips:
+        link = E.link_from_dt(snappy, dt_code, flips)
+        link = E.backtrack_simplify(snappy, link, mode='global',
+                                    rounds=backtrack_rounds,
+                                    steps=backtrack_steps, archive_flips=True)
+    else:
+        link = _bare_snappy_link(snappy, _dt_code_to_str(dt_code))
+        link = E.backtrack_simplify(snappy, link, mode='global',
+                                    rounds=backtrack_rounds, steps=backtrack_steps)
     simplified_source_crossings = len(link.crossings)
     if simplified_source_crossings < source_crossings:
         try:
-            simplified_source_code = _normalize_dt_code(link.DT_code())
+            if with_flips:
+                simplified_source_code, simplified_source_flips = (
+                    _link_code_flips(link))
+            else:
+                simplified_source_code = _normalize_dt_code(link.DT_code())
             if _crossing_count(simplified_source_code) == simplified_source_crossings:
                 dt_code = simplified_source_code
                 source_crossings = simplified_source_crossings
+                if with_flips:
+                    flips = simplified_source_flips
         except Exception:  # noqa: BLE001
             pass
     if orig_components is None:
@@ -835,26 +1247,41 @@ def strand_passage_nongui(snappy, dt_code, orig_components=None,
                     partners.append(i)
             partner = partners[0] if partners else comp_idx
 
-            # Flip the sign at this crossing (the strand passage).
+            # Flip the sign at this crossing (the strand passage).  A
+            # crossing change does not touch the shadow, so a flip vector is
+            # kept as it is (V4.3).
             new_dt = copy.deepcopy(dt_code)
             new_comp = list(comp)
             new_comp[pos_idx] = -label
             new_dt[comp_idx] = tuple(new_comp)
             direct_str = _dt_code_to_str(new_dt)
+            if with_flips:
+                direct_str = E.dt_flips_to_string(new_dt, flips)
             direct_crossings = _crossing_count(new_dt)
 
             chosen_code = new_dt  # default: keep direct after-passage DT
+            chosen_flip_vec = flips
+            simplified_flips = None
             direct_components = None
             visible_components = None
             topological_components = None
             hidden_split_unknots = 0
             topological_jones = "None"
             try:
-                new_link = snappy.Link(direct_str)
+                if with_flips:
+                    new_link = E.link_from_dt(snappy, new_dt, flips)
+                else:
+                    new_link = _bare_snappy_link(snappy, direct_str)
                 direct_components = len(new_link.link_components)
-                new_link = E.backtrack_simplify(
-                    snappy, new_link, mode='global',
-                    rounds=backtrack_rounds, steps=backtrack_steps)
+                if with_flips:
+                    new_link = E.backtrack_simplify(
+                        snappy, new_link, mode='global',
+                        rounds=backtrack_rounds, steps=backtrack_steps,
+                        archive_flips=True)
+                else:
+                    new_link = E.backtrack_simplify(
+                        snappy, new_link, mode='global',
+                        rounds=backtrack_rounds, steps=backtrack_steps)
                 new_components = len(new_link.link_components)
                 visible_components = new_components
                 topological_components = direct_components
@@ -862,8 +1289,13 @@ def strand_passage_nongui(snappy, dt_code, orig_components=None,
                     hidden_split_unknots = max(
                         0, int(direct_components) - int(visible_components))
                 snappy_crossings = len(new_link.crossings)
-                simplified_code = _normalize_dt_code(new_link.DT_code())
-                simplified_str = str(simplified_code)
+                if with_flips:
+                    simplified_code, simplified_flips = _link_code_flips(new_link)
+                    simplified_str = _with_flips(str(simplified_code),
+                                                 simplified_flips)
+                else:
+                    simplified_code = _normalize_dt_code(new_link.DT_code())
+                    simplified_str = str(simplified_code)
                 try:
                     topological_jones = str(new_link.jones_polynomial())
                 except Exception:  # noqa: BLE001
@@ -875,12 +1307,18 @@ def strand_passage_nongui(snappy, dt_code, orig_components=None,
                     chosen_str = simplified_str
                     chosen_crossings = snappy_crossings
                     chosen_code = simplified_code
+                    chosen_flip_vec = simplified_flips
                 else:
                     chosen_source = "direct-after-passage"
-                    chosen_str = str(new_dt)
+                    chosen_str = _with_flips(str(new_dt), flips)
                     chosen_crossings = direct_crossings
                     chosen_code = new_dt
-                chosen_jones = _jones_for_dt(snappy, chosen_code)
+                    chosen_flip_vec = flips
+                if with_flips:
+                    chosen_jones = _jones_for_dt(snappy, chosen_code,
+                                                 chosen_flip_vec)
+                else:
+                    chosen_jones = _jones_for_dt(snappy, chosen_code)
 
                 # Outcome category (kept from the original script; compares the
                 # SnapPy-simplified result against the original simplified link).
@@ -908,15 +1346,20 @@ def strand_passage_nongui(snappy, dt_code, orig_components=None,
                 new_components = None
                 snappy_crossings = None
                 simplified_str = None
+                simplified_flips = None
                 chosen_source = "direct-after-passage"
-                chosen_str = str(new_dt)
+                chosen_str = _with_flips(str(new_dt), flips)
                 chosen_crossings = direct_crossings
                 chosen_code = new_dt
-                chosen_jones = _jones_for_dt(snappy, chosen_code)
+                chosen_flip_vec = flips
+                if with_flips:
+                    chosen_jones = _jones_for_dt(snappy, chosen_code, flips)
+                else:
+                    chosen_jones = _jones_for_dt(snappy, chosen_code)
                 topological_jones = str(chosen_jones)
                 category = 'error: %s' % exc
 
-            results.append({
+            row = {
                 'flipped_crossing': label,
                 'crossing_components': (comp_idx, partner),
                 'DT_code_before_simplify': direct_str,
@@ -937,26 +1380,590 @@ def strand_passage_nongui(snappy, dt_code, orig_components=None,
                 'orig_crossings': orig_crossings,
                 'new_crossings': snappy_crossings,
                 'outcome': category,
-            })
+            }
+            if with_flips:
+                # V4.3: the realisations, next to the DT columns.  Named apart
+                # from 'flipped_crossing', which is the CROSSING CHANGE.
+                vec_cols = {
+                    'dt_flip_vector_before_simplify': _flip_vector_text(flips),
+                    'dt_flip_vector_after_simplify':
+                        _flip_vector_text(simplified_flips),
+                    'dt_flip_vector_chosen': _flip_vector_text(chosen_flip_vec),
+                }
+                ordered = {}
+                for key, value in row.items():
+                    ordered[key] = value
+                    if key == 'DT_code_chosen':
+                        ordered.update(vec_cols)
+                row = ordered
+            results.append(row)
             chosen_codes.append(chosen_code)
+            chosen_flips.append(chosen_flip_vec)
+    if with_flips:
+        return results, chosen_codes, chosen_flips
+    return results, chosen_codes
+
+
+_VEC_COLUMNS = ('dt_flip_vector_before_simplify',
+                'dt_flip_vector_after_simplify', 'dt_flip_vector_chosen')
+
+
+def _gate_flags(code):
+    """V4.3 (round 3): True when the composite gate flags the bare code."""
+    try:
+        return bool(E.composite_danger(code)[0])
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _insert_vec_columns(row, values):
+    """``row`` with the three ``dt_flip_vector_*`` columns right after
+    'DT_code_chosen' (where a flips run puts them)."""
+    ordered = {}
+    for key, value in row.items():
+        ordered[key] = value
+        if key == 'DT_code_chosen':
+            ordered.update(zip(_VEC_COLUMNS, values))
+    return ordered
+
+
+def _strand_passage_carried(snappy, dt_code, orig_components=None,
+                            orig_crossings=None, backtrack_rounds=0,
+                            backtrack_steps=20, carry=None, carry_active=False,
+                            return_meta=False):
+    """``strand_passage_nongui`` for a BARE code (V4.3, 2026-10-19, round 3).
+
+    A bare run re-reads codes, and a bare code fixes a composite diagram only
+    up to reflecting its parts independently: re-read, it can name another
+    link (the granny for the square knot), and its passages then read as the
+    wrong link's.  So the run CARRIES a realisation (``carry``: spherogram's
+    reading of the root, or the vector an earlier pass handed on) and keeps
+    it wherever the composite gate flags a code -- the code is then written
+    with its vector, in the flips spelling, with the three
+    ``dt_flip_vector_*`` columns ('' on the row's other cells) -- and,
+    from there on, everywhere below it (``carry_active``: a passage, a
+    SnapPy simplification and the next pass all follow the realisation;
+    the codes the gate does not flag are still written bare).  This covers
+    every re-read of the old bare branch: the source simplification (a root
+    re-rooted onto a flagged code follows the simplified link's own vector,
+    and the whole pass then follows it), each passage (a flagged direct code
+    follows the carried vector, not spherogram's reading of it), SnapPy's
+    simplified code (flagged: the simplified link's own vector) and the
+    chosen code and its Jones polynomial.
+
+    While nothing is flagged -- every run on a prime link with no composite
+    passage -- every step is exactly the old bare branch's (the backtrack's
+    ``archive_flips="auto"`` equals the default then), so the results are
+    unchanged.  Returns ``(results, chosen_codes)``, plus ``meta`` (one dict
+    per row: ``flips`` shown, ``carry``, ``active``) when ``return_meta``."""
+    results = []
+    chosen_codes = []
+    meta = []
+    carry = list(carry) if carry is not None else None
+    active = bool(carry_active and carry is not None)
+    any_shown = False
+
+    source_crossings = _crossing_count(dt_code)
+    if active:
+        link = E.link_from_dt(snappy, dt_code, carry)
+        link = E.backtrack_simplify(snappy, link, mode='global',
+                                    rounds=backtrack_rounds,
+                                    steps=backtrack_steps, archive_flips=True)
+    else:
+        link = _bare_snappy_link(snappy, _dt_code_to_str(dt_code))
+        link = E.backtrack_simplify(snappy, link, mode='global',
+                                    rounds=backtrack_rounds,
+                                    steps=backtrack_steps, archive_flips="auto")
+    simplified_source_crossings = len(link.crossings)
+    if simplified_source_crossings < source_crossings:
+        try:
+            if active:
+                simplified_source_code, simplified_source_carry = (
+                    _link_code_flips(link))
+                rerooted_active = True
+            else:
+                simplified_source_code = _normalize_dt_code(link.DT_code())
+                simplified_source_carry = None
+                rerooted_active = False
+                if _gate_flags(simplified_source_code):
+                    # the source simplified to a flagged code: re-root on it
+                    # WITH the simplified link's own vector, and follow it
+                    try:
+                        simplified_source_code, simplified_source_carry = (
+                            _link_code_flips(link))
+                        rerooted_active = True
+                    except ValueError:
+                        simplified_source_carry = None
+                if not rerooted_active:
+                    simplified_source_carry = E._own_vector(
+                        link, simplified_source_code)
+            if _crossing_count(simplified_source_code) == simplified_source_crossings:
+                if rerooted_active and not active:
+                    print("[info] the source simplified to a code the "
+                          "composite gate flags; the pass follows the "
+                          "simplified link's own realisation, %s"
+                          % E.dt_flips_to_string(simplified_source_code,
+                                                 simplified_source_carry))
+                dt_code = simplified_source_code
+                source_crossings = simplified_source_crossings
+                carry = simplified_source_carry
+                active = bool(rerooted_active and carry is not None)
+        except Exception:  # noqa: BLE001
+            pass
+    if orig_components is None:
+        orig_components = len(link.link_components)
+    if orig_crossings is None:
+        orig_crossings = source_crossings
+
+    intervals = _build_label_intervals(dt_code)
+
+    for comp_idx, comp in enumerate(dt_code):
+        for pos_idx, label in enumerate(comp):
+            label_abs = abs(label)
+            partners = []
+            for i, (start, end) in enumerate(intervals):
+                if start <= label_abs <= end and i != comp_idx:
+                    partners.append(i)
+            partner = partners[0] if partners else comp_idx
+
+            # Flip the sign at this crossing (the strand passage).  A
+            # crossing change does not touch the shadow, so the carried
+            # vector is kept as it is.
+            new_dt = copy.deepcopy(dt_code)
+            new_comp = list(comp)
+            new_comp[pos_idx] = -label
+            new_dt[comp_idx] = tuple(new_comp)
+            direct_bare = _dt_code_to_str(new_dt)
+            direct_crossings = _crossing_count(new_dt)
+            direct_flagged = _gate_flags(new_dt)
+            dvec = None                      # the realisation followed here
+            if active or direct_flagged:
+                dvec = carry
+                if dvec is None and direct_flagged:
+                    dvec = E.spherogram_reading(new_dt)[0]
+                if dvec is not None and len(dvec) == 0:
+                    dvec = None
+            row_active = dvec is not None
+            direct_shown = direct_flagged and dvec is not None
+            direct_str = (E.dt_flips_to_string(new_dt, dvec) if direct_shown
+                          else direct_bare)
+
+            chosen_code = new_dt  # default: keep direct after-passage DT
+            chosen_vec = dvec if dvec is not None else carry
+            chosen_shown = direct_shown
+            chosen_active = row_active
+            simplified_flips = None
+            simplified_shown = False
+            direct_components = None
+            visible_components = None
+            topological_components = None
+            hidden_split_unknots = 0
+            topological_jones = "None"
+            try:
+                if dvec is not None:
+                    new_link = E.link_from_dt(snappy, new_dt, dvec)
+                else:
+                    new_link = _bare_snappy_link(snappy, direct_bare)
+                direct_components = len(new_link.link_components)
+                new_link = E.backtrack_simplify(
+                    snappy, new_link, mode='global',
+                    rounds=backtrack_rounds, steps=backtrack_steps,
+                    archive_flips=(True if dvec is not None else "auto"))
+                new_components = len(new_link.link_components)
+                visible_components = new_components
+                topological_components = direct_components
+                if direct_components is not None:
+                    hidden_split_unknots = max(
+                        0, int(direct_components) - int(visible_components))
+                snappy_crossings = len(new_link.crossings)
+                if dvec is not None:
+                    simplified_code, simplified_flips = _link_code_flips(new_link)
+                    simplified_shown = _gate_flags(simplified_code)
+                    simplified_active = True
+                else:
+                    simplified_code = _normalize_dt_code(new_link.DT_code())
+                    simplified_active = False
+                    if _gate_flags(simplified_code):
+                        # SnapPy's simplified code is flagged: written with
+                        # the simplified link's own vector, never re-read
+                        try:
+                            simplified_code, simplified_flips = (
+                                _link_code_flips(new_link))
+                            simplified_shown = simplified_active = True
+                        except ValueError:
+                            simplified_flips = None
+                    if not simplified_active:
+                        simplified_flips = E._own_vector(new_link,
+                                                         simplified_code)
+                if simplified_shown:
+                    simplified_str = _with_flips(str(simplified_code),
+                                                 simplified_flips)
+                    if simplified_str == str(simplified_code):
+                        simplified_shown = False     # no crossings
+                else:
+                    simplified_str = str(simplified_code)
+                try:
+                    topological_jones = str(new_link.jones_polynomial())
+                except Exception:  # noqa: BLE001
+                    topological_jones = "None"
+
+                # V3.2 choice rule: SnapPy only if STRICTLY fewer crossings.
+                if snappy_crossings < direct_crossings:
+                    chosen_source = "snappy-simplified"
+                    chosen_str = simplified_str
+                    chosen_crossings = snappy_crossings
+                    chosen_code = simplified_code
+                    chosen_vec = simplified_flips
+                    chosen_shown = simplified_shown
+                    chosen_active = simplified_active
+                else:
+                    chosen_source = "direct-after-passage"
+                    chosen_str = (_with_flips(str(new_dt), dvec)
+                                  if direct_shown else str(new_dt))
+                    chosen_crossings = direct_crossings
+                    chosen_code = new_dt
+                    chosen_vec = dvec if dvec is not None else carry
+                    chosen_shown = direct_shown
+                    chosen_active = row_active
+                if chosen_active and chosen_vec is not None:
+                    chosen_jones = _jones_for_dt(snappy, chosen_code, chosen_vec)
+                else:
+                    chosen_jones = _jones_for_dt(snappy, chosen_code)
+
+                # Outcome category (kept from the original script; compares the
+                # SnapPy-simplified result against the original simplified link).
+                cat_parts = []
+                if hidden_split_unknots:
+                    noun = "unknot" if hidden_split_unknots == 1 else "unknots"
+                    cat_parts.append(
+                        "visible DT omits %s split %s (%s -> %s visible components)"
+                        % (hidden_split_unknots, noun,
+                           direct_components, visible_components))
+                elif new_components < orig_components:
+                    cat_parts.append('fewer components (%s -> %s)'
+                                     % (orig_components, new_components))
+                if chosen_crossings < orig_crossings:
+                    cat_parts.append('fewer crossings (%s -> %s)'
+                                     % (orig_crossings, chosen_crossings))
+                if (not cat_parts and new_components == orig_components
+                        and chosen_crossings == orig_crossings):
+                    cat_parts.append('no change')
+                if (not cat_parts and (new_components > orig_components
+                                       or chosen_crossings > orig_crossings)):
+                    cat_parts.append('increase')
+                category = ' and '.join(cat_parts)
+            except Exception as exc:  # noqa: BLE001
+                new_components = None
+                snappy_crossings = None
+                simplified_str = None
+                simplified_flips = None
+                simplified_shown = False
+                chosen_source = "direct-after-passage"
+                chosen_str = (_with_flips(str(new_dt), dvec)
+                              if direct_shown else str(new_dt))
+                chosen_crossings = direct_crossings
+                chosen_code = new_dt
+                chosen_vec = dvec if dvec is not None else carry
+                chosen_shown = direct_shown
+                chosen_active = row_active
+                if dvec is not None:
+                    chosen_jones = _jones_for_dt(snappy, chosen_code, dvec)
+                else:
+                    chosen_jones = _jones_for_dt(snappy, chosen_code)
+                topological_jones = str(chosen_jones)
+                category = 'error: %s' % exc
+
+            row = {
+                'flipped_crossing': label,
+                'crossing_components': (comp_idx, partner),
+                'DT_code_before_simplify': direct_str,
+                'DT_code_after_simplify': simplified_str,
+                'DT_code_chosen': chosen_str,
+                'chosen_source': chosen_source,
+                'direct_crossings': direct_crossings,
+                'snappy_crossings': snappy_crossings,
+                'chosen_crossings': chosen_crossings,
+                'Jones_polynomial': str(chosen_jones),
+                'topological_Jones_polynomial': str(topological_jones),
+                'orig_components': orig_components,
+                'direct_components': direct_components,
+                'new_components': new_components,
+                'visible_components': visible_components,
+                'topological_components': topological_components,
+                'hidden_split_unknots': hidden_split_unknots,
+                'orig_crossings': orig_crossings,
+                'new_crossings': snappy_crossings,
+                'outcome': category,
+            }
+            if direct_shown or simplified_shown or chosen_shown:
+                # the realisations of the codes the gate flags, next to the
+                # DT columns (named apart from 'flipped_crossing', which is
+                # the CROSSING CHANGE)
+                any_shown = True
+                row = _insert_vec_columns(row, (
+                    _flip_vector_text(dvec) if direct_shown else "",
+                    _flip_vector_text(simplified_flips) if simplified_shown else "",
+                    _flip_vector_text(chosen_vec) if chosen_shown else ""))
+            results.append(row)
+            chosen_codes.append(chosen_code)
+            meta.append({
+                "flips": list(chosen_vec) if (chosen_shown and chosen_vec) else None,
+                "carry": list(chosen_vec) if chosen_vec is not None else None,
+                "active": bool(chosen_active and chosen_vec is not None),
+            })
+    if any_shown:
+        # one set of columns per sheet: '' where a row's codes are unflagged
+        results = [row if _VEC_COLUMNS[0] in row
+                   else _insert_vec_columns(row, ("", "", ""))
+                   for row in results]
+    if return_meta:
+        return results, chosen_codes, meta
     return results, chosen_codes
 
 
 # ---- structure fingerprinting + merged passage tree (for the overview SVG) --
-def _num_components(snappy, dt_code):
-    """Number of link components of a DT code (as drawn, no simplification)."""
+def _num_components(snappy, dt_code, flips=None):
+    """Number of link components of a DT code (as drawn, no simplification).
+
+    V4.3: with ``flips`` the link is built from (DT, flips)."""
     try:
-        return len(snappy.Link(_dt_code_to_str(dt_code)).link_components)
+        if flips is not None:
+            return len(E.link_from_dt(snappy, dt_code, flips).link_components)
+        return len(_bare_snappy_link(snappy, _dt_code_to_str(dt_code)).link_components)
     except Exception:  # noqa: BLE001
         return -1
 
 
-def _jones_for_dt(snappy, dt_code):
-    """Jones polynomial for the exact DT code shown in the spreadsheet."""
+def _jones_for_dt(snappy, dt_code, flips=None):
+    """Jones polynomial for the exact DT code shown in the spreadsheet.
+
+    V4.3: with ``flips`` it is the Jones polynomial of THAT realisation (a
+    bare code lets spherogram choose one, which for a composite can be a
+    different link: the square knot's code read bare is the granny)."""
     try:
-        return str(snappy.Link(_dt_code_to_str(dt_code)).jones_polynomial())
+        if flips is not None:
+            return str(E.link_from_dt(snappy, dt_code, flips).jones_polynomial())
+        return str(_bare_snappy_link(snappy, _dt_code_to_str(dt_code)).jones_polynomial())
     except Exception:  # noqa: BLE001
         return "None"
+
+
+def _flip_vector_text(flips):
+    """'[0,1,0,0,0,1]' (the flips spelling's vector part); '' for None."""
+    if flips is None:
+        return ""
+    return "[%s]" % ",".join("1" if f else "0" for f in flips)
+
+
+def _with_flips(text, flips):
+    """A DT text with its vector appended in the toolkit's spelling (bare text
+    for None, and for an empty vector: no crossings, nothing to realise)."""
+    if text is None or flips is None or len(flips) == 0:
+        return text
+    return format_dt_flips(text, flips)
+
+
+def _text_carries_vector(text):
+    """True when DT text carries a flip vector -- or text after the code that
+    is not one (which ``split_dt_flips`` refuses): errors on such input are
+    reported as one [error] line, while a bare code fails exactly as before."""
+    try:
+        return E._carries_flips(text)
+    except ValueError:
+        return True
+
+
+def _unparseable_text(dt_text, exc):
+    """The one-line refusal of a BARE DT code ``E.parse_dt_flips`` cannot read
+    (round 4d, 2026-10-20: '--nongui' and '--demo' ended in a traceback on an
+    alphabetical 'DT[daddcab]' or a prefix-less '8,6,2,4').  The scorer's
+    wording (score_diagram's _unparseable_error): what this tool reads, and
+    that dt_converter.py converts other spellings.  Object addresses in the
+    parser's message ('<ast.Name object at 0x...>') are dropped, so the line
+    is the same in every process; a '# comment' is not quoted."""
+    why = " ".join(re.sub(r" at 0x[0-9A-Fa-f]+", "", str(exc)).split()) or type(exc).__name__
+    try:
+        text = split_dt_flips(str(dt_text))[0].strip()
+    except ValueError:
+        text = str(dt_text).strip()
+    return ("strand passage cannot parse the DT code %s (%s): it reads signed DT codes written "
+            "as lists of nonzero even integers, e.g. 'DT: [(4, 6, 2)]', optionally followed by a "
+            "flip vector.  dt_converter.py -i \"%s\" --to dt converts other spellings "
+            "(alphabetical, packed hex, Gauss, PD, braid words, names) to that one (--to "
+            "dt-flips adds the flip vector) and says what is wrong with a code it cannot read"
+            % (text, why[:160], text))
+
+
+def _link_code_flips(link):
+    """(code, flips) of a link in ``_normalize_dt_code``'s shape ([] for no
+    crossings), with a verified vector (``E.link_to_dt_flips``)."""
+    comps, flips = E.link_to_dt_flips(link)
+    return [tuple(int(x) for x in comp) for comp in comps], list(flips)
+
+
+def _bare_root_realisation(comps, negative_even="over", follow_unreadable=False):
+    """V4.3 (2026-10-19, round 3): the realisation a BARE root is followed
+    with, ``(vector, flagged, line)``.
+
+    A bare signed DT code fixes a composite diagram only up to reflecting its
+    parts independently, and spherogram resolves it by its own rule, so a
+    run that re-reads bare codes can drift to another link (the granny's
+    passages read as the square knot's; a prime-looking diagram of the
+    square knot re-rooted onto a composite code read as the granny).  Every
+    bare root therefore CARRIES a realisation through the run -- spherogram's
+    own reading of it (``E.root_realisation``: what ``snappy.Link(bare)``
+    builds, i.e. what a bare run analyses first), or dt_converter's mended
+    reading for a code the composite gate flags whose reading spherogram
+    gets illegal (split codes) -- and the run writes it out only on codes
+    the gate flags.
+
+    * ``vector`` -- the carried vector, or None (spherogram cannot read the
+      code: the run reads it bare, as before);
+    * ``flagged`` -- the composite gate flags the root;
+    * ``line`` -- None for an unflagged root (it runs exactly as before);
+      '[info] ...' for a flagged root followed with ``vector``; '[warn] ...'
+      for a flagged root with no reading (read bare as before).
+
+    ``comps`` is read with ``negative_even``; a vector describes the shadow,
+    so it is the same in both conventions.
+
+    Round 4 (2026-10-19): a flagged root spherogram's decoder cannot read at
+    all is followed too (``E.root_realisation`` mends that stage now, as the
+    scorer runs such roots): with dt_converter's reading (the smallest flip
+    vector spherogram builds) or a legal reading spherogram builds
+    (``E.buildable_legal_flips``).  ``follow_unreadable`` (--nongui, which
+    has no bare fallback) does the same for an UNFLAGGED root, with an
+    '[info]' line, and returns an '[error]' line instead of the '[warn]'
+    where a root has no reading at all."""
+    if negative_even == "under":
+        over = [tuple(-int(x) for x in comp) for comp in comps]
+    else:
+        over = [tuple(int(x) for x in comp) for comp in comps]
+    vector, flagged, why, how = E.root_realisation(
+        over, mend_unflagged=bool(follow_unreadable))
+    if vector is not None:
+        vector = list(vector)
+    if not flagged:
+        if not follow_unreadable or (vector is not None
+                                     and how == "spherogram's reading"):
+            return vector, False, None
+        if vector is None:
+            nowhere = E.no_diagram_reason(over)
+            if nowhere:
+                return None, False, (
+                    "[error] %s: %s, so --nongui has no link to pass strands "
+                    "through; check the code" % (_dt_code_to_str(over), nowhere))
+            empty = [i + 1 for i, c in enumerate(over) if not len(c)]
+            if empty and len(empty) < len(over):
+                # round 4d (2026-10-20): the cause is the empty component
+                # (dt_converter refuses it, and spherogram builds no
+                # realisation with a TRAILING one: IndexError), so a flip
+                # vector is not the remedy; without the component spherogram
+                # reads the code as it read this one, and --nongui follows it
+                return None, False, (
+                    "[error] %s: %s, so --nongui has no link to pass strands "
+                    "through; give the code without its empty component%s %s "
+                    "(spherogram's DT decoder skips empty components)"
+                    % (_dt_code_to_str(over), how, "s" if len(empty) > 1 else "",
+                       ", ".join(str(i) for i in empty)))
+            return None, False, (
+                "[error] %s: %s, so --nongui has no link to pass strands "
+                "through; give the code with a flip vector"
+                % (_dt_code_to_str(over), how))
+        return vector, False, (
+            "[info] spherogram cannot read the bare code %s, so the run "
+            "follows %s: %s, through every step (the composite gate does not "
+            "flag it, so every realisation of it is the same link up to mirror "
+            "image; the root is written with this vector, every other code the "
+            "gate does not flag bare)"
+            % (_dt_code_to_str(over), _reading_phrase(how),
+               E.dt_flips_to_string(over, vector)))
+    if not vector:
+        hint = E.legal_flips_hint(over)
+        return None, True, ("[%s] the composite gate flags the bare code (%s), "
+                            "but %s, so %s; name its realisation with a flip "
+                            "vector%s"
+                            % ("error" if follow_unreadable else "warn", why, how,
+                               "--nongui has no link to pass strands through"
+                               if follow_unreadable else "it is read bare as before",
+                               (", e.g. %s" % hint) if hint else ""))
+    if how == "spherogram's reading":
+        which = "spherogram's reading of it"
+    elif how.startswith("dt_converter's mended reading"):
+        which = ("dt_converter's mended reading of it (spherogram's own "
+                 "reading describes no diagram on the sphere; the pieces it "
+                 "read wrong take a legal vector, first crossing positive)")
+    else:
+        which = _reading_phrase(how)       # round 4: a decoder-stage reading
+    return vector, True, (
+        "[info] the composite gate flags the bare code (%s); following %s, "
+        "%s%s, through every step (codes the gate flags are written with "
+        "their flip vectors; give the code with a flip vector to follow "
+        "another realisation)"
+        % (why, which, E.dt_flips_to_string(over, vector),
+           " in spherogram's 'over' convention"
+           if negative_even == "under" else ""))
+
+
+def _reading_phrase(how):
+    """Round 4 (2026-10-19): ``E.root_realisation``'s ``how`` for a root
+    spherogram's decoder cannot read, as the [info] lines name it: dt_converter's
+    reading as written, a reading from ``E.buildable_legal_flips`` as 'a legal
+    reading of it (...)', never as dt_converter's."""
+    how = str(how)
+    if how.startswith("a legal flip vector"):
+        desc, sep, rest = how.partition(", since ")
+        return "a legal reading of it (%s)%s%s" % (desc, sep, rest)
+    return how
+
+
+def _refuse_unrealisable(comps):
+    """Round 4 (2026-10-19): raise a user-facing ValueError for a BARE code no
+    flip vector makes a diagram on the sphere (``E.no_diagram_reason``:
+    deterministic, no decode) before a run builds or draws it; any other
+    code passes.  It used to end in a traceback ('Link isn't planar', 'The
+    crossing graph is not planar'); the GUI shows it in its error window and
+    ``--demo`` prints it as one line."""
+    reason = getattr(E, "no_diagram_reason", None)
+    why = reason(comps) if callable(reason) else None
+    if why:
+        err = ValueError("%s: %s, so there is no diagram to draw; check the code"
+                         % (_dt_code_to_str(comps), why))
+        err.user_facing = True
+        raise err
+
+
+def _bare_snappy_link(snappy, text):
+    """``snappy.Link(text)`` for a BARE code, after ``E._guard_dt_decoder()``
+    (round 4b, 2026-10-20): dt_converter's guard on spherogram's decoder is
+    installed when the engine is imported, and retried here if that failed
+    (under sage with faulthandler on, the first import of spherogram raises);
+    a no-op once installed, so the link is exactly ``snappy.Link(text)``."""
+    E._guard_dt_decoder()
+    return snappy.Link(text)
+
+
+def _bare_root_unbuildable(snappy, dt_code):
+    """Round 4 (2026-10-19): '' when ``snappy.Link`` builds the bare root, else
+    why not ('<ExceptionType>: <message>'; dt_converter's guard makes the
+    decoder raise DecoderLoop where it would loop) -- for --nongui, which used
+    to end in a traceback (or never return) on such a root."""
+    try:
+        _bare_snappy_link(snappy, _dt_code_to_str(dt_code))
+    except Exception as exc:  # noqa: BLE001
+        return "%s: %s" % (type(exc).__name__, str(exc)[:160])
+    return ""
+
+
+def _bare_root_flips(comps, negative_even="over"):
+    """V4.3 (2026-10-19): ``(vector, line)`` for a bare root the composite
+    gate flags (``_bare_root_realisation``'s vector and line), ``(None,
+    None)`` for one it does not flag; ``(None, '[warn] ...')`` when a flagged
+    root has no reading."""
+    vector, flagged, line = _bare_root_realisation(comps, negative_even)
+    if not flagged:
+        return None, None
+    return vector, line
 
 
 def _label_sort_key(s):
@@ -1005,9 +2012,16 @@ def _run_info_rows(snappy, pandas_module, dt_string, dt_code, out_path,
                    crossing_input, drawing_options, drawing_session_path,
                    first_pass_rows, continuable_first_passages,
                    merged_first_step_continuations, second_pass_sheets,
-                   second_pass_rows):
-    """Workbook metadata for reproducible nongui output."""
-    return [
+                   second_pass_rows, flips=None, flips_note=None,
+                   negative_even_note=None):
+    """Workbook metadata for reproducible nongui output.
+
+    V4.3: with a flip vector, ``normalized_input_dt`` is in the flips spelling
+    and rows ``input_dt_flip_vector`` (+ ``dt_flip_vector_note``) follow it.
+    A bare code rewritten from 'under' into the 'over' convention gets a row
+    ``negative_even_note`` after ``negative_even`` (``normalized_input_dt`` is
+    then the rewritten code)."""
+    rows = [
         ("created_at", datetime.now().astimezone().isoformat(timespec="seconds")),
         ("software", "DT Link Toolkit"),
         ("software_version", VERSION),
@@ -1027,6 +2041,10 @@ def _run_info_rows(snappy, pandas_module, dt_string, dt_code, out_path,
         ("input_dt", dt_string),
         ("normalized_input_dt", _dt_code_to_str(dt_code)),
         ("negative_even", negative_even),
+    ]
+    if negative_even_note is not None:
+        rows.append(("negative_even_note", negative_even_note))
+    rows += [
         ("output_xlsx", out_path),
         ("overview_svg", overview_path),
         ("backtrack_rounds", int(backtrack_rounds or 0)),
@@ -1043,6 +2061,21 @@ def _run_info_rows(snappy, pandas_module, dt_string, dt_code, out_path,
         ("second_pass_sheets", int(second_pass_sheets)),
         ("second_pass_rows", int(second_pass_rows)),
     ]
+    if flips is not None:
+        out = []
+        for key, value in rows:
+            if key == "normalized_input_dt":
+                value = E.dt_flips_to_string(dt_code, flips)
+            out.append((key, value))
+            if key == "normalized_input_dt":
+                out.append(("input_dt_flip_vector", _flip_vector_text(flips)))
+                out.append(("dt_flip_vector_note", flips_note or (
+                    "bit k <-> the k-th DT entry (odd label 2k+1); walking "
+                    "along the visit with the smaller label, 0 = the other "
+                    "strand crosses from right to left (spherogram/SnapPy "
+                    "convention); every link here is built from (DT, flips)")))
+        rows = out
+    return rows
 
 
 def _edge_list_from_map(edge_map):
@@ -1158,13 +2191,14 @@ def _card_index_rows(node_list, edge_list, card_sheets, original_crossings):
                  2: "After 2nd strand passage"}
 
     rows = []
+    any_flips = any(node.get("flips") is not None for node in node_list)
     for depth in sorted(by_depth):
         # Same order the cards are stacked in each SVG column.
         for node in sorted(by_depth[depth],
                            key=lambda x: (x["n_crossings"], x["id"])):
             _b, _f, tag = _outcome_style(node, original_crossings)
             labels = sorted(arriving.get(node["id"], []), key=_label_sort_key)
-            rows.append({
+            row = {
                 "svg_card_id": node["id"],
                 "svg_column": step_name.get(depth, "step %d" % depth),
                 "depth": depth,
@@ -1177,7 +2211,19 @@ def _card_index_rows(node_list, edge_list, card_sheets, original_crossings):
                 "arriving_flips": ", ".join(labels),
                 "workbook_sheets": ", ".join(
                     sorted(card_sheets.get(node["id"], set()))),
-            })
+            }
+            if any_flips:
+                # V4.3: the card's realisation ('arriving_flips' counts
+                # crossing changes, not this vector); round 3: '' on the
+                # cards of a bare run whose codes the gate does not flag
+                ordered = {}
+                for key, value in row.items():
+                    ordered[key] = value
+                    if key == "DT_code_drawn":
+                        ordered["dt_flip_vector"] = _flip_vector_text(
+                            node.get("flips"))
+                row = ordered
+            rows.append(row)
     return rows
 
 
@@ -1275,15 +2321,55 @@ def reconcile_steps(snappy, node_list, edge_list, rounds=400, steps=30,
             for nd in grp:
                 if nd["n_crossings"] <= target:
                     continue
+                nd_flips = nd.get("flips")      # V4.3: the realisation
+                carried_run = "carry" in nd     # round 3: a bare run's node
+                use = None
+                if carried_run and nd.get("active") and nd.get("carry"):
+                    use = nd["carry"]
                 try:
-                    L = snappy.Link(_dt_code_to_str(nd["dt_code"]))
-                    L = E.backtrack_simplify(snappy, L, mode="global",
-                                             rounds=rounds, steps=steps,
-                                             target=target)
+                    if carried_run:
+                        if use is not None:
+                            L = E.link_from_dt(snappy, nd["dt_code"], use)
+                            L = E.backtrack_simplify(snappy, L, mode="global",
+                                                     rounds=rounds, steps=steps,
+                                                     target=target,
+                                                     archive_flips=True)
+                        else:
+                            L = _bare_snappy_link(snappy, _dt_code_to_str(nd["dt_code"]))
+                            L = E.backtrack_simplify(snappy, L, mode="global",
+                                                     rounds=rounds, steps=steps,
+                                                     target=target,
+                                                     archive_flips="auto")
+                    elif nd_flips is not None:
+                        L = E.link_from_dt(snappy, nd["dt_code"], nd_flips)
+                        L = E.backtrack_simplify(snappy, L, mode="global",
+                                                 rounds=rounds, steps=steps,
+                                                 target=target,
+                                                 archive_flips=True)
+                    else:
+                        L = _bare_snappy_link(snappy, _dt_code_to_str(nd["dt_code"]))
+                        L = E.backtrack_simplify(snappy, L, mode="global",
+                                                 rounds=rounds, steps=steps,
+                                                 target=target)
                     n = len(L.crossings)
                 except Exception:  # noqa: BLE001
                     continue
                 if n < nd["n_crossings"]:
+                    if carried_run:
+                        _reconciled_carried(nd, L, n, use)
+                        changed = True
+                        continue
+                    if nd_flips is not None:
+                        try:
+                            code, nd_flips = _link_code_flips(L)
+                        except Exception:  # noqa: BLE001
+                            code = nd["dt_code"]
+                        nd["dt_code"] = code
+                        nd["flips"] = nd_flips
+                        nd["n_crossings"] = n
+                        nd["dt_str"] = E.dt_flips_to_string(code, nd_flips)
+                        changed = True
+                        continue
                     try:
                         code = _normalize_dt_code(L.DT_code())
                     except Exception:  # noqa: BLE001
@@ -1316,6 +2402,43 @@ def reconcile_steps(snappy, node_list, edge_list, rounds=400, steps=30,
                   "labels": sorted(v, key=_label_sort_key)}
                  for (s, d), v in emap.items()]
     return new_nodes, new_edges, remap
+
+
+def _reconciled_carried(nd, L, n, use):
+    """Update a bare run's node ``nd`` after reconciliation drove it down to
+    the link ``L`` with ``n`` crossings (V4.3, round 3).  ``use`` is the
+    vector the reduction followed (None: read bare, as before).  The node
+    keeps the realisation it carries and writes it out only when the gate
+    flags its new code; an unflagged node read bare is updated exactly as
+    before (and carries ``L``'s own vector)."""
+    if use is not None:
+        try:
+            code, vec = _link_code_flips(L)
+        except Exception:  # noqa: BLE001
+            code, vec = nd["dt_code"], nd.get("carry")
+        active = True
+    else:
+        try:
+            code = _normalize_dt_code(L.DT_code())
+        except Exception:  # noqa: BLE001
+            code = nd["dt_code"]
+        vec, active = E._own_vector(L, code), False
+        if _gate_flags(code):
+            try:
+                code, vec = _link_code_flips(L)
+                active = True
+            except Exception:  # noqa: BLE001
+                pass
+    nd["dt_code"] = code
+    nd["n_crossings"] = n
+    nd["carry"] = list(vec) if vec is not None else None
+    nd["active"] = bool(active and vec is not None)
+    if nd["active"] and vec and _gate_flags(code):
+        nd["flips"] = list(vec)
+        nd["dt_str"] = E.dt_flips_to_string(code, vec)
+    else:
+        nd.pop("flips", None)
+        nd["dt_str"] = _dt_code_to_str(code)
 
 
 _LAURENT_TERM = __import__("re").compile(
@@ -1447,7 +2570,7 @@ def render_overview_svg(nodes, edges, out_path, negative_even="over",
                         title_dt=None, backtrack_rounds=None,
                         backtrack_steps=None, crossing_order=None,
                         crossing_map=None, crossing_input=None,
-                        drawing_options=None):
+                        drawing_options=None, title_has_flips=False):
     """Draw the two-step passage tree as one large, tidy, informative SVG.
 
     Columns are passage depth (0 = original, 1 = after one passage, 2 = after
@@ -1460,6 +2583,11 @@ def render_overview_svg(nodes, edges, out_path, negative_even="over",
     arrow's arc.  Columns are widely separated and diagrams are enlarged so DT
     and crossing labels do not collide; cards never overlap and diagrams are
     drawn on top of the arrows so nothing is hidden.
+
+    V4.3: a node carrying ``"flips"`` is drawn as that realisation (its
+    ``dt_str`` caption is in the flips spelling); ``title_has_flips`` keeps the
+    header's start code whole (wrapped, never cut at 66 characters, which
+    would drop the vector).
     """
     import textwrap
     import matplotlib as mpl
@@ -1520,7 +2648,14 @@ def render_overview_svg(nodes, edges, out_path, negative_even="over",
     overlay.text(0.016, 0.960, sim_info, ha="left", va="center",
                  color="#93c5fd", fontsize=8.5,
                  family=OVERVIEW_FONT_FAMILY, zorder=2)
-    if title_dt:
+    if title_dt and title_has_flips:
+        title_lines = textwrap.wrap("start  %s" % title_dt, width=120) or [""]
+        overlay.text(0.986, 0.978 if len(title_lines) == 1 else 0.990,
+                     "\n".join(title_lines), ha="right",
+                     va="center" if len(title_lines) == 1 else "top",
+                     color="#cbd5e1", fontsize=9 if len(title_lines) == 1 else 7.5,
+                     family=OVERVIEW_FONT_FAMILY, zorder=2)
+    elif title_dt:
         overlay.text(0.986, 0.978, "start  %s" % _short_text(title_dt, 66),
                      ha="right", va="center", color="#cbd5e1", fontsize=9,
                      family=OVERVIEW_FONT_FAMILY, zorder=2)
@@ -1600,7 +2735,14 @@ def render_overview_svg(nodes, edges, out_path, negative_even="over",
         ax = fig.add_axes([cx - dw / 2, cy - bh / 2 + bh * 0.32, dw, dh])
         ax.set_zorder(5)
         try:
-            diag = E.Diagram.from_dt_code(n["dt_code"], negative_even=negative_even)
+            if n.get("flips") is not None:
+                # V4.3: every node of a flips run is in spherogram's 'over'
+                # convention (run_nongui rewrites an 'under' root)
+                diag = E.Diagram.from_dt_code(n["dt_code"], negative_even="over",
+                                              flips=n["flips"])
+            else:
+                diag = E.Diagram.from_dt_code(n["dt_code"],
+                                              negative_even=negative_even)
             _apply_crossing_display_options(
                 diag, crossing_order, crossing_map, strict=False,
                 crossing_input=crossing_input)
@@ -1724,6 +2866,18 @@ def run_nongui(dt_string, out_path, negative_even="over",
 
     V3.6 continues only first-step structures with ``new_components > 2`` and a
     usable chosen DT code.
+
+    V4.3: ``dt_string`` may carry a flip vector ('DT: [...], [0,1,...]'); then
+    the given realisation is followed through both passes (see
+    ``strand_passage_nongui``), every node keeps its vector, and the workbook
+    and overview show them.  A code read with ``negative_even='under'`` --
+    with or without a vector -- is first rewritten in spherogram's 'over'
+    convention (entries negated, the same diagram; a vector describes the
+    shadow and is unchanged), which every SnapPy step reads and writes, so
+    every code in the workbook and on the overview cards is 'over' and each
+    card is drawn as the code SnapPy read (an [info] line and the run_info
+    row ``negative_even_note`` say so for a bare code).  Otherwise, without a
+    vector: exactly as before.
     """
     try:
         import snappy  # type: ignore
@@ -1749,10 +2903,137 @@ def run_nongui(dt_string, out_path, negative_even="over",
         print("[error] invalid crossing-label input: %s" % exc, file=sys.stderr)
         return 2
 
-    dt_code = [tuple(int(x) for x in comp) for comp in D.parse_dt(dt_string)]
+    try:
+        dt_code, flips = E.parse_dt_flips(dt_string)
+    except ValueError as exc:
+        if not _text_carries_vector(dt_string):
+            # round 4d (2026-10-20): a bare code the parser cannot read
+            # ('DT[daddcab]', '8,6,2,4') is ONE [error] line, exit 2 -- it
+            # was a traceback (with a per-process object address in it)
+            print("[error] %s" % _unparseable_text(dt_string, exc), file=sys.stderr)
+            return 2
+        print("[error] could not read the DT code: %s" % exc, file=sys.stderr)
+        return 2
+    flips_note = None
+    under_note = None
+    given = flips is not None       # the user named the realisation
+    if flips is not None:
+        if negative_even == "under":
+            # every SnapPy step reads spherogram's 'over' convention; the same
+            # diagram there is the negated code, with the same vector
+            dt_code = [tuple(-x for x in comp) for comp in dt_code]
+            flips_note = ("--negative-even under: the code was rewritten in "
+                          "spherogram's 'over' convention (entries negated; "
+                          "the vector describes the shadow and is unchanged)")
+            print("[info] %s: %s" % (flips_note, E.dt_flips_to_string(dt_code, flips)))
+        try:
+            E.link_from_dt(snappy, dt_code, flips)
+        except ValueError as exc:
+            print("[error] %s" % exc, file=sys.stderr)
+            return 2
+        print("[info] flip vector %s: following this realisation through "
+              "every passage" % _flip_vector_text(flips))
+    elif negative_even == "under":
+        # V4.3: SnapPy reads spherogram's 'over' convention and writes its
+        # codes in it, so the bare code is rewritten too (the same diagram);
+        # every code in the workbook and on the overview cards is then 'over'
+        dt_code = [tuple(-x for x in comp) for comp in dt_code]
+        under_note = ("--negative-even under: the code was rewritten in "
+                      "spherogram's 'over' convention (entries negated, the "
+                      "same diagram), which every SnapPy step reads; every DT "
+                      "code below is in that convention")
+        print("[info] %s: %s" % (under_note, _dt_code_to_str(dt_code)))
+    root_carry, root_active = None, False
+    if flips is None:
+        # V4.3 (2026-10-19, round 3): every bare root carries its realisation
+        # -- spherogram's reading (dt_converter's mended one for a flagged
+        # code it reads illegally) -- through both passes; it is in force,
+        # and written out, where the composite gate flags a code (one [info]
+        # line when that is the root itself)
+        root_carry, flagged, line = _bare_root_realisation(dt_code, "over")
+        followed = False
+        if (not flagged or not root_carry) and _bare_root_unbuildable(snappy, dt_code):
+            # round 4 (2026-10-19): spherogram cannot build the bare root (its
+            # decoder fails, or would loop for ever on a kink: DecoderLoop),
+            # and every step below read it with snappy.Link -- a traceback, or
+            # no return at all.  Follow a reading of it instead (a code the
+            # gate does not flag is the same link up to mirror image in every
+            # realisation), or stop in one line where there is none
+            if not any(dt_code):
+                print("[error] %s has no crossings (the unknot or an unlink), "
+                      "so --nongui has no strand passage to make"
+                      % _dt_code_to_str(dt_code), file=sys.stderr)
+                return 2
+            mended, _flagged, mline = _bare_root_realisation(
+                dt_code, "over", follow_unreadable=True)
+            if mended and mline is None:
+                # spherogram's own reading, which its string parser cannot build
+                mline = ("[info] spherogram cannot build the bare code %s (%s), "
+                         "so the run follows spherogram's own reading of it, %s, "
+                         "through every step (the composite gate does not flag "
+                         "it, so every realisation of it is the same link up to "
+                         "mirror image; the root is written with this vector, "
+                         "every other code the gate does not flag bare)"
+                         % (_dt_code_to_str(dt_code), _bare_root_unbuildable(snappy, dt_code),
+                            E.dt_flips_to_string(dt_code, mended)))
+            if not mended or (mline or "").startswith("[error]"):
+                print(mline or ("[error] spherogram cannot build the bare code %s "
+                                "(%s), and no reading of it was found; give the "
+                                "code with a flip vector"
+                                % (_dt_code_to_str(dt_code),
+                                   _bare_root_unbuildable(snappy, dt_code))),
+                      file=sys.stderr)
+                return 2
+            root_carry, line, followed = mended, mline, not flagged
+        if flagged and root_carry:
+            try:
+                E.link_from_dt(snappy, dt_code, root_carry)
+            except ValueError as exc:
+                line = ("[warn] the composite gate flags the bare code, but "
+                        "spherogram cannot build its own reading of it (%s), "
+                        "so it is read bare as before" % exc)
+                root_carry = None
+        if line is not None:
+            print(line, file=sys.stderr if line.startswith("[warn]") else sys.stdout)
+        root_active = bool((flagged or followed) and root_carry)
+        if followed:
+            # round 4: an unflagged root spherogram cannot build, followed
+            flips_note = (
+                "the flip vector the run follows for the bare code, which "
+                "spherogram cannot build bare (the run's [info] line says why "
+                "and whose reading this is); the composite gate does not flag "
+                "it, so every realisation is the same link up to mirror image; "
+                "bit k <-> the k-th DT entry (odd label 2k+1); walking along the "
+                "visit with the smaller label, 0 = the other strand crosses from "
+                "right to left (spherogram/SnapPy convention); every link here "
+                "follows (DT, flips); the root is written with this vector, every "
+                "other code with its vector only where the gate flags it")
+        elif root_active:
+            flips_note = (
+                "%s of the bare code (the composite gate flagged it: a bare "
+                "code does not fix how its parts are reflected against each "
+                "other, so re-reading it could name another link); bit k <-> "
+                "the k-th DT entry (odd label 2k+1); walking along the visit "
+                "with the smaller label, 0 = the other strand crosses from "
+                "right to left (spherogram/SnapPy convention); every link "
+                "here follows (DT, flips), and the codes the gate flags are "
+                "written with their vectors"
+                % ("dt_converter's mended reading" if "mended reading" in line
+                   else "dt_converter's reading" if "dt_converter's reading" in line
+                   else "a legal reading" if "a legal reading" in line
+                   else "spherogram's reading"))
+    # the realisation the workbook names for the root (the user's vector, or
+    # the carried one of a flagged bare root)
+    shown_root_flips = flips if given else (root_carry if root_active else None)
+    # the convention every code from here on is read in
+    read_as = "over" if negative_even == "under" else negative_even
     if (crossing_order and crossing_order.strip()) or (crossing_map and crossing_map.strip()):
         try:
-            root_for_ids = E.Diagram.from_dt_code(dt_code, negative_even=negative_even)
+            if given:
+                root_for_ids = E.Diagram.from_dt_code(dt_code, negative_even="over",
+                                                      flips=flips)
+            else:
+                root_for_ids = E.Diagram.from_dt_code(dt_code, negative_even=read_as)
             _apply_crossing_display_options(
                 root_for_ids, crossing_order, crossing_map, strict=True)
         except Exception as exc:  # noqa: BLE001
@@ -1767,7 +3048,8 @@ def run_nongui(dt_string, out_path, negative_even="over",
     order: List[Any] = []
     edges: Dict[Tuple[int, int], set] = {}
 
-    def get_node(code, depth, simpl_crossings, ncomp, jones):
+    def get_node(code, depth, simpl_crossings, ncomp, jones, node_flips=None,
+                 node_carry=None, node_active=False):
         """Add (or fetch) a node for one step.
 
         Structures are merged ONLY WITHIN THE SAME STEP: the merge key includes
@@ -1777,10 +3059,23 @@ def run_nongui(dt_string, out_path, negative_even="over",
         the component count, and the Jones polynomial up to mirror (q -> 1/q) and
         framing (overall q^n).  The crossing/component/Jones values are the ones
         already computed for the spreadsheet, so the two outputs always agree.
+
+        V4.3: ``node_flips`` (flips runs) is stored as the node's ``"flips"``
+        and its ``dt_str`` is in the flips spelling.  Round 3: a node of a
+        bare run also keeps ``"carry"`` / ``"active"`` (the realisation it
+        carries, unseen unless its code is flagged; ``node_flips`` is then
+        set too).
         """
         code = [tuple(int(x) for x in comp) for comp in code]
         simpl = simpl_crossings if simpl_crossings is not None else _crossing_count(code)
-        comp_n = ncomp if ncomp is not None else _num_components(snappy, code)
+        if node_flips is not None:
+            comp_n = (ncomp if ncomp is not None
+                      else _num_components(snappy, code, node_flips))
+        elif node_active and node_carry:
+            comp_n = (ncomp if ncomp is not None
+                      else _num_components(snappy, code, node_carry))
+        else:
+            comp_n = ncomp if ncomp is not None else _num_components(snappy, code)
         fp = (int(depth), int(simpl), int(comp_n), _canonical_jones_key(jones))
         if fp not in nodes:
             nid = len(order)
@@ -1794,6 +3089,13 @@ def run_nongui(dt_string, out_path, negative_even="over",
                 "depth": depth,
                 "fp": fp,
             }
+            if node_flips is not None:
+                nodes[fp]["flips"] = list(node_flips)
+                nodes[fp]["dt_str"] = E.dt_flips_to_string(code, node_flips)
+            if not given:
+                nodes[fp]["carry"] = (list(node_carry)
+                                      if node_carry is not None else None)
+                nodes[fp]["active"] = bool(node_active and node_carry is not None)
             order.append(fp)
         return nodes[fp]["id"]
 
@@ -1802,23 +3104,66 @@ def run_nongui(dt_string, out_path, negative_even="over",
               % (backtrack_rounds, backtrack_steps))
 
     # Original-link invariants, computed the same way the spreadsheet does.
-    try:
-        L0 = snappy.Link(_dt_code_to_str(dt_code))
-        L0 = E.backtrack_simplify(snappy, L0, mode='global',
-                                  rounds=backtrack_rounds, steps=backtrack_steps)
-        root_crossings = len(L0.crossings)
-        root_components = len(L0.link_components)
-        root_jones = _jones_for_dt(snappy, dt_code)
-    except Exception:  # noqa: BLE001
-        root_crossings = _crossing_count(dt_code)
-        root_components = _num_components(snappy, dt_code)
-        root_jones = "None"
-    root_id = get_node(dt_code, 0, root_crossings, root_components, root_jones)
+    if given:
+        try:
+            L0 = E.link_from_dt(snappy, dt_code, flips)
+            L0 = E.backtrack_simplify(snappy, L0, mode='global',
+                                      rounds=backtrack_rounds,
+                                      steps=backtrack_steps, archive_flips=True)
+            root_crossings = len(L0.crossings)
+            root_components = len(L0.link_components)
+            root_jones = _jones_for_dt(snappy, dt_code, flips)
+        except Exception:  # noqa: BLE001
+            root_crossings = _crossing_count(dt_code)
+            root_components = _num_components(snappy, dt_code, flips)
+            root_jones = "None"
+        root_id = get_node(dt_code, 0, root_crossings, root_components,
+                           root_jones, node_flips=flips)
+    elif root_active:
+        # round 3: a flagged bare root, followed as it carries
+        try:
+            L0 = E.link_from_dt(snappy, dt_code, root_carry)
+            L0 = E.backtrack_simplify(snappy, L0, mode='global',
+                                      rounds=backtrack_rounds,
+                                      steps=backtrack_steps, archive_flips=True)
+            root_crossings = len(L0.crossings)
+            root_components = len(L0.link_components)
+            root_jones = _jones_for_dt(snappy, dt_code, root_carry)
+        except Exception:  # noqa: BLE001
+            root_crossings = _crossing_count(dt_code)
+            root_components = _num_components(snappy, dt_code, root_carry)
+            root_jones = "None"
+        root_id = get_node(dt_code, 0, root_crossings, root_components,
+                           root_jones, node_flips=root_carry,
+                           node_carry=root_carry, node_active=True)
+    else:
+        try:
+            L0 = _bare_snappy_link(snappy, _dt_code_to_str(dt_code))
+            L0 = E.backtrack_simplify(snappy, L0, mode='global',
+                                      rounds=backtrack_rounds, steps=backtrack_steps,
+                                      archive_flips="auto")
+            root_crossings = len(L0.crossings)
+            root_components = len(L0.link_components)
+            root_jones = _jones_for_dt(snappy, dt_code)
+        except Exception:  # noqa: BLE001
+            root_crossings = _crossing_count(dt_code)
+            root_components = _num_components(snappy, dt_code)
+            root_jones = "None"
+        root_id = get_node(dt_code, 0, root_crossings, root_components, root_jones,
+                           node_carry=root_carry, node_active=False)
 
     print("[info] first pass ...")
-    results, chosen_codes = strand_passage_nongui(
-        snappy, dt_code, backtrack_rounds=backtrack_rounds,
-        backtrack_steps=backtrack_steps)
+    if given:
+        results, chosen_codes, chosen_flips = strand_passage_nongui(
+            snappy, dt_code, backtrack_rounds=backtrack_rounds,
+            backtrack_steps=backtrack_steps, flips=flips)
+        chosen_meta = [{"flips": f, "carry": None, "active": False}
+                       for f in chosen_flips]
+    else:
+        results, chosen_codes, chosen_meta = strand_passage_nongui(
+            snappy, dt_code, backtrack_rounds=backtrack_rounds,
+            backtrack_steps=backtrack_steps, carry=root_carry,
+            carry_active=root_active, return_meta=True)
 
     print("[info] first-step merge ...")
     print("[info] second-pass continuation criterion: %s"
@@ -1831,9 +3176,17 @@ def run_nongui(dt_string, out_path, negative_even="over",
     # as.  The ids recorded here are pre-merge; they are chased through every
     # later remap by ``_follow`` below.
     first_row_nid: List[Optional[int]] = []
-    for res, chosen_code in zip(results, chosen_codes):
-        nid = get_node(chosen_code, 1, res['snappy_crossings'],
-                       res['new_components'], res['Jones_polynomial'])
+    for res, chosen_code, cm in zip(results, chosen_codes, chosen_meta):
+        chosen_fl = cm["flips"]
+        if chosen_fl is not None:
+            nid = get_node(chosen_code, 1, res['snappy_crossings'],
+                           res['new_components'], res['Jones_polynomial'],
+                           node_flips=chosen_fl, node_carry=cm["carry"],
+                           node_active=cm["active"])
+        else:
+            nid = get_node(chosen_code, 1, res['snappy_crossings'],
+                           res['new_components'], res['Jones_polynomial'],
+                           node_carry=cm["carry"], node_active=cm["active"])
         first_row_nid.append(nid)
         label = str(res['flipped_crossing'])
         edges.setdefault((root_id, nid), set()).add(label)
@@ -1919,10 +3272,22 @@ def run_nongui(dt_string, out_path, negative_even="over",
             "merged_%s_%s" % (nid, "_".join(labels[:3])),
             used_sheet_names)
         try:
-            second_results, second_chosen = strand_passage_nongui(
-                snappy, list(chosen_code),
-                backtrack_rounds=backtrack_rounds,
-                backtrack_steps=backtrack_steps)
+            node_flips = node.get("flips")
+            if given and node_flips is not None:
+                second_results, second_chosen, second_flips = strand_passage_nongui(
+                    snappy, list(chosen_code),
+                    backtrack_rounds=backtrack_rounds,
+                    backtrack_steps=backtrack_steps, flips=node_flips)
+                second_meta = [{"flips": f, "carry": None, "active": False}
+                               for f in second_flips]
+            else:
+                # round 3: a bare run's node continues with the realisation
+                # it carries (in force when its lineage met a flagged code)
+                second_results, second_chosen, second_meta = strand_passage_nongui(
+                    snappy, list(chosen_code),
+                    backtrack_rounds=backtrack_rounds,
+                    backtrack_steps=backtrack_steps, carry=node.get("carry"),
+                    carry_active=bool(node.get("active")), return_meta=True)
             for item in second_results:
                 item['first_step_node_id'] = nid
                 item['first_step_passages'] = provenance
@@ -1930,9 +3295,18 @@ def run_nongui(dt_string, out_path, negative_even="over",
             second_pass_results_dict[sheet_name] = second_results
             sheet_parent_nid[sheet_name] = nid
             sheet_row_nid: List[Optional[int]] = []
-            for r2, c2 in zip(second_results, second_chosen):
-                nid2 = get_node(c2, 2, r2['snappy_crossings'],
-                                r2['new_components'], r2['Jones_polynomial'])
+            for r2, c2, m2 in zip(second_results, second_chosen, second_meta):
+                f2 = m2["flips"]
+                if f2 is not None:
+                    nid2 = get_node(c2, 2, r2['snappy_crossings'],
+                                    r2['new_components'], r2['Jones_polynomial'],
+                                    node_flips=f2, node_carry=m2["carry"],
+                                    node_active=m2["active"])
+                else:
+                    nid2 = get_node(c2, 2, r2['snappy_crossings'],
+                                    r2['new_components'], r2['Jones_polynomial'],
+                                    node_carry=m2["carry"],
+                                    node_active=m2["active"])
                 sheet_row_nid.append(nid2)
                 edges.setdefault((nid, nid2), set()).add(
                     str(r2['flipped_crossing']))
@@ -2013,7 +3387,10 @@ def run_nongui(dt_string, out_path, negative_even="over",
         negative_even, backtrack_rounds, backtrack_steps,
         crossing_order, crossing_map, crossing_input, drawing_options,
         drawing_session_path, len(results), continuable_first_passages,
-        len(first_step_labels), len(second_pass_results_dict), second_pass_rows)
+        len(first_step_labels), len(second_pass_results_dict), second_pass_rows,
+        **({"flips": shown_root_flips, "flips_note": flips_note}
+           if shown_root_flips is not None else {}),
+        **({"negative_even_note": under_note} if under_note is not None else {}))
     run_info.extend([
         ("svg_cards_total", len(node_list)),
         ("row_shading", "each data row is shaded with the colour of the "
@@ -2046,15 +3423,39 @@ def run_nongui(dt_string, out_path, negative_even="over",
                                           len(sheet_df.columns), node_by_id)
     print("[ok] wrote %s  (%d card(s); %d row(s) shaded by card)"
           % (out_path, len(node_list), shaded))
+    if not given and not root_active:
+        flagged_cards = sum(1 for nd in node_list if nd.get("flips") is not None)
+        if flagged_cards:
+            # round 3: a prime-looking root reached composite codes
+            print("[info] the composite gate flagged %d of the %d card(s); "
+                  "their codes are written with the flip vectors of the "
+                  "realisation followed from the root (dt_flip_vector "
+                  "columns), every other code bare" % (flagged_cards,
+                                                       len(node_list)))
 
     try:
-        render_overview_svg(node_list, edge_list, overview_path,
-                            negative_even=negative_even, title_dt=dt_string,
-                            backtrack_rounds=backtrack_rounds,
-                            backtrack_steps=backtrack_steps,
-                            crossing_order=crossing_order,
-                            crossing_map=crossing_map,
-                            drawing_options=drawing_options)
+        if shown_root_flips is not None:
+            # the user's own code text, with its vector in the toolkit's
+            # spelling, never cut (the vector would be lost)
+            render_overview_svg(node_list, edge_list, overview_path,
+                                negative_even="over",
+                                title_dt=format_dt_flips(
+                                    split_dt_flips(dt_string)[0].strip(),
+                                    shown_root_flips),
+                                backtrack_rounds=backtrack_rounds,
+                                backtrack_steps=backtrack_steps,
+                                crossing_order=crossing_order,
+                                crossing_map=crossing_map,
+                                drawing_options=drawing_options,
+                                title_has_flips=True)
+        else:
+            render_overview_svg(node_list, edge_list, overview_path,
+                                negative_even=read_as, title_dt=dt_string,
+                                backtrack_rounds=backtrack_rounds,
+                                backtrack_steps=backtrack_steps,
+                                crossing_order=crossing_order,
+                                crossing_map=crossing_map,
+                                drawing_options=drawing_options)
         print("[ok] wrote %s  (%d unique structures, %d passage arrows)"
               % (overview_path, len(node_list), len(edge_list)))
     except Exception as exc:  # noqa: BLE001
@@ -2302,8 +3703,32 @@ class StrandPassageApp(object):
         self.close_children()
         try:
             crossing_order, crossing_map, _kind = self._current_crossing_options()
-            start = E.Diagram.from_dt_code(D.parse_dt(self.dt_var.get()),
-                                           negative_even=self.negative_even)
+            # V4.3: the field may carry a flip vector ('DT: [...], [0,1,...]')
+            comps, flips = E.parse_dt_flips(self.dt_var.get())
+            note = "Original diagram."
+            carry, carry_active = None, False
+            if flips is None:
+                _refuse_unrealisable(comps)  # round 4: the error window, not a traceback
+                # V4.3 (round 3): the realisation a bare root is followed
+                # with -- spherogram's reading (dt_converter's mended one for
+                # a flagged code it reads illegally); shown only where the
+                # composite gate flags a code
+                carry, flagged, line = _bare_root_realisation(
+                    comps, self.negative_even)
+                carry_active = bool(flagged and carry)
+                if line is not None:
+                    print(line, file=(sys.stderr if line.startswith("[warn]")
+                                      else sys.stdout))
+                    note = "Original diagram.  %s" % line
+            if flips is None:
+                start = E.Diagram.from_dt_code(comps,
+                                               negative_even=self.negative_even,
+                                               carry=carry,
+                                               carry_active=carry_active)
+            else:
+                start = E.Diagram.from_dt_code(comps,
+                                               negative_even=self.negative_even,
+                                               flips=flips)
             _apply_crossing_display_options(
                 start,
                 crossing_order,
@@ -2315,7 +3740,7 @@ class StrandPassageApp(object):
             return
         start.display_source = "original"
         self.step_count = 0
-        self.open_step_window(start, note="Original diagram.", snap=None,
+        self.open_step_window(start, note=note, snap=None,
                               passage_log=[], parent=None, is_root=True)
 
     def load_drawing_session(self):
@@ -2610,7 +4035,7 @@ def run_gui(dt_string=None, negative_even="over", use_snappy_global=True,
 # --------------------------------------------------------------------------- #
 def main():
     ap = argparse.ArgumentParser(
-        prog="strand_passage_guiV4_2.py",
+        prog="strand_passage_guiV4_3.py",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description=(
             "DT Link Toolkit strand passage V%s\n"
@@ -2623,32 +4048,46 @@ def main():
             "  * --nongui           write the two-pass spreadsheet + overview SVG\n"
             "  * --demo IDS         render a headless before/after cascade image\n\n"
             "SnapPy (via 'sage -python') enables simplification, Jones/linking\n"
-            "invariants and colour-matching; without Sage those are unavailable."
+            "invariants and colour-matching; without Sage those are unavailable.\n\n"
+            "A DT code may carry a flip vector naming its realisation:\n"
+            "  DT: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]   (the square knot;\n"
+            "  the bare code is the granny).  Bit k belongs to the k-th DT\n"
+            "  entry; walking along the visit with the smaller label, 0 = the\n"
+            "  other strand crosses from your right to your left (spherogram/\n"
+            "  SnapPy convention); complementing every bit is the mirror image."
             % VERSION),
         epilog=(
             "examples:\n"
-            "  sage -python strand_passage_guiV4_2.py\n"
-            "  sage -python strand_passage_guiV4_2.py --dt \"DT: [(4,6,2)]\"\n"
-            "  sage -python strand_passage_guiV4_2.py --drawing-session dt_session.json\n"
-            "  sage -python strand_passage_guiV4_2.py --backtrack "
+            "  sage -python strand_passage_guiV4_3.py\n"
+            "  sage -python strand_passage_guiV4_3.py --dt \"DT: [(4,6,2)]\"\n"
+            "  sage -python strand_passage_guiV4_3.py "
+            "--dt \"DT: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]\"\n"
+            "  sage -python strand_passage_guiV4_3.py --drawing-session dt_session.json\n"
+            "  sage -python strand_passage_guiV4_3.py --backtrack "
             "--backtrack-rounds 50 --backtrack-steps 25\n"
-            "  sage -python strand_passage_guiV4_2.py --nongui \\\n"
+            "  sage -python strand_passage_guiV4_3.py --nongui \\\n"
             "       --dt \"DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),"
             "(-20,-6,-18,-4)]\" \\\n"
             "       --out results.xlsx --backtrack --backtrack-rounds 50\n"
-            "  python3 strand_passage_guiV4_2.py --dt \"DT: [(4,6,2)]\" "
+            "  python3 strand_passage_guiV4_3.py --dt \"DT: [(4,6,2)]\" "
             "--demo 2 1 --out chain.png\n"
-            "  python3 strand_passage_guiV4_2.py --gui-backend agg   "
+            "  python3 strand_passage_guiV4_3.py --gui-backend agg   "
             "# if TkAgg won't load\n"))
     ap.add_argument("--dt", default=None, metavar="STR",
-                    help="signed DT code string, e.g. \"DT: [(4,6,2)]\" "
-                         "(default: a built-in 4-component example)")
+                    help="signed DT code string, e.g. \"DT: [(4,6,2)]\", "
+                         "optionally with a flip vector naming the "
+                         "realisation, e.g. \"DT: [(10, 6, 2, 4, 12, 8)], "
+                         "[0,1,0,0,0,1]\" (default: a built-in 4-component "
+                         "example)")
     ap.add_argument("--negative-even", choices=["over", "under"], default=None,
                     help="convention for a negative even DT label: the even "
-                         "visit is the 'over' (default) or 'under' strand")
+                         "visit is the 'over' (default) or 'under' strand; "
+                         "--nongui rewrites an 'under' code in the 'over' "
+                         "convention SnapPy reads (entries negated, the same "
+                         "diagram)")
     ap.add_argument("--drawing-session", default=None, metavar="PATH",
                     help="load drawing settings from a JSON session saved by "
-                         "draw_dt_original_labelsV5_5.py")
+                         "draw_dt_original_labelsV5_9.py")
     ap.add_argument("--nongui", action="store_true",
                     help="write the two-pass strand-passage spreadsheet (.xlsx) "
                          "and overview SVG, then exit (needs SnapPy + pandas)")
@@ -2728,6 +4167,23 @@ def main():
     # require Sage; warn once up front when running under plain python.
     warn_if_no_sage()
 
+    if args.nongui or args.demo is not None:
+        # a bare code no diagram on the sphere has: --nongui and --demo ended
+        # in a traceback ("Link isn't planar", "The crossing graph is not
+        # planar"); one line instead
+        dt = args.dt or session_dt or (DEFAULT_DT if args.nongui else "DT: [(4,6,2)]")
+        why = None if _text_carries_vector(dt) else E.no_diagram_reason(dt)
+        if why:
+            try:        # round 4b: the code as the dt-flips helper reads it (no '# comment')
+                shown = split_dt_flips(dt)[0].strip()
+            except ValueError:
+                shown = dt
+            print("[error] %s: %s, so %s; check the code"
+                  % (shown, why, "--nongui has no link to pass strands through"
+                     if args.nongui else "--demo has no diagram to draw"),
+                  file=sys.stderr)
+            sys.exit(2)
+
     if args.nongui:
         dt = args.dt or session_dt or DEFAULT_DT
         rc = run_nongui(dt, args.out or "strand_passage_results.xlsx",
@@ -2744,14 +4200,33 @@ def main():
     if args.demo is not None:
         dt = args.dt or session_dt or "DT: [(4,6,2)]"
         out = args.out or "strand_passage_chain_v4_0.png"
-        render_chain(dt, args.demo, out, negative_even=negative_even,
-                     use_snappy_global=use_snappy_global,
-                     backtrack_rounds=backtrack_rounds,
-                     backtrack_steps=backtrack_steps,
-                     crossing_order=args.crossing_order,
-                     crossing_map=args.crossing_map,
-                     crossing_input=crossing_input,
-                     drawing_options=drawing_options)
+        try:
+            render_chain(dt, args.demo, out, negative_even=negative_even,
+                         use_snappy_global=use_snappy_global,
+                         backtrack_rounds=backtrack_rounds,
+                         backtrack_steps=backtrack_steps,
+                         crossing_order=args.crossing_order,
+                         crossing_map=args.crossing_map,
+                         crossing_input=crossing_input,
+                         drawing_options=drawing_options)
+        except ValueError as exc:
+            if not _text_carries_vector(dt) and not getattr(exc, "user_facing", False):
+                # round 4d (2026-10-20): a bare code the parser cannot read is
+                # ONE [error] line, exit 2 (it was a traceback); any other
+                # failure of a bare code fails as before
+                try:
+                    E.parse_dt_flips(dt)
+                except ValueError as parse_exc:
+                    print("[error] %s" % _unparseable_text(dt, parse_exc), file=sys.stderr)
+                    sys.exit(2)
+                raise                       # a bare code fails as before
+            try:                            # name a parse failure as one
+                E.parse_dt_flips(dt)
+                what = ""
+            except ValueError:
+                what = "could not read the DT code: "
+            print("[error] %s%s" % (what, exc), file=sys.stderr)
+            sys.exit(2)
         print("[ok] wrote", out)
         return
 

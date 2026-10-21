@@ -7,7 +7,7 @@
 # SnapPy running inside Sage, and on the maintainer's macOS setup SnapPy is
 # provided by the Sage install, not by pip. Run the tool as:
 #
-#   sage -python strand_passage_guiV4_2.py ...
+#   sage -python strand_passage_guiV4_3.py ...
 #
 # Without Sage/SnapPy the app still runs on the continuity engine only and warns
 # that Jones polynomials are unavailable. `tkinter` (GUI) ships with CPython.
@@ -20,11 +20,11 @@ matplotlib>=3.4
 pandas>=1.3
 openpyxl>=3.0
 
-# Optional for score_diagramV2_0.py: used for optimal point-cloud assignment
+# Optional for score_diagramV2_6.py: used for optimal point-cloud assignment
 # in symmetry scoring. The tool has a greedy fallback when SciPy is absent.
 # scipy>=1.7
 
-# Needed only for figure_to_dt.py (extract a DT code from a diagram image):
+# Needed only for figure_to_dt_V3_1.py (extract a DT code from a diagram image):
 # scikit-image, SciPy, and Pillow. These typically live in the plain Python 3
 # environment rather than Sage, which is why the launcher runs the figure tool
 # under Python 3. spherogram (optional) enables its --validate check.

@@ -38,8 +38,34 @@ and exactly (marked-graph isomorphism), not by comparing the drawings.  On the
 four project diagrams the number of panels is faces / |symmetry group| -- 4, 8,
 8 and 16 out of 16 faces for the rosette, Balanced, Offset and Lopsided clasps.
 
+A DT code may carry its flip vector -- 'DT: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]'
+(spherogram's DT_code(flips=True); one bit per crossing, bit k for the crossing
+with odd label 2k+1; walking along the visit with the smaller label, bit 0 when
+the other strand crosses from right to left; complementing every bit is the
+mirror image).  A bare code leaves the realisation to networkx, which for a
+composite code is arbitrary (the bare code above is drawn as the granny knot,
+writhe +6); with the vector the atlas is that of EXACTLY the realisation it
+describes -- here the square knot -- in that hand: its embedding is pinned in
+every layout, and the faces are grouped by the exact symmetries of that map
+(spheremaps.py), not by abstract graph isomorphism.  Where the shaped-tutte
+solve of a composite collapses (false crossings, or a summand opened in the
+other hand) a panel is drawn with spread-tutte instead, and the caption says
+so.  A vector that describes no diagram on the sphere is refused, and so is a
+vector on a split diagram (its pieces are laid out one by one, where the vector
+could not be pinned).
+
+Version 1.1 (2026-10-18): the flip-vector form above (every spelling
+split_dt_flips reads); a bare code's atlas, report and JSON are unchanged.
+(1.0: the atlas as it was, with no version constant.)  Still 1.1
+(2026-10-20, round 4e): a spelling the drawing script's reader cannot parse
+-- alphabetical 'DT[daddcab]', prefix-less '8,6,2,4' -- is refused in the
+scorer's wording (what this tool reads, and that dt_converter.py converts
+other spellings), without the per-process object address the old line named
+('<ast.Name object at 0x...>'); every other message and every atlas are
+unchanged.
+
 Drawing settings follow the "Write raw-grouping figure" option in
-score_diagramV2_1.py -- shaped-tutte layout, ellipse boundary, aspect 1.0,
+score_diagramV2_6.py -- shaped-tutte layout, ellipse boundary, aspect 1.0,
 min-separation nudge 0.02, one colour per component -- with one addition: a
 uniform interior decompression (default 0.30, --decompress 0 to turn it off).
 Puncturing a bigon leaves a 4-node boundary polygon, which crushes the diagram
@@ -52,6 +78,7 @@ Usage
     python3 enumerate_puncturing_dt.py                        # GUI (no arguments)
     python3 enumerate_puncturing_dt.py --gui                  # GUI, explicitly
     python3 enumerate_puncturing_dt.py --dt "DT: [(4,6,2)]" --svg trefoil_atlas.svg
+    python3 enumerate_puncturing_dt.py --dt "DT: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]" --svg square_atlas.svg
     python3 enumerate_puncturing_dt.py --dt "DT: [...]" --list-faces   # no drawing
     python3 enumerate_puncturing_dt.py --dt "DT: [...]" --order multiplicity
     python3 enumerate_puncturing_dt.py --dt "DT: [...]" --svg atlas.svg --json atlas.json
@@ -79,7 +106,13 @@ Notes
   could be merged that no rotation or mirror of the picture relates.  --verify
   is the check for exactly that: it lays out every face and confirms the members
   of each group really do draw as one picture.  (It passes on the square/granny
-  knot, DT [(4,6,2,10,12,8)], the obvious test case.)
+  knot, DT [(4,6,2,10,12,8)], the obvious test case.)  With a flip vector the
+  grouping is exact for any diagram: the orbits of the faces under the
+  automorphisms of the realisation as a map on the sphere.  (Measured: the two
+  agree on the granny and square knots, the trefoil and the 4BL clasps, but the
+  4-ring chain DT [(-12,), (-10,-8), (-6,), (-4,-2)] has 5 exact orbits where the
+  bare code's graph isomorphism finds 4 -- that is a bare-code result, left as
+  it was.)
 """
 
 import argparse
@@ -99,6 +132,7 @@ import matplotlib.pyplot as plt
 
 import networkx as nx
 
+VERSION = "1.1"
 _HERE = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -153,7 +187,7 @@ def _load_draw_module():
     """Import the drawing module under its REAL name and register it in sys.modules.
 
     Registering under the real name matters: link_engine and canonical_dt do
-    ``import draw_dt_original_labelsV5_8 as D``, and a module already in
+    ``import draw_dt_original_labelsV5_9 as D``, and a module already in
     sys.modules is reused instead of being executed a second time.  Two live
     copies would keep separate module-level state (caches,
     LAST_CROSSING_GEOMETRY), so always check sys.modules first.
@@ -172,7 +206,225 @@ DDOL = _load_draw_module()
 
 
 # --------------------------------------------------------------------------- #
-#  1. Drawing settings  (identical to score_diagramV2_1.make_raw_grouping_figure)
+#  0b. A DT code with its flip vector (1.1, 2026-10-18)
+#
+#  The toolkit's shared helper, a BYTE-IDENTICAL copy in every tool that reads
+#  DT text (like the version resolver helpers above).  'DT: [(10, 6, 2, 4, 12,
+#  8)], [0,1,0,0,0,1]': one bit per crossing, bit k for the crossing with odd
+#  label 2k+1; complementing every bit is the mirror image.
+# --------------------------------------------------------------------------- #
+# BEGIN dt-flips helpers (keep identical in every tool)
+_DT_FLIPS_ERROR = ("could not read %r after the DT code as a flip vector "
+                   "(one 0/1 per crossing, e.g. 'DT: [(4, 6, 2)], [0,0,1]')")
+
+
+def split_dt_flips(text):
+    """Split 'DT: [...], [0,1,...]' into ('DT: [...]', [False, True, ...]).
+
+    Text with nothing after the DT code's closing bracket comes back
+    UNCHANGED with None, so a bare code takes exactly its old path; so does
+    an old multi-list spelling whose later lists hold more components
+    ('DT: [(-6,-8)], [(-4,-2)]').  Also read: ', 010001' / '; 010001' / no
+    separator, '(0,1,..)', spaces instead of commas, T/F and True/False, and
+    the tuple wrapper 'DT: ([(..)], [0,1,..])' (str() of spherogram's
+    DT_code(flips=True)).  A vector has one bit per entry of the code's list.
+    A trailing '# comment' is dropped (a bare code with one comes back
+    without it).  Any other text after the code raises ValueError -- it is
+    never ignored."""
+    s = str(text)
+    t = s.rstrip()
+    i = t.find("[")
+    if i < 0:
+        return s, None
+    depth, j = 0, -1
+    for j in range(i, len(t)):
+        if t[j] == "[":
+            depth += 1
+        elif t[j] == "]":
+            depth -= 1
+            if depth == 0:
+                break
+    if depth != 0:
+        if t.count("[") > 1:
+            raise ValueError("unbalanced brackets in %r: the code's list must "
+                             "close before a flip vector, e.g. "
+                             "'DT: [(4, 6, 2)], [0,0,1]'" % s[:80])
+        return s, None            # unbalanced: the caller's parser reports it
+    head, rest = t[:i], t[j + 1:]
+    note = rest.find("#")
+    base = s if note < 0 else t[:j + 1 + note].rstrip()
+    rest = (rest if note < 0 else rest[:note]).strip()
+    wrapped = head.rstrip().endswith("(") and rest.endswith(")")
+    if wrapped:
+        rest = rest[:-1].strip()
+    if not rest:
+        inner = t[i + 1:j]
+        if "(" in inner and re.search(r"\d", re.sub(r"\([^()]*\)", "", inner)):
+            raise ValueError("numbers outside the parenthesised components of "
+                             "%r: a flip vector goes AFTER the code's closing "
+                             "bracket, e.g. 'DT: [(4, 6, 2)], [0,0,1]'" % s[:80])
+        return base, None
+    code = (head.rstrip()[:-1] if wrapped else head) + t[i:j + 1]
+    body = rest[1:].strip() if rest[0] in ",;" else rest
+    if body and body[0] + body[-1] in ("[]", "()"):
+        body = body[1:-1].strip()
+    tokens = [x for x in re.split(r"[\s,;]+", body) if x]
+    bits = None
+    if len(tokens) == 1 and re.fullmatch(r"[01]+|[TFtf]+", tokens[0]):
+        bits = [ch in "1Tt" for ch in tokens[0]]
+    elif tokens and all(x.lower() in ("0", "1", "t", "f", "true", "false")
+                        for x in tokens):
+        bits = [x.lower() in ("1", "t", "true") for x in tokens]
+    labels = [int(v) for v in re.findall(r"\d+", t[i + 1:j])]
+    n = len(labels)
+    if bits is not None and len(bits) == n:
+        return code, bits
+    labels += [int(v) for v in re.findall(r"\d+", rest)]
+    if (len(labels) > n and sorted(labels) == list(range(2, 2 * len(labels) + 1, 2))
+            and not re.search(r"[^\s,;|()\[\]\d\-\u2212\u2012\u2013\u2014\ufe63\uff0d]", rest)):
+        return base, None         # more components: an old multi-list spelling
+    if bits is not None:
+        raise ValueError("the flip vector has %d entries but the code has %d "
+                         "crossings" % (len(bits), n))
+    raise ValueError(_DT_FLIPS_ERROR % rest)
+
+
+def format_dt_flips(dt_text, flips):
+    """'DT: [...]' + flips -> 'DT: [...], [0,1,...]' (dt_converter's spelling);
+    the bare text unchanged when flips is None."""
+    if flips is None:
+        return dt_text
+    return "%s, [%s]" % (str(dt_text).rstrip(),
+                         ",".join("1" if f else "0" for f in flips))
+
+
+def check_flips(comps, flips):
+    """Raise ValueError unless ``flips`` is a legal vector for the signed DT
+    code ``comps`` (a list of tuples of even integers): one bit per crossing,
+    and the diagram it describes lies on the sphere (every connected piece
+    has genus 0: faces == crossings + 2 x pieces).  Pure Python; accepts the
+    kink vectors spherogram's DTcodec cannot build."""
+    entries = [int(e) for c in comps for e in c]
+    n = len(entries)
+    flips = [bool(f) for f in flips]
+    if len(flips) != n:
+        raise ValueError("the flip vector has %d entries but the code has %d "
+                         "crossings" % (len(flips), n))
+    cross, nxt, start = {}, {}, 1
+    for c in comps:
+        labels = list(range(start, start + 2 * len(c)))
+        for a, b in zip(labels, labels[1:] + labels[:1]):
+            nxt[a] = b
+        start += 2 * len(c)
+    for k, e in enumerate(entries):
+        cross[2 * k + 1] = cross[abs(e)] = k
+    if sorted(cross) != list(range(1, 2 * n + 1)):
+        raise ValueError("not a DT code: the even labels are not a "
+                         "permutation of 2..%d" % (2 * n))
+
+    def slots(p):                 # (in slot, out slot) of label p: S0 E1 N2 W3
+        k = cross[p]
+        small = min(2 * k + 1, abs(entries[k]))
+        if p != small:
+            return 1, 3
+        return (2, 0) if flips[k] else (0, 2)
+
+    other = {}
+    for p in range(1, 2 * n + 1):
+        q = nxt[p]
+        a, b = (cross[p], slots(p)[1]), (cross[q], slots(q)[0])
+        other[a], other[b] = b, a
+    seen, faces = set(), 0
+    for d in other:
+        if d in seen:
+            continue
+        faces += 1
+        while d not in seen:
+            seen.add(d)
+            k, sl = other[d]
+            d = (k, (sl + 1) % 4)
+    parent = list(range(n))
+
+    def root(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    for p in range(1, 2 * n + 1):
+        parent[root(cross[p])] = root(cross[nxt[p]])
+    pieces = len({root(k) for k in range(n)})
+    if faces != n + 2 * pieces:
+        raise ValueError(
+            "the flip vector %s is not a legal one for this DT code: it "
+            "describes no diagram on the sphere (%d faces; a planar diagram "
+            "with %d crossing(s) in %d piece(s) has %d)"
+            % ("".join("1" if f else "0" for f in flips), faces, n, pieces,
+               n + 2 * pieces))
+
+
+def flips_crossing_signs(comps, flips):
+    """Crossing signs (+1 / -1, in DT entry order) of the diagram (comps,
+    flips) in spherogram's convention, where a NEGATIVE entry means the even
+    visit is the over-crossing: negative exactly when
+    flip XOR (even visit over) XOR (even label < odd label)."""
+    out = []
+    for k, e in enumerate(int(e) for c in comps for e in c):
+        neg = bool(flips[k]) ^ (e < 0) ^ (abs(e) < 2 * k + 1)
+        out.append(-1 if neg else 1)
+    return out
+# END dt-flips helpers
+
+
+_MAPS = {}
+
+
+def _maps():
+    """(spheremaps, mdfig): the sphere-map modules, found next to this script by
+    the toolkit's resolver rule and loaded once -- ONLY on the flip-vector path,
+    so a bare code loads nothing new.  mdfig imports ``spheremaps`` by name, so
+    that name is registered first; both share this script's drawing module
+    (spheremaps.D() finds it in sys.modules under its own name)."""
+    if not _MAPS:
+        mods = []
+        for base in ("spheremaps", "mdfig"):
+            cands = _versioned_files(_HERE, base)
+            if not cands:
+                raise FileNotFoundError("a flip vector needs %s.py next to "
+                                        "enumerate_puncturing_dt.py" % base)
+            path = max(cands, key=lambda p: (_version_key(p), os.path.basename(p)))
+            name = os.path.splitext(os.path.basename(path))[0]
+            mod = sys.modules.get(name)
+            if mod is None:
+                spec = importlib.util.spec_from_file_location(name, path)
+                mod = importlib.util.module_from_spec(spec)
+                sys.modules[name] = mod
+                try:
+                    spec.loader.exec_module(mod)
+                except BaseException:
+                    sys.modules.pop(name, None)
+                    raise
+            mods.append(mod)
+        if mods[0].D() is not DDOL:
+            raise RuntimeError("spheremaps loaded a different drawing module (%s) than "
+                               "the atlas (%s)" % (mods[0].D().__name__, DDOL.__name__))
+        _MAPS.update(SM=mods[0], MD=mods[1])
+    return _MAPS["SM"], _MAPS["MD"]
+
+
+def _split_dt_text(dt):
+    """(code, flips | None): a bare code comes back unchanged with None."""
+    try:
+        return split_dt_flips(dt)
+    except ValueError as exc:
+        raise ValueError("could not parse the DT code: %s" % exc)
+
+
+def _bits(flips):
+    return "".join("1" if f else "0" for f in flips)
+
+
+# --------------------------------------------------------------------------- #
+#  1. Drawing settings  (identical to score_diagramV2_6.make_raw_grouping_figure)
 # --------------------------------------------------------------------------- #
 DRAW_LAYOUT = "shaped-tutte"
 DRAW_TUTTE_OPTS = {"shape": "ellipse", "aspect": 1.0}
@@ -230,12 +482,33 @@ def color_of(ci):
 # --------------------------------------------------------------------------- #
 #  2. Faces of the diagram
 # --------------------------------------------------------------------------- #
+def _parse_error(dt, exc):
+    """The ValueError for a DT code the drawing script's reader refused (``exc``).  Round 4e (2026-10-20): a
+    spelling it cannot parse -- alphabetical 'DT[daddcab]', prefix-less '8,6,2,4' -- gets the scorer's wording
+    (what this tool reads, and that dt_converter.py converts other spellings) without the per-process object
+    address literal_eval's message named ('<ast.Name object at 0x...>'); every other refusal keeps its old
+    text, 'could not parse the DT code: <the reader's message>'."""
+    msg = " ".join(str(exc).split())
+    if not (msg.startswith("Could not parse the DT list") or msg.startswith("Could not find a '[...]' list")):
+        return ValueError("could not parse the DT code: %s" % exc)
+    why = re.sub(r" at 0x[0-9A-Fa-f]+", "", msg)
+    if len(why) > 160:
+        why = why[:157] + "..."
+    text = " ".join(str(dt).split())
+    return ValueError(
+        "could not parse the DT code %s (%s): enumerate_puncturing_dt reads signed DT codes written as lists of "
+        "nonzero even integers, e.g. 'DT: [(4, 6, 2)]', optionally followed by a flip vector.  dt_converter.py -i "
+        "\"%s\" --to dt converts other spellings (alphabetical, packed hex, Gauss, PD, braid words, names) to that "
+        "one (--to dt-flips adds the flip vector) and says what is wrong with a code it cannot read"
+        % (text, why, text))
+
+
 def build_diagram(dt):
     """(model, G, emb) for a DT code, or raise ValueError if it is not drawable."""
     try:
         comps = DDOL.parse_dt(dt)
     except Exception as exc:  # noqa: BLE001
-        raise ValueError("could not parse the DT code: %s" % exc)
+        raise _parse_error(dt, exc)
     model = DDOL.build_model(comps)
     G = DDOL.build_gadget_graph(model)
     ok, emb = nx.check_planarity(G)
@@ -245,6 +518,101 @@ def build_diagram(dt):
             "describe a link diagram (a mis-transcribed code is the usual cause). "
             "Nothing to puncture.")
     return model, G, emb
+
+
+def build_realisation(code, flips):
+    """(code, model, G, emb, M) for a bare DT code and its flip vector: exactly the
+    realisation the vector describes.  M is its spheremaps.SMap (the map on the
+    sphere, in the given hand) and emb the gadget graph's embedding built from it
+    (mdfig.gadget_embedding), which every layout of this run is pinned to.  A
+    parenthesised single entry gets its comma first ('(-4), (-2)' is two
+    components, as spheremaps reads it).  ValueError for a code that does not
+    parse, a split diagram (its pieces are laid out one by one, where the
+    embedding could not be pinned -- give each piece on its own), or a vector of
+    the wrong length or one that describes no diagram on the sphere."""
+    SM, MD = _maps()
+    code, _ = SM.respell_singletons(code)
+    try:
+        comps = DDOL.parse_dt(code)
+    except Exception as exc:  # noqa: BLE001
+        raise _parse_error(code, exc)
+    model = DDOL.build_model(comps)
+    G = DDOL.build_gadget_graph(model)
+    pieces = nx.number_connected_components(G)
+    if pieces > 1:
+        raise ValueError(
+            "%s is a split diagram (%d pieces); a flip vector is not supported on a "
+            "split diagram here (its pieces are laid out one by one, where the "
+            "vector's embedding could not be pinned) -- give each piece on its own, "
+            "or drop the vector" % (code.strip(), pieces))
+    check_flips(comps, flips)
+    M = SM.SMap(code, SM.sigma_from_flips(model, flips), model)
+    if not M.is_planar():         # check_flips is exact on a connected code: a guard
+        raise ValueError("the flip vector %s describes no diagram on the sphere"
+                         % _bits(flips))
+    emb = MD.gadget_embedding(M, G)
+    return code, model, G, emb, M
+
+
+def _model_comps(model):
+    """The signed DT components of a build_model result (the code it was built from)."""
+    crs, pc = model["crossings"], model["pos_cross"]
+    return [tuple(crs[pc[p]]["even_signed"] for p in cp if p % 2 == 1)
+            for cp in model["comp_positions"]]
+
+
+def _drawn_flips(model, P):
+    """The flip vector a drawing SHOWS (y up, as the panels are rendered): per
+    crossing, walk along the visit with the smaller label (its chord in -> out
+    across the crossing's gadget); bit 0 when the other strand crosses from your
+    right to your left."""
+    out = []
+    for k, cr in enumerate(model["crossings"]):
+        to = np.asarray(P[(k, "out_o")], float) - np.asarray(P[(k, "in_o")], float)
+        te = np.asarray(P[(k, "out_e")], float) - np.asarray(P[(k, "in_e")], float)
+        a, b = (to, te) if cr["odd"] < cr["even"] else (te, to)
+        out.append(not (float(a[0] * b[1] - a[1] * b[0]) > 0.0))
+    return out
+
+
+def _hand_mismatches(model, P, flips):
+    """How many crossings of a drawing disagree with the flip vector it was asked for."""
+    return sum(1 for d, f in zip(_drawn_flips(model, P), flips) if d != bool(f))
+
+
+def _exact_orbits(model, G, recs, M, chiral_merge=True):
+    """Group the faces by their EXACT orbits under the automorphisms of the map M
+    (the realisation a flip vector picked): rotations and in-plane mirrors of the
+    sphere, plus -- when ``chiral_merge`` -- those that reverse every crossing
+    (the mirror through the paper).  Component swap and strand reversal are
+    allowed as in _iso_orbits (a map automorphism ignores both).  Unlike graph
+    isomorphism this never includes a Whitney flip (reflecting one summand of a
+    composite in place), which is not a symmetry of the drawn diagram.  Returns
+    lists of face records in the order of each orbit's first member; a member
+    reached only through a crossing-reversing symmetry is tagged ``flipped``."""
+    SM, MD = _maps()
+    kinds = SM.KINDS if chiral_merge else ((1, 0), (-1, 0))
+    auts = SM.automorphisms(M, kinds)
+    fs = M.faces()
+    where = {d: i for i, f in enumerate(fs) for d in f}
+    face_of_key = {MD.gadget_face_key(M, G, f): i for i, f in enumerate(fs)}
+    missing = [r["label"] for r in recs if r["key"] not in face_of_key]
+    if missing:
+        raise RuntimeError("faces %s of the pinned embedding are not faces of the map"
+                           % missing)
+    seen, orbits = set(), []
+    for r in recs:
+        i = face_of_key[r["key"]]
+        if i in seen:
+            continue
+        plain = {where[g.face_image_dart(fs[i][0])] for g in auts if g.f == 0}
+        every = {where[g.face_image_dart(fs[i][0])] for g in auts}
+        seen |= every
+        members = [q for q in recs if face_of_key[q["key"]] in every]
+        for q in members:
+            q["flipped"] = face_of_key[q["key"]] not in plain
+        orbits.append(members)
+    return orbits
 
 
 def _is_seg(node):
@@ -349,7 +717,7 @@ def _pinned_selector(face_key, original):
     return _select
 
 
-def layout_for_face(model, G, face_key=None, tutte_extra=None):
+def layout_for_face(model, G, face_key=None, tutte_extra=None, emb=None):
     """Lay the diagram out with ``face_key`` as the outer face.
 
     Returns ``(P_exact, P_drawn)``:
@@ -371,10 +739,19 @@ def layout_for_face(model, G, face_key=None, tutte_extra=None):
     face_key=None reproduces the default drawing (draw_dt picks the outer face
     itself).  Anything in ``tutte_extra`` (``decompress`` / ``com_expand``) is
     layered on top of the shared options and applies equally to every panel.
+
+    ``emb`` (a flip vector's run): the gadget graph's embedding of the given
+    realisation, pinned for the layout (mdfig._Pinned: networkx's planarity test
+    and the toolkit's face selection see it) so the panel draws THAT realisation,
+    in that hand, instead of whatever networkx finds.
     """
     opts = dict(DRAW_TUTTE_OPTS)
     opts.update({k: v for k, v in (tutte_extra or {}).items() if v})
-    if face_key is None:
+    if emb is not None:
+        _, MD = _maps()
+        with MD._Pinned(G, emb, face_key):
+            P = DDOL.compute_positions(G, DRAW_LAYOUT, tutte_opts=opts)
+    elif face_key is None:
         P = DDOL.compute_positions(G, DRAW_LAYOUT, tutte_opts=opts)
     else:
         original = DDOL.select_outer_face
@@ -387,9 +764,9 @@ def layout_for_face(model, G, face_key=None, tutte_extra=None):
     return P, drawn
 
 
-def positions_for_face(model, G, face_key=None, tutte_extra=None):
+def positions_for_face(model, G, face_key=None, tutte_extra=None, emb=None):
     """The positions a panel is drawn from (convenience wrapper on layout_for_face)."""
-    return layout_for_face(model, G, face_key, tutte_extra)[1]
+    return layout_for_face(model, G, face_key, tutte_extra, emb=emb)[1]
 
 
 def congruence_key(model, P, ndigits=CONGRUENCE_NDIGITS):
@@ -401,7 +778,7 @@ def congruence_key(model, P, ndigits=CONGRUENCE_NDIGITS):
     the picture leaves it unchanged (so does reversing the strands, which does not
     move the crossings); two punctures that give a genuinely different picture get
     different keys.  This is the same equivalence that groups the panels of the
-    raw-grouping figure in score_diagramV2_1.py.
+    raw-grouping figure in score_diagramV2_6.py.
     """
     C = DDOL.crossing_centers(model, P)
     pts = np.array([C[k] for k in range(len(model["crossings"]))], float)
@@ -444,18 +821,69 @@ def false_crossing_count(model, P):
         return 1
 
 
-def _layout_panels(model, G, reps, tutte_extra):
-    """Lay out one representative face per group; returns a list of panel dicts."""
-    out = []
-    for r in reps:
-        P_exact, P_drawn = layout_for_face(model, G, r["key"], tutte_extra)
-        out.append({"rep": r, "exact": P_exact, "drawn": P_drawn,
-                    "spacing": spacing_quality(model, P_drawn),
-                    "false": false_crossing_count(model, P_drawn)})
-    return out
+# A flip vector's run only: the layout a panel falls back to when the shaped-tutte
+# panel is defective -- false crossings, or crossings drawn in the OTHER hand.  A
+# composite diagram's gadget graph is not 3-connected, so its Tutte solve collapses
+# a summand onto the segment between two cut nodes and the min-separation nudge
+# opens it on either side: measured on the 4-ring chain (vector 011001) two panels
+# with NO false crossing showed the clasp c3/c4 in the other hand (the vector
+# 010101, another realisation of the same code).  spread-tutte starts from a
+# strictly planar straight-line drawing of the pinned embedding and keeps it
+# planar, so it shows the given hand at every crossing (measured on the square /
+# granny knots and the two 4-ring chains: 0 crossings in the other hand on every
+# face).  A bare code never takes this path.
+FALLBACK_LAYOUT = "spread-tutte"
 
 
-def auto_decompress(model, G, reps, tutte_extra, ladder=DECOMPRESS_LADDER, log=print):
+def _fallback_panel(model, G, face_key, emb, flips):
+    """The FALLBACK_LAYOUT panel of one punctured face, pinned to ``emb``, or None
+    if that layout fails.  Its model is a copy with teardrop kinks (as the drawing
+    script draws spread-tutte), used to render and audit that panel only."""
+    _, MD = _maps()
+    m2 = dict(model)
+    m2["round_kinks"] = True
+    try:
+        with MD._Pinned(G, emb, face_key):
+            P = DDOL.compute_positions(G, FALLBACK_LAYOUT, tutte_opts=dict(DRAW_TUTTE_OPTS))
+    except Exception:  # noqa: BLE001  -- keep the shaped-tutte panel
+        return None
+    drawn = DDOL.nudge_min_separation(P, G, DRAW_MIN_SEP) if DRAW_MIN_SEP > 0 else P
+    return {"drawn": drawn, "model": m2, "spacing": spacing_quality(m2, drawn),
+            "false": false_crossing_count(m2, drawn), "hand": _hand_mismatches(m2, drawn, flips)}
+
+
+def _layout_panels(model, G, reps, tutte_extra, emb=None, flips=None):
+    """Lay out one representative face per group; returns a list of panel dicts.
+
+    With a flip vector (``emb`` and ``flips``) each panel also records ``hand``,
+    the crossings it draws in the other hand, and a defective panel (false
+    crossings or ``hand``) is replaced by its FALLBACK_LAYOUT drawing when that
+    has fewer defects (``layout``, ``model`` and ``replaced`` then say so; the
+    exact shaped-tutte solve stays the one the panels are COMPARED on)."""
+    return [_panel_for_face(model, G, r, tutte_extra, emb, flips) for r in reps]
+
+
+def _panel_for_face(model, G, r, tutte_extra, emb=None, flips=None):
+    """One panel (see _layout_panels) for the face record ``r``."""
+    P_exact, P_drawn = layout_for_face(model, G, r["key"], tutte_extra, emb=emb)
+    panel = {"rep": r, "exact": P_exact, "drawn": P_drawn,
+             "spacing": spacing_quality(model, P_drawn),
+             "false": false_crossing_count(model, P_drawn)}
+    if flips is not None:
+        panel["hand"] = _hand_mismatches(model, P_drawn, flips)
+        panel["layout"] = DRAW_LAYOUT
+        if panel["false"] + panel["hand"]:
+            alt = _fallback_panel(model, G, r["key"], emb, flips)
+            if alt is not None and alt["false"] + alt["hand"] < panel["false"] + panel["hand"]:
+                panel["replaced"] = {"layout": DRAW_LAYOUT, "false": panel["false"],
+                                     "hand": panel["hand"]}
+                panel.update(alt)
+                panel["layout"] = FALLBACK_LAYOUT
+    return panel
+
+
+def auto_decompress(model, G, reps, tutte_extra, ladder=DECOMPRESS_LADDER, log=print,
+                    emb=None, flips=None):
     """Pick the decompression that gives the WORST panel the most room.
 
     Scored on the tightest panel rather than the average, because one unreadable
@@ -468,7 +896,7 @@ def auto_decompress(model, G, reps, tutte_extra, ladder=DECOMPRESS_LADDER, log=p
     for value in ladder:
         extra = dict(tutte_extra or {})
         extra["decompress"] = value
-        panels = _layout_panels(model, G, reps, extra)
+        panels = _layout_panels(model, G, reps, extra, emb=emb, flips=flips)
         worst = min(p["spacing"] for p in panels)
         nfalse = sum(p["false"] for p in panels)
         log("  [auto] decompress=%.2f -> worst panel spacing %.4f, %d false crossing%s%s"
@@ -483,7 +911,8 @@ def auto_decompress(model, G, reps, tutte_extra, ladder=DECOMPRESS_LADDER, log=p
         extra["decompress"] = DEFAULT_DECOMPRESS
         log("  [auto] every setting produced false crossings; falling back to %.2f"
             % DEFAULT_DECOMPRESS)
-        return DEFAULT_DECOMPRESS, _layout_panels(model, G, reps, extra), extra
+        return (DEFAULT_DECOMPRESS, _layout_panels(model, G, reps, extra, emb=emb, flips=flips),
+                extra)
     log("  [auto] chose decompress=%.2f (worst panel spacing %.4f)" % (best[0], best[1]))
     return best[0], best[2], best[3]
 
@@ -545,7 +974,7 @@ def _marked_graph(model, G, face_key, flip=False):
     Testing a face against both the plain and the flipped graph therefore groups
     a drawing with its through-the-plane mirror -- matching the up-to-mirror
     convention the rest of the project uses (canonical_dt's allow_flip, and
-    score_diagramV2_1's mirror merge in dedup).
+    score_diagramV2_6's mirror merge in dedup).
     """
     H = G.copy()
     over_at = model["over_at"]
@@ -744,13 +1173,24 @@ def verify_grouping(result, log=print, tutte_extra=None):
 
     A mismatch means the layout is not equivariant under the diagram's
     symmetries -- a layout bug, not a grouping bug -- so it is reported loudly.
+
+    With a flip vector the faces are laid out with the realisation's embedding
+    pinned, and each member's panel -- made as the atlas makes its panels, the
+    fallback layout included -- is also checked to show the given hand.
     """
     model, G = result["model"], result["G"]
-    bad, checked = [], 0
+    emb, flips = result.get("pinned_emb"), result.get("flips")
+    bad, checked, hand_bad = [], 0, []
     for cl in result["classes"]:
         want = cl["geo_key"]
         for m in cl["members"][1:]:
-            P_exact, _ = layout_for_face(model, G, m["key"], tutte_extra)
+            if flips is None:
+                P_exact, _ = layout_for_face(model, G, m["key"], tutte_extra)
+            else:
+                panel = _panel_for_face(model, G, m, tutte_extra, emb, flips)
+                P_exact = panel["exact"]
+                if panel["hand"]:
+                    hand_bad.append((cl["rank"], m["label"]))
             checked += 1
             if congruence_key(model, P_exact) != want:
                 bad.append((cl["rank"], m["label"]))
@@ -759,6 +1199,12 @@ def verify_grouping(result, log=print, tutte_extra=None):
            "every one is congruent to its group's drawing." if not bad
            else "MISMATCH in %d: %s" % (len(bad), bad[:8])))
     result["verify"] = {"checked": checked, "mismatches": [list(b) for b in bad]}
+    if flips is not None:
+        log("  [verify] %s" % ("every one shows the flip vector's hand at every crossing."
+                               if not hand_bad else
+                               "%d of them show the other hand at some crossing (a folded "
+                               "layout): %s" % (len(hand_bad), hand_bad[:8])))
+        result["verify"]["hand_mismatches"] = [list(b) for b in hand_bad]
     result["verify"]["duplicates"] = [list(d) for d in _duplicate_scan(result, log=log)]
     return result["verify"]
 
@@ -805,8 +1251,19 @@ def enumerate_punctures(dt, log=print, keep_positions=True, tutte_extra=None,
     per genuinely distinct drawing, carrying its representative face, every face
     that gives that drawing, and the positions to render it from.  The class the
     default (unpinned) drawing belongs to is marked and listed first.
+
+    A code with its flip vector ('DT: [...], [0,1,...]') is the atlas of exactly
+    that realisation, in that hand: build_realisation pins its embedding in every
+    layout and the faces are grouped by _exact_orbits.  The result then also
+    carries 'flips', 'writhe', 'pinned_emb' and 'realisation', and each class
+    'hand_mismatches' (crossings its drawing shows in the other hand).
     """
-    model, G, emb = build_diagram(dt)
+    code, flips = _split_dt_text(dt)
+    M = None
+    if flips is None:
+        model, G, emb = build_diagram(dt)
+    else:
+        code, model, G, emb, M = build_realisation(code, flips)
     crossing_ids = DDOL.default_crossing_ids(model)
     recs = face_records(model, emb, crossing_ids)
     if not recs:
@@ -817,29 +1274,41 @@ def enumerate_punctures(dt, log=print, keep_positions=True, tutte_extra=None,
     sizes = {}
     for r in recs:
         sizes[r["n_edges"]] = sizes.get(r["n_edges"], 0) + 1
-    log("DT: %s" % str(dt).strip())
+    if flips is None:
+        log("DT: %s" % str(dt).strip())
+    else:
+        writhe = sum(flips_crossing_signs(_model_comps(model), flips))
+        log("DT: %s" % format_dt_flips(code.strip(), flips))
+        log("  flip vector %s: exactly this realisation, in this hand (writhe %d); every "
+            "layout is pinned to its embedding" % (_bits(flips), writhe))
     log("  %d crossings, %d components, %d faces to puncture"
         % (ncross, len(model["comp_positions"]), len(recs)))
     log("  polygons: %s"
         % ", ".join("%d x %d-gon" % (sizes[k], k) for k in sorted(sizes, reverse=True)))
 
-    orbits = _iso_orbits(model, G, recs, confirm=confirm, log=log,
-                         chiral_merge=chiral_merge)
-    log("  grouping: rotation / in-plane mirror / component swap / strand reversal%s"
+    if M is None:
+        orbits = _iso_orbits(model, G, recs, confirm=confirm, log=log,
+                             chiral_merge=chiral_merge)
+    else:
+        orbits = _exact_orbits(model, G, recs, M, chiral_merge=chiral_merge)
+    log("  grouping: rotation / in-plane mirror / component swap / strand reversal%s%s"
         % (" / complete crossing flip (mirror through the paper)" if chiral_merge
-           else "  [chirality kept apart]"))
+           else "  [chirality kept apart]",
+           "" if M is None else "  [exact symmetries of this realisation]"))
     reps = [members[0] for members in orbits]
 
     # One layout per group -- the other members are that same picture, moved --
     # and ONE decompression for the whole atlas, so every panel is drawn in the
     # same style.
+    pinned = emb if flips is not None else None
     if auto:
-        used, panels, tutte_extra = auto_decompress(model, G, reps, tutte_extra, log=log)
+        used, panels, tutte_extra = auto_decompress(model, G, reps, tutte_extra, log=log,
+                                                    emb=pinned, flips=flips)
     else:
         tutte_extra = dict(tutte_extra or {})
         tutte_extra.setdefault("decompress", DEFAULT_DECOMPRESS)
         used = float(tutte_extra["decompress"])
-        panels = _layout_panels(model, G, reps, tutte_extra)
+        panels = _layout_panels(model, G, reps, tutte_extra, emb=pinned, flips=flips)
     log("  layout: shaped-tutte, ellipse, decompress=%.2f%s"
         % (used, "" if used else "  (the raw-grouping figure's exact setting)"))
 
@@ -855,14 +1324,30 @@ def enumerate_punctures(dt, log=print, keep_positions=True, tutte_extra=None,
             "false": panel["false"],
             "is_default": any(m["key"] == default_key for m in members),
         })
-        log("  punctured %-28s %5s  ->  %s (spacing %.3f%s)"
+        hand = ""
+        if flips is not None:
+            cl = classes[-1]
+            cl["hand_mismatches"] = panel["hand"]
+            cl["layout"] = panel["layout"]
+            if "model" in panel:
+                cl["model"] = panel["model"]          # the fallback's (teardrop kinks)
+            if "replaced" in panel:
+                rp = panel["replaced"]
+                cl["replaced"] = dict(rp)
+                hand += ", drawn with %s (%s had %d false crossing%s, %d crossing%s in the other hand)" % (
+                    panel["layout"], rp["layout"], rp["false"], "" if rp["false"] == 1 else "s",
+                    rp["hand"], "" if rp["hand"] == 1 else "s")
+            if cl["hand_mismatches"]:
+                hand += ", %d crossing%s drawn in the OTHER hand" % (
+                    cl["hand_mismatches"], "" if cl["hand_mismatches"] == 1 else "s")
+        log("  punctured %-28s %5s  ->  %s (spacing %.3f%s%s)"
             % (rep["label"], "%d-gon" % rep["n_edges"],
                "1 drawing" if len(members) == 1
                else "1 drawing, shared with %d symmetric face%s"
                     % (len(members) - 1, "" if len(members) == 2 else "s"),
                panel["spacing"],
                ", %d FALSE CROSSING%s" % (panel["false"], "" if panel["false"] == 1 else "S")
-               if panel["false"] else ""))
+               if panel["false"] else "", hand))
 
     classes.sort(key=_order_key(order))
     for i, c in enumerate(classes, start=1):
@@ -892,6 +1377,20 @@ def enumerate_punctures(dt, log=print, keep_positions=True, tutte_extra=None,
             "differ only in which strand goes over; they are kept apart (the layout is "
             "computed from the unsigned shadow, which is blind to that)."
             % (n_shared, "" if n_shared == 1 else "s"))
+    if flips is not None:
+        n_alt = sum(1 for c in classes if c.get("replaced"))
+        if n_alt:
+            log("  [note] %d panel%s drawn with %s: %s collapsed %s puncture%s (a composite "
+                "diagram's Tutte solve is degenerate there) into false crossings or the "
+                "other hand" % (n_alt, "" if n_alt == 1 else "s", FALLBACK_LAYOUT, DRAW_LAYOUT,
+                                "that" if n_alt == 1 else "those", "" if n_alt == 1 else "s"))
+        n_hand = sum(1 for c in classes if c["hand_mismatches"])
+        if n_hand:
+            log("  [warn] %d panel%s show%s the other hand at some crossing -- a different "
+                "realisation of the code; the other panels show the flip vector's hand"
+                % (n_hand, "" if n_hand == 1 else "s", "s" if n_hand == 1 else ""))
+        else:
+            log("  every panel shows the flip vector's hand at every crossing")
     if default_key is None:
         log("  [note] the default drawing punctures a crossing-gadget interior "
             "(tiny diagram); no panel is marked as the default.")
@@ -903,10 +1402,15 @@ def enumerate_punctures(dt, log=print, keep_positions=True, tutte_extra=None,
         log("  [warn] %d false crossing%s across the atlas -- those panels read as a "
             "different diagram; try --decompress auto or a different value."
             % (nfalse, "" if nfalse == 1 else "s"))
-    return {"dt": str(dt).strip(), "model": model, "G": G, "faces": recs,
-            "classes": classes, "n_crossings": ncross,
-            "tutte_extra": dict(tutte_extra or {}), "decompress": used,
-            "chiral_merge": bool(chiral_merge), "order": order}
+    result = {"dt": str(dt).strip(), "model": model, "G": G, "faces": recs,
+              "classes": classes, "n_crossings": ncross,
+              "tutte_extra": dict(tutte_extra or {}), "decompress": used,
+              "chiral_merge": bool(chiral_merge), "order": order}
+    if flips is not None:
+        result.update({"dt": format_dt_flips(code.strip(), flips),
+                       "flips": [int(bool(f)) for f in flips], "writhe": writhe,
+                       "pinned_emb": emb, "realisation": M})
+    return result
 
 
 # --------------------------------------------------------------------------- #
@@ -966,6 +1470,13 @@ def _atlas_text(result, wrap):
                "" if len(result["classes"]) == 1 else "s",
                result.get("decompress", DEFAULT_DECOMPRESS),
                _ORDER_DESCRIPTION.get(result.get("order", DEFAULT_ORDER), "")))
+    if result.get("flips") is not None:
+        lines = head.split("\n")
+        at = 1 + len(textwrap.wrap(result["dt"], wrap))
+        lines.insert(at, "\n".join(textwrap.wrap(
+            "realisation and hand fixed by the flip vector (writhe %d); panels grouped by the exact "
+            "symmetries of that map" % result.get("writhe", 0), wrap)))
+        head = "\n".join(lines)
     foot = textwrap.fill(
         "A diagram lives on a sphere; drawing it flat sends one face to the outer region "
         "(the 'puncture'), and each choice gives a different plane picture of the SAME "
@@ -1024,6 +1535,11 @@ def make_atlas_figure(result, path, cols=5, max_panels=0, show_labels=False,
         if cl.get("false"):
             cap += "\n[%d false crossing%s]" % (cl["false"],
                                                  "" if cl["false"] == 1 else "s")
+        if cl.get("replaced"):
+            cap += "\n(drawn with %s)" % cl["layout"]
+        if cl.get("hand_mismatches"):
+            cap += "\n[%d crossing%s in the other hand]" % (
+                cl["hand_mismatches"], "" if cl["hand_mismatches"] == 1 else "s")
         caps.append(cap)
 
     head_text, foot_text = _atlas_text(result, wrap)
@@ -1041,9 +1557,13 @@ def make_atlas_figure(result, path, cols=5, max_panels=0, show_labels=False,
     for i, cl in enumerate(classes):
         ax = fig.add_subplot(gs[i // ncol, i % ncol])
         P = cl["positions"]
-        if P is None:
-            P = positions_for_face(model, G, cl["rep"]["key"], result.get("tutte_extra"))
-        _render(ax, model, P, show_labels=show_labels,
+        if P is None and cl.get("layout") == FALLBACK_LAYOUT:
+            P = _fallback_panel(model, G, cl["rep"]["key"], result["pinned_emb"],
+                                result["flips"])["drawn"]
+        elif P is None:
+            P = positions_for_face(model, G, cl["rep"]["key"], result.get("tutte_extra"),
+                                   emb=result.get("pinned_emb"))
+        _render(ax, cl.get("model", model), P, show_labels=show_labels,
                 show_crossing_ids=show_crossing_ids)
         if rasterize:
             ax.set_rasterized(True)     # embed as a small raster -> fast, compact SVG
@@ -1079,6 +1599,13 @@ def report_lines(result):
                       "" if len(cl["members"]) == 1 else "s", cl.get("spacing", float("nan")),
                       "  %d FALSE" % cl["false"] if cl.get("false") else "",
                       "   <- default drawing" if cl["is_default"] else ""))
+        if cl.get("replaced"):
+            out.append("        drawn with %s (the %s panel had %d false crossing(s), %d crossing(s) "
+                       "in the other hand)" % (cl["layout"], cl["replaced"]["layout"],
+                                               cl["replaced"]["false"], cl["replaced"]["hand"]))
+        if cl.get("hand_mismatches"):
+            out.append("        %d crossing(s) drawn in the OTHER hand than the flip vector's"
+                       % cl["hand_mismatches"])
         if len(cl["members"]) > 1:
             out.append("        same picture from: %s"
                        % ", ".join(_member_label(m) for m in cl["members"][1:]))
@@ -1115,6 +1642,15 @@ def write_json(result, path):
                       "false_crossings": cl.get("false", 0)}
                      for cl in result["classes"]],
     }
+    if result.get("flips") is not None:
+        data["flips"] = list(result["flips"])
+        data["writhe"] = result.get("writhe")
+        data["grouping"] = "exact automorphisms of the realisation the flip vector describes"
+        for d, cl in zip(data["drawings"], result["classes"]):
+            d["layout"] = cl.get("layout", DRAW_LAYOUT)
+            d["hand_mismatches"] = cl.get("hand_mismatches", 0)
+            if cl.get("replaced"):
+                d["replaced"] = cl["replaced"]
     with open(path, "w") as fh:
         json.dump(data, fh, indent=2)
     return path
@@ -1125,10 +1661,19 @@ def write_json(result, path):
 # --------------------------------------------------------------------------- #
 def run_pipeline(args, log=print):
     if getattr(args, "list_faces", False):
-        model, G, emb = build_diagram(args.dt)
+        code, flips = _split_dt_text(args.dt)
+        if flips is None:
+            model, G, emb = build_diagram(args.dt)
+        else:
+            code, model, G, emb, _ = build_realisation(code, flips)
         recs = face_records(model, emb)
         dkey = default_outer_face_key(model, emb)
-        log("DT: %s" % str(args.dt).strip())
+        if flips is None:
+            log("DT: %s" % str(args.dt).strip())
+        else:
+            log("DT: %s" % format_dt_flips(code.strip(), flips))
+            log("  the faces of the realisation the flip vector %s describes (writhe %d)"
+                % (_bits(flips), sum(flips_crossing_signs(_model_comps(model), flips))))
         log("  %d crossings, %d faces" % (len(model["crossings"]), len(recs)))
         for r in recs:
             log("  face %-3d %5s  %-26s crossings %s%s"
@@ -1173,7 +1718,13 @@ HELP = {
     "dt": ("DT code",
            "The signed Dowker–Thistlethwaite code of the diagram, grouped by component. "
            "A negative even number marks that the over-strand passes there.\n\n"
-           "Example:\nDT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]"),
+           "Example:\nDT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]\n\n"
+           "It may carry its flip vector, one 0/1 per crossing (spherogram's convention: "
+           "bit k for the crossing with odd label 2k+1; complementing every bit is the "
+           "mirror image):\nDT: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]\n"
+           "Then the atlas is that of exactly the realisation the vector describes (here the "
+           "square knot, where the bare code also describes the granny knot), in that hand, "
+           "grouped by the exact symmetries of that map. Not on a split diagram."),
     "svg": ("Atlas figure",
             "Path for the atlas — one panel per distinct plane drawing; blank = skip the "
             "figure and just print the grouping. A .png path also works.\n\n"
@@ -1190,7 +1741,7 @@ HELP = {
                    "lists every drawing.\n\nExample: 0."),
     "labels": ("Show DT labels",
                "Print the DT traversal labels on the strands. Off by default, matching the "
-               "raw-grouping figure in score_diagramV2_1.py — the strands are easier to "
+               "raw-grouping figure in score_diagramV2_6.py — the strands are easier to "
                "follow unobscured."),
     "crossing_ids": ("Show crossing IDs",
                      "Print each crossing's ID (c1, c2, …) at its centre. The panel captions "
@@ -1268,7 +1819,7 @@ def launch_gui(defaults=None):
     def dv(name, fallback):
         return str(getattr(defaults, name, fallback)) if defaults is not None else str(fallback)
 
-    root.title("Puncture atlas  —  enumerate_puncturing_dt")
+    root.title("Puncture atlas  —  enumerate_puncturing_dt %s" % VERSION)
     frm = tk.Frame(root, padx=10, pady=8)
     frm.pack(fill="x")
 
@@ -1424,7 +1975,9 @@ def launch_gui(defaults=None):
     run_btn.config(command=_run)
     q.put("Paste a DT code and press Run.\n"
           "Every face of the diagram is punctured in turn; drawings that are rotations, "
-          "mirror images or\nstrand reversals of one another are grouped into one atlas panel.\n")
+          "mirror images or\nstrand reversals of one another are grouped into one atlas panel.\n"
+          "A code with its flip vector, 'DT: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]', gives the "
+          "atlas of exactly that realisation.\n")
     root.after(120, _poll)
     root.mainloop()
 
@@ -1436,7 +1989,11 @@ def main(argv=None):
     raw = list(sys.argv[1:]) if argv is None else list(argv)
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--dt", default=DEFAULT_DT, help="signed DT code of the diagram")
+    ap.add_argument("--dt", default=DEFAULT_DT,
+                    help="signed DT code of the diagram, optionally with its flip vector, "
+                         "e.g. 'DT: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]' (one bit per "
+                         "crossing, bit k for odd label 2k+1, spherogram's convention): then "
+                         "the atlas of exactly that realisation, in that hand")
     ap.add_argument("--svg", default="puncture_atlas.svg",
                     help="atlas figure to write (.svg or .png); '' to skip")
     ap.add_argument("--json", default=None, help="also write the grouping as JSON")
@@ -1481,6 +2038,8 @@ def main(argv=None):
     ap.add_argument("--list-faces", action="store_true",
                     help="list the faces and exit; no layouts, no drawing")
     ap.add_argument("--gui", action="store_true", help="open the Tk front-end")
+    ap.add_argument("--version", action="version",
+                    version="enumerate_puncturing_dt.py " + VERSION)
     args = ap.parse_args(raw)
 
     if args.gui or not raw:            # no arguments at all -> GUI

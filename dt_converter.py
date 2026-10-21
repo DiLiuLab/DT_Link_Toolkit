@@ -21,7 +21,7 @@ and every over/under choice survives that, so the DT code is unchanged; the
 link, though, is now its mirror image.
 
 For a PRIME diagram that is the whole story, and "up to mirror image" is exactly
-the convention the rest of this project uses (``canonical_dt_V2_0.py``,
+the convention the rest of this project uses (``canonical_dt_V2_1.py``,
 ``score_diagram*.py``).  Measured on every prime test diagram: the code admits
 exactly two realisations, of opposite writhe.
 
@@ -41,6 +41,11 @@ This tool therefore counts the pieces (``Link.deconnect_sum``, about a
 millisecond) and says so: when k > 1 the ``[chirality]`` line reports how many
 diagrams the code admits, not just "which mirror image".  ``--flips`` pins the
 choice down; ``dt-flips`` and friends carry it.
+
+The other tools ask ``composite_danger(comps)`` before they re-read a bare
+code: it says, from the code alone, whether two or more of those pieces are
+knotted or linked -- the only case in which re-reading can give a different
+link (the square knot for the granny's code).  See section 5c.
 
 Do not confuse the in-plane mirror with the other one.  Reflecting THROUGH the
 plane of the paper switches every crossing at once, which negates every DT sign
@@ -68,6 +73,39 @@ states which of these two situations you are in:
 
 ``--mirror`` asks for the other one, and the line then ends in "then
 mirrored".  Nothing is ever silently mirrored.
+
+The DT + flip vector form
+-------------------------
+The numeric spelling of a code WITH its chirality is the code followed by its
+flip vector, e.g. the square knot (whose bare code is also the granny knot's):
+
+    DT: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]
+
+One bit per crossing, in DT entry order: bit k belongs to the crossing whose
+odd label is 2k+1.  Walk along the visit with the SMALLER label; the bit is 0
+when the other strand crosses from your right to your left, 1 when from left
+to right.  Complementing every bit reflects the page (the mirror image).  The
+vector may also be written ``, 010001``, ``; 010001``, ``(0,1,0,0,0,1)``,
+with spaces, as T/F or True/False, with no separator at all, and inside the
+tuple spherogram's ``DT_code(flips=True)`` prints, ``DT: ([(..)], [..])`` --
+with or without the ``DT:`` header.  The reader is the toolkit's shared
+``split_dt_flips``, so every tool accepts the same spellings.  After the
+code's closing bracket a trailing ``# comment`` is dropped, and an old
+multi-list spelling of a bare code (``DT: [(-6,-8)], [(-4,-2)]``,
+``DT: [6,8],[2,4]``, ``DT: (-6,-8) | (-4,-2)``) still reads as one code;
+anything else there is an ERROR, never ignored: it used to be, and an unread
+vector silently became the normalised reading -- the granny knot for the
+square knot's code.  A label BEFORE the code (``3_1 DT: [(4,6,2)]``) reads as
+it always did.
+
+Flip vectors are not free.  A vector typed in the input (or given with
+``--flips``) is checked when it is read, with ``check_flips`` -- one bit per
+crossing, and the diagram it describes lies on the sphere -- also under
+``--no-validate`` and without spherogram.  That test is exact: it accepts every
+vector spherogram builds, plus the legal vectors of kinked diagrams that
+spherogram's DT decoder cannot build (``DT: [(-2,), (-4,)], [1,1]``), which are
+reported as exactly that, not as illegal.  ``--flips`` together with a
+DIFFERENT vector in the input is an error naming both.
 
 ``--mirror`` is applied AFTER the chirality is resolved, and keeps the flip
 vector, so it mirrors exactly the diagram the plain run reports.  The order is
@@ -179,8 +217,9 @@ Needs SnapPy as well:  ``isosig`` and ``identify``.
 
 The polynomials need the chirality resolved -- spherogram, or ``--flips`` --
 and nothing else, except that HOMFLY-PT's braid route borrows spherogram's
-braid word.  With ``--flips`` and no spherogram, the flip vector's
-realisability is checked by the ribbon graph's genus instead (pd_is_planar).
+braid word.  Without spherogram, a flip vector from the input or ``--flips``
+is checked by ``check_flips`` when it is read, and again by the ribbon graph's
+genus (pd_is_planar) before any polynomial.
 
 Without spherogram the tool still runs and says plainly which targets it had to
 skip.
@@ -191,6 +230,7 @@ Usage
     python3 dt_converter.py --gui                             # GUI, explicitly
     python3 dt_converter.py -i 8_19                           # every notation
     python3 dt_converter.py -i "DT: [(4,6,2)]" --to gauss-ou,pd-kt,braid
+    python3 dt_converter.py -i "DT: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]" --to invariants
     python3 dt_converter.py -i "PD[X[1,4,2,5],X[3,6,4,1],X[5,2,6,3]]" --to dt
     python3 dt_converter.py -i "O1U2O3U1O2U3" --from gauss-ou --to dt,invariants
     python3 dt_converter.py -i 4_1 --to all --json fig8.json
@@ -205,13 +245,20 @@ Notes
 * A DT code is checked for realisability, not just well-formedness: there are
   well-formed even-integer sequences that no planar diagram produces.  Those are
   rejected with a reason rather than converted into nonsense.
-* Worse than an unrealisable code is one that makes spherogram's DT decoder run
-  forever -- no exception, no progress.  ``DT: [(8,6,2,4)]``, four crossings, is
-  the smallest such code; ``DT: [(10,6,2,4,8)]``, ``DT: [(10,6,2,8,4)]``,
-  ``DT: [(10,6,8,4,2)]`` and ``DT: [(10,8,2,6,4)]`` behave the same way.  Neither
-  the well-formedness checks nor the project's gadget-graph planarity test
-  rejects them (the gadget graph of the first is planar), so ``--timeout``
-  (default 20 s) bounds every embedding attempt.  For scale, the slowest
+* Spherogram's DT decoder, given a bare code (no flip vector), runs forever on
+  some well-formed codes -- no exception, no progress -- and they are NOT
+  unrealisable: ``DT: [(8,6,2,4)]``, four crossings, the smallest known, is a
+  trefoil with a kink (legal flip vectors 0100, 0011, 1100, 1011);
+  ``DT: [(10,6,2,4,8)]``, ``DT: [(10,6,2,8,4)]``, ``DT: [(10,6,8,4,2)]`` and
+  ``DT: [(10,8,2,6,4)]`` behave the same way.  The cause is a spherogram 2.3 bug
+  with self-loop edges (a kink's crossing), see bare_decoder_loops.  Since
+  2026-10-19 (round 4) ``guard_spherogram_decoder`` -- installed whenever this
+  module loads spherogram -- makes the decoder raise DecoderLoop at once where
+  it would loop, exactly there and only there, without a clock and in any
+  thread; a bare code the decoder cannot read is then resolved with the
+  smallest flip vector spherogram builds, as for any decoder failure
+  (``dt-flips  DT: [(8, 6, 2, 4)], [0,1,0,0]``).  ``--timeout`` (default 20 s)
+  still bounds every embedding attempt, as a backstop.  For scale, the slowest
   realisable embedding measured was 3.1 ms, on a 101-crossing torus knot.  The
   clock uses SIGALRM, which POSIX delivers only to the main thread, which is one
   of the three reasons the GUI runs each job in a subprocess rather than a
@@ -255,7 +302,107 @@ import os
 import re
 import sys
 
-VERSION = "1.1"         # 1.1: --polynomials; --mirror mirrors bare DT codes
+VERSION = "1.2"
+# 1.1: --polynomials; --mirror mirrors bare DT codes.
+# 1.2 (2026-10-18): the DT + flip vector form 'DT: [(10, 6, 2, 4, 12, 8)],
+#      [0,1,0,0,0,1]' is read by the toolkit's shared split_dt_flips -- every
+#      spelling of the vector, and nothing after the code is ever ignored any
+#      more apart from a trailing '# comment' (it used to be: '... [0,1,..]'
+#      with no comma, T/F, (0,1,..) or the tuple str() of spherogram's
+#      DT_code(flips=True) silently became the NORMALISED reading, the granny
+#      knot for the square knot's code; a misplaced bracket,
+#      'DT: [(10, 6, 2, 4, 12, 8), [0,1,0,0,0,1]', is now refused); old
+#      multi-list spellings and a label before the code read as before; the
+#      headerless form is detected as DT; a vector typed in the input is
+#      checked with check_flips even under --no-validate and without
+#      spherogram, and a legal vector spherogram cannot build (kinks) is no
+#      longer called illegal; --flips against a different typed vector is an
+#      error naming both; [chirality] says 'from --flips' when it was; --from
+#      dt-flips on a bare code says no vector was found.  Bare codes convert
+#      byte-identically.
+#      (2026-10-19) composite_danger(comps, flips=None) -> (dangerous, reason):
+#      can re-reading a BARE code change the link (a connected sum / split
+#      union with two or more knotted or linked parts)?  The gate the scorer,
+#      the engine and the strand-passage GUI ask before re-reading a bare
+#      code; pure Python plus networkx, deterministic, fail-safe (section 5c).
+#      legal_flips(comps): one legal vector from a planar embedding of the
+#      code's crossing gadgets.  A bare split code whose normalised vector
+#      spherogram's decoder gets wrong (DT: [(4,6,2),(10,12,8)] read as the
+#      illegal 001000) is mended piece by piece and converts, saying so; it
+#      used to fail blaming "the flip vector 001000", a vector the user never
+#      gave.  Every code that converted before converts byte-identically.
+#      (2026-10-19, round 4) guard_spherogram_decoder(): spherogram 2.3's
+#      flips-free DT decoder loops for ever on some kinked bare codes (a
+#      self-loop edge confuses FatEdge.slot), 'DT: [(8,6,2,4)]' -- a trefoil
+#      with a kink, NOT an unrealisable code -- and its family among them.
+#      The guard wraps DTcodec.embed for the whole process and raises
+#      DecoderLoop (a ConversionError, so a ValueError) exactly where
+#      bare_decoder_loops(comps) -- a bounded re-run of spherogram's own
+#      search, no clock, no signal, any thread -- says the decoder never
+#      returns; everywhere else spherogram's embed runs unchanged.  Installed
+#      when this module loads spherogram (spherogram_mod, dt_codec_cls), and by
+#      the other tools.  Such a code now converts at once with the smallest
+#      flip vector spherogram builds ('DT: [(8, 6, 2, 4)], [0,1,0,0]'); it
+#      used to fail after the 20-s clock, calling the code "almost certainly
+#      not realisable".  no_diagram_reason(comps) / NO_DIAGRAM_TEXT: the one
+#      wording, for every tool, of a code no flip vector makes planar; the
+#      decoder failure of such a bare code says so (it was hedged).  The clock
+#      stays as a backstop, its message reworded.  Self-test section 12.
+#      (2026-10-20, round 4b) The guard never swallows a clock's timeout: the
+#      toolkit's three clocks (EmbeddingTimeout here, the engine's fence,
+#      find_link's) carry toolkit_clock = True and are re-raised wherever the
+#      guard catches broadly -- also when spherogram turned one into another
+#      exception, and when spherogram swallowed one inside the guard's replay
+#      (the marked clock handler records it).  Swallowing it used to leave
+#      spherogram's real decoder running unclocked: --timeout 1e-4 on
+#      'DT: [(10,6,2,4,8)]' hung in most runs.  _time_limit is a class, not a
+#      generator (a generator's cleanup could run at garbage collection,
+#      inside the next clock's set-up, and the process died of SIGALRM).  The
+#      guard is installed atomically under one lock kept on spherogram's DT
+#      module, its wrapper is marked and never stored as the unguarded embed
+#      (64 threads installing at once could leave it disabled), and a
+#      DecoderLoop from another module instance of this file is recognised.
+#      spherogram is imported twice if the first attempt raises (under sage
+#      with faulthandler on it raises a TypeError inside cysignals, and the
+#      guard was not installed).  The code no diagram on the sphere has whose
+#      reading spherogram gets illegal ('DT: [(4,6,8,10,2)]') is refused in
+#      the one no-diagram wording too.
+#      (2026-10-20, round 4c) The guard sees through EMPTY components, as
+#      spherogram's decoder does (it skips them): 'DT: [(8,6,2,4), ()]' and
+#      'DT: [(), (10,6,2,4,8)]' made the guarded decoder loop for ever in
+#      every tool that reads them bare (check_two_dt, strand passage, the
+#      link-level grid; find_link waited out its clock).  The clock is an
+#      _AlarmClock: it never kills the process, never leaves a timer or a
+#      live handler behind and never fires outside its block -- it cancels
+#      its timer before restoring the previous handler and waits (at most
+#      5 ms) for an alarm the kernel was already delivering (macOS delivers
+#      one microseconds after setitimer(0) returned; under the restored
+#      default action it killed the process: --timeout 1.2e-4 died in about
+#      1 run in 40, rc -14 / 142, no message; round 4b's class clock had
+#      not ended these deaths -- the generator was not their cause); its
+#      handler does nothing after the block or in its own clean-up; a timer
+#      already running when it starts is cancelled, as it always was
+#      (putting it back made a late alarm of an expiring outer timer read as
+#      the clock's 20-s timeout).  A conversion the clock cut short is reported as the
+#      timeout -- also where spherogram turned it into a ValueError ("could
+#      not build a diagram from this code ... Usually that means no planar
+#      diagram produces the code", false) and where it cut the flip-vector
+#      search after a DecoderLoop short (it was reported as the DecoderLoop).
+#      A code no diagram on the sphere has whose bare decode also loops is
+#      refused in the one no-diagram wording ("..., so there is nothing to
+#      convert (spherogram's DT decoder never returns on this kinked code
+#      either); check the code"); it got the DecoderLoop text.  Self-test:
+#      _selftest_clocks (10 checks, no spherogram needed) and 4 more in
+#      section 12.  Successful conversions are unchanged.
+#      (2026-10-20, round 4d) no_diagram_reason(comps) drops EMPTY components
+#      first, as spherogram's decoder drops them: a code no diagram on the
+#      sphere has escaped every tool's no-diagram refusal when it carried an
+#      empty component ('DT: [(), (4,6,8,10,2)]',
+#      'DT: [(-16, 6, 14, 2, 12, 4, -10, 8), ()]': check_two_dt and the
+#      strand-passage --demo ended in a traceback, --nongui blamed the
+#      decoder).  The converter itself still refuses an empty component
+#      ("empty component '()' in the DT code"), so no conversion changes.
+#      Self-test: 4 more no_diagram_reason checks (no spherogram needed).
 
 # The project's own 4-component diagram, used as the GUI's default input.
 DEFAULT_INPUT = "DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]"
@@ -288,26 +435,274 @@ _SUBSCRIPTS = "₀₁₂₃₄₅₆₇₈₉"
 _BACKEND = {}
 
 
+def _import_twice(load):
+    """``load()`` -- an import -- tried a second time when the first attempt
+    raises (round 4b, 2026-10-20): under ``sage -python`` with faulthandler on
+    (PYTHONFAULTHANDLER=1, -X faulthandler) the FIRST import of spherogram
+    raises a TypeError inside cysignals ("signal handler must be
+    signal.SIG_IGN, ..."), and the second succeeds.  A toolkit clock's
+    timeout (``_reraise_clock``) is never retried or swallowed.  The
+    second attempt's exception propagates."""
+    outer = sys.exc_info()[1]
+    try:
+        return load()
+    except Exception as exc:                                     # noqa: BLE001
+        _reraise_clock(exc, outer)
+    return load()
+
+
 def spherogram_mod():
     """Return the spherogram module, or None.  Cached, including the failure."""
     if "spherogram" not in _BACKEND:
+        outer = sys.exc_info()[1]
         try:
-            import spherogram
-            _BACKEND["spherogram"] = spherogram
-        except Exception:                                        # noqa: BLE001
+            _BACKEND["spherogram"] = _import_twice(
+                lambda: importlib.import_module("spherogram"))
+        except Exception as exc:                                 # noqa: BLE001
+            _reraise_clock(exc, outer)
             _BACKEND["spherogram"] = None
+        if _BACKEND["spherogram"] is not None:
+            guard_spherogram_decoder()      # never raises but for a clock's timeout
     return _BACKEND["spherogram"]
 
 
 def dt_codec_cls():
     """Return spherogram's DTcodec class, or None."""
     if "DTcodec" not in _BACKEND:
+        outer = sys.exc_info()[1]
         try:
-            from spherogram.codecs.DT import DTcodec
-            _BACKEND["DTcodec"] = DTcodec
-        except Exception:                                        # noqa: BLE001
+            _BACKEND["DTcodec"] = _import_twice(
+                lambda: importlib.import_module("spherogram.codecs.DT")).DTcodec
+        except Exception as exc:                                 # noqa: BLE001
+            _reraise_clock(exc, outer)
             _BACKEND["DTcodec"] = None
+        if _BACKEND["DTcodec"] is not None:
+            guard_spherogram_decoder()      # never raises but for a clock's timeout
     return _BACKEND["DTcodec"]
+
+
+def bare_decoder_loops(comps):
+    """True when spherogram's flips-free DT decoder -- ``DTcodec(comps)``,
+    which ``Link('DT: ...')``, ``snappy.Link`` and ``snappy.Manifold`` use for
+    a bare code -- provably never returns; False when it returns or raises;
+    None when spherogram is missing or its internals are not as expected.
+
+    Why it loops (spherogram 2.3): ``FatEdge.slot`` / ``set_slot`` look a
+    vertex up with ``tuple.index``, so for a self-loop edge -- a kink, a
+    crossing whose two visits are consecutive -- both ends read and write
+    end 0.  The vertex's incidence list is then sorted wrong, and a component
+    walk (``DTPath``, in ``DTFatGraph.unmarked_arc``) can cycle among
+    vertices off the marked subgraph; it stops only on returning to its first
+    edge, and nothing else ends ``unmarked_arc``'s loop.  So a kink-free code
+    never loops, and this runs spherogram's OWN search again with every walk
+    bounded by the edge count: a walk that takes more steps has repeated an
+    edge without returning, i.e. cycles forever.  No clock, no signal: exact,
+    deterministic, and safe in worker threads.  Measured against the real
+    decoder (5-s clock) on 21 779 codes -- the 2 888 census minimal diagrams,
+    1 216 table links, 415 backtrack codes, composites, split codes, 11 216
+    relabellings of kinked codes and 6 000 random codes -- the 313 hangs and
+    only those; on every other code the same flip vector or the same
+    exception type; two independent runs identical.
+
+    An EMPTY component is replayed as spherogram decodes it (round 4c,
+    2026-10-20): its decoder skips a component with no entries ('if
+    len(component) == 0: continue'; the labels run on unchanged), so
+    ``DTcodec([(8,6,2,4), ()])`` loops exactly as ``DTcodec([(8,6,2,4)])``
+    does -- this used to return False for any code with an empty component,
+    and the guard then let the real decoder loop.  The replay hands
+    spherogram the code as given, empty components included."""
+    comps = [tuple(int(x) for x in c) for c in comps]
+    if not any(comps):
+        # no crossings at all: the decoder fails at once (no edge to start
+        # from), it never loops
+        return False
+    outer = sys.exc_info()[1]       # what a caller was handling: not ours to re-raise
+    try:
+        if not _has_kink(comps):
+            return False
+        _D = _import_twice(lambda: importlib.import_module("spherogram.codecs.DT"))
+        base_path, base_graph, base_codec = _D.DTPath, _D.DTFatGraph, _D.DTcodec
+        embed = _unguarded_embed(base_codec)
+    except Exception as exc:                                     # noqa: BLE001
+        _reraise_clock(exc, outer)
+        return None
+
+    class _Walked(Exception):
+        pass
+
+    class _BoundedPath(base_path):
+        def __init__(self, edge, graph, forward=True):
+            base_path.__init__(self, edge, graph, forward)
+            self._budget = len(graph.edges) + 1
+
+        def next(self):
+            self._budget -= 1
+            if self._budget < 0:
+                raise _Walked
+            return base_path.next(self)
+        __next__ = next
+
+    class _BoundedGraph(base_graph):
+        def path(self, vertex, edge):
+            if vertex not in edge:
+                raise ValueError("That vertex is not an endpoint of the edge.")
+            return _BoundedPath(edge, self, bool(vertex == edge[0]))
+
+    n = sum(len(c) for c in comps)
+    try:
+        # the very fat graph DTcodec(comps) builds: with a vector of zeros the
+        # decoder builds it and flips nothing
+        codec = base_codec(comps, [False] * n)
+        codec.fat_graph.__class__ = _BoundedGraph
+        codec.flips = None
+    except Exception as exc:                                     # noqa: BLE001
+        _reraise_clock(exc, outer)
+        return False                # the real decoder fails at the same place
+    clock = _clock_snapshot()
+    try:
+        embed(codec)
+        loops = False
+    except _Walked:
+        loops = True
+    except Exception as exc:                                     # noqa: BLE001
+        # round 4b (2026-10-20): a toolkit clock's timeout (dt_converter's
+        # EmbeddingTimeout, the engine's fence, find_link's clock) is passed
+        # on, never swallowed: the clocks are one-shot, so swallowing it here
+        # used to leave spherogram's real decoder running unclocked (also
+        # where spherogram turned it into another exception: its marked_arc
+        # re-raises a ValueError as RuntimeError)
+        _reraise_clock(exc, outer)
+        loops = False
+    # ... and where spherogram swallowed it outright (embed_arc catches
+    # ValueError around bridge / marked_arc), the clock's own record says so
+    _clock_swallowed_since(clock)
+    return loops
+
+
+def _is_toolkit_clock(exc):
+    """True for a toolkit clock's timeout -- an exception whose class carries
+    ``toolkit_clock = True``: dt_converter's EmbeddingTimeout, link_engine's
+    _DecoderTimeout, find_link's DecodeTimeout (round 4b, 2026-10-20).  The
+    guard on spherogram's decoder re-raises these wherever it catches broadly,
+    so a timeout leaves the guard exactly as it left the real decoder."""
+    return getattr(exc, "toolkit_clock", False) is True
+
+
+def _reraise_clock(exc, stop=None):
+    """Re-raise the toolkit clock's timeout ``exc`` is, or was raised while
+    handling (its __context__ / __cause__ chain, up to ``stop``: the
+    exception the caller was already handling when the guarded code began,
+    so a timeout handled earlier is never raised again); else return."""
+    seen = 0
+    while exc is not None and exc is not stop and seen < 16:
+        if _is_toolkit_clock(exc):
+            raise exc
+        exc = exc.__cause__ or exc.__context__
+        seen += 1
+
+
+def _clock_snapshot():
+    """(handler, its last timeout) when the current SIGALRM handler is a
+    toolkit clock's (marked ``_dt_toolkit_clock``) and this is the main
+    thread (the only one a clock runs in); else None."""
+    try:
+        import signal as _signal
+        import threading
+        if threading.current_thread() is not threading.main_thread():
+            return None
+        handler = _signal.getsignal(_signal.SIGALRM)
+        if getattr(handler, "_dt_toolkit_clock", False) is not True:
+            return None
+        return handler, getattr(handler, "_dt_toolkit_raised", None)
+    except Exception:                                            # noqa: BLE001
+        return None
+
+
+def _clock_swallowed_since(snapshot):
+    """Raise the timeout of the clock in ``snapshot`` (_clock_snapshot) if it
+    fired since -- the caller saw no exception, so something on the way
+    caught it (spherogram's embedding search catches ValueError in one
+    place).  The clocks are one-shot: a swallowed timeout would leave the
+    decode that follows unclocked."""
+    if snapshot is None:
+        return
+    handler, before = snapshot
+    now = getattr(handler, "_dt_toolkit_raised", None)
+    if now is not None and now is not before:
+        raise now
+
+
+def _unguarded_embed(codec):
+    """spherogram's own ``DTcodec.embed``, behind any toolkit wrappers (they
+    are marked ``_dt_toolkit_guard`` and keep the embed they wrap)."""
+    embed = getattr(codec, "_dt_toolkit_unguarded_embed", None) or codec.embed
+    for _ in range(64):
+        if not getattr(embed, "_dt_toolkit_guard", False):
+            break
+        embed = embed._dt_toolkit_unguarded
+    return embed
+
+
+def _is_decoder_loop(exc):
+    """True for a DecoderLoop raised by ANY dt_converter module instance's
+    guard (this file is loaded under more than one module name in some
+    processes, and the guard is installed once, by whichever came first)."""
+    return getattr(type(exc), "_dt_toolkit_decoder_loop", False) is True
+
+
+def guard_spherogram_decoder():
+    """Make spherogram's flips-free DT decoder raise DecoderLoop where it
+    would loop for ever (bare_decoder_loops), for the whole process.
+
+    It wraps ``DTcodec.embed``, which spherogram calls only for a code without
+    a flip vector, whatever its spelling (numeric, alphabetical); on every
+    other code it calls spherogram's own embed unchanged, so a decoder that
+    returns -- or raises -- does exactly what it did.  Idempotent; returns
+    True when the guard is in place, False when it cannot be installed
+    (spherogram missing, or its internals not as expected); never raises --
+    but for a toolkit clock's timeout, which it passes on -- so a failed
+    installation never costs a caller spherogram itself.
+
+    Round 4b (2026-10-20): installation is atomic -- one lock for the whole
+    process, kept on spherogram's DT module (created there with
+    ``dict.setdefault``, so every dt_converter module instance shares it) --
+    and the wrapper is marked (``_dt_toolkit_guard``): an already marked
+    ``DTcodec.embed`` counts as installed, and a marked wrapper is never
+    stored as the unguarded embed (two threads installing at once could
+    leave a wrapper wrapping a wrapper, and the decoder then looped).  The
+    import is tried twice (``_import_twice``: under sage with faulthandler
+    on, the first import of spherogram raises), and the toolkit's tools call
+    this again before their bare decodes, so an installation that failed
+    once is retried."""
+    outer = sys.exc_info()[1]
+    try:
+        _D = _import_twice(lambda: importlib.import_module("spherogram.codecs.DT"))
+        codec = _D.DTcodec
+        if getattr(getattr(codec, "embed", None), "_dt_toolkit_guard", False):
+            return True                                          # fast path
+        import threading
+        lock = vars(_D).setdefault("_dt_toolkit_guard_lock", threading.Lock())
+        with lock:
+            current = getattr(codec, "embed", None)
+            if getattr(current, "_dt_toolkit_guard", False):
+                return True
+            if not callable(current):
+                return False
+            unguarded = current
+
+            def embed(self, edge=None):
+                if edge is None and bare_decoder_loops(getattr(self, "code", None) or []):
+                    raise DecoderLoop(DECODER_LOOP_TEXT)
+                return unguarded(self, edge)
+            embed.__doc__ = unguarded.__doc__
+            embed._dt_toolkit_guard = True
+            embed._dt_toolkit_unguarded = unguarded
+            codec._dt_toolkit_unguarded_embed = unguarded
+            codec.embed = embed
+    except Exception as exc:                                     # noqa: BLE001
+        _reraise_clock(exc, outer)
+        return False
+    return True
 
 
 def base64_dt_funcs():
@@ -406,14 +801,38 @@ class EmbeddingTimeout(ConversionError):
     """The planar-embedding search did not finish in time.
 
     Not hypothetical: spherogram's DT decoder does not terminate on some
-    well-formed DT codes.  ``DT: [(8,6,2,4)]`` -- four crossings -- is the
-    smallest case found; ``DT: [(10,6,2,4,8)]``, ``DT: [(10,6,2,8,4)]``,
-    ``DT: [(10,6,8,4,2)]`` and ``DT: [(10,8,2,6,4)]`` do the same.  There is no
-    exception and no progress, so a converter that hands user input straight to
-    the codec hangs with no way out but Ctrl-C.  Neither the DT well-formedness
-    checks nor the project's gadget-graph planarity test rejects these codes
-    (the gadget graph of [(8,6,2,4)] is planar), so a clock is the only defence.
+    well-formed DT codes, realisable ones included.  ``DT: [(8,6,2,4)]`` --
+    four crossings, a trefoil with a kink -- is the smallest case found;
+    ``DT: [(10,6,2,4,8)]``, ``DT: [(10,6,2,8,4)]``, ``DT: [(10,6,8,4,2)]`` and
+    ``DT: [(10,8,2,6,4)]`` do the same.  There is no exception and no progress,
+    so a converter that hands user input straight to the codec hangs with no
+    way out but Ctrl-C.  Neither the DT well-formedness checks nor the
+    project's gadget-graph planarity test rejects these codes (they are
+    realisable: the gadget graph of [(8,6,2,4)] is planar).  Since round 4
+    (2026-10-19) guard_spherogram_decoder catches every code of this kind that
+    is known -- DecoderLoop, at once, without a clock -- and this clock stays
+    as a backstop for a hang the guard does not recognise: since round 4b
+    (2026-10-20) the guard passes this timeout on wherever it catches
+    (``toolkit_clock``), so it leaves the guard exactly as it left the
+    unguarded decoder.  (spherogram's own embedding search still catches
+    ValueError in one place, marked_arc / bridge, as it always did.)
     """
+    toolkit_clock = True        # round 4b: the guard never swallows it
+
+
+class DecoderLoop(ConversionError):
+    """spherogram's flips-free DT decoder would never return on this code.
+
+    Raised -- instead of the endless loop -- by the guard that
+    guard_spherogram_decoder() puts on spherogram's decoder.  A ValueError, as
+    spherogram's own decoder failures are, so every caller that already
+    handles a decoder that cannot read a bare code handles this one the same
+    way: at once, and in a worker thread too (no clock, no signal).  Another
+    module instance's DecoderLoop is recognised by ``_is_decoder_loop``."""
+    _dt_toolkit_decoder_loop = True
+
+
+DECODER_LOOP_TEXT = "spherogram's DT decoder never returns on this kinked code"
 
 
 # Seconds allowed for one planar-embedding attempt.  Generous on purpose: the
@@ -469,36 +888,189 @@ def _time_limit(seconds=None):
     Uses SIGALRM, which POSIX only delivers to the main thread, so this is a
     no-op in a worker thread and on platforms without SIGALRM.  The GUI
     therefore pre-flights the diagram on the main thread before starting its
-    worker -- see launch_gui -- rather than relying on this inside the thread."""
-    import contextlib
+    worker -- see launch_gui -- rather than relying on this inside the thread.
+    Round 4c (2026-10-20): an _AlarmClock (see there), or a _NoClock."""
     import threading
 
     limit = _EMBED_TIMEOUT if seconds is None else seconds
     usable = (limit and hasattr(signal_mod(), "SIGALRM")
               and threading.current_thread() is threading.main_thread())
     if not usable:
-        return contextlib.nullcontext()
+        return _NoClock()
 
-    signal = signal_mod()
+    def _timeout():
+        return EmbeddingTimeout(
+            "the planar-embedding search did not finish within %g s. "
+            "spherogram's DT decoder does not terminate on some well-formed "
+            "DT codes, realisable ones included ('DT: [(8,6,2,4)]', a kinked "
+            "trefoil, is the smallest known), so this says nothing about the "
+            "code itself. Give its flip vector to skip that search, or raise "
+            "or remove the limit with --timeout if you want to wait."
+            % limit)
+    return _AlarmClock(limit, signal_mod(), _timeout)
 
-    @contextlib.contextmanager
-    def _limited():
-        def _fire(_signum, _frame):
-            raise EmbeddingTimeout(
-                "the planar-embedding search did not finish within %g s. "
-                "spherogram's DT decoder does not terminate on some well-formed "
-                "DT codes -- 'DT: [(8,6,2,4)]' is the smallest known -- so this "
-                "code is almost certainly not realisable as a link diagram. "
-                "Raise or remove the limit with --timeout if you want to wait."
-                % limit)
-        previous = signal.signal(signal.SIGALRM, _fire)
-        signal.setitimer(signal.ITIMER_REAL, limit)
+
+class _NoClock(object):
+    """What _time_limit gives where no clock can run (no limit, a worker
+    thread, no SIGALRM): a context manager that does nothing and never
+    fires (``fired`` is None), like contextlib.nullcontext but with the
+    attribute _AlarmClock's callers read."""
+    fired = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc_info):
+        return False
+
+
+# Seconds a clock that ends waits for an alarm the kernel was already
+# delivering when the clock cancelled its timer (_AlarmClock._settle).
+# Measured on this machine (macOS, 2026-10-20; 23 000 sub-millisecond timers
+# cancelled near their deadline): such an alarm lands 20-23 microseconds
+# after setitimer(0) returns, in about 4 of 10 000 cancellations of an
+# expired timer; in the others the kernel had not yet begun to fire it (it
+# delivers user timers late) and nothing comes, so this bound is what that
+# case costs -- only ever for a block that ends within the kernel's delivery
+# delay after its limit.
+_ALARM_SETTLE_SECONDS = 0.005
+
+
+class _AlarmClock(object):
+    """The SIGALRM clock of _time_limit: raise ``make_timeout()`` when the
+    block runs longer than ``limit`` seconds (round 4c, 2026-10-20).
+
+    Built so that a clock never kills the process, never leaves a timer or a
+    live handler behind, and never fires outside its block:
+
+    * The kernel can deliver the alarm AFTER ``setitimer(ITIMER_REAL, 0)``
+      has returned: on macOS a timer that expires as it is cancelled still
+      sends its SIGALRM a few microseconds later.  Restoring the default
+      action (SIG_DFL) at once let that alarm kill the process (rc -14 / 142,
+      no message; dt_converter at --timeout 1.2e-4 died in about 1 run in
+      40).  So the timer is cancelled first, and when it had expired
+      (setitimer reports nothing left) without its alarm having arrived yet,
+      the clock waits for it -- at most ``_ALARM_SETTLE_SECONDS`` -- with its
+      own handler, which no longer does anything, still in place; then the
+      previous handler is restored.
+    * The handler does nothing once the block has ended, nor while the
+      clock's own clean-up runs (an alarm at the first instruction of
+      ``__exit__`` used to leave the clean-up undone: a live handler, or a
+      re-firing timer, behind).
+    * An alarm while ``__enter__`` finishes -- the limit elapsed before the
+      block even began -- cleans up before the timeout leaves ``__enter__``.
+    * Every alarm the clock asks for is counted (``armings``) and every one
+      that arrives (``arrivals``), so the wait above is for an alarm that is
+      really due.  ``refire`` (seconds; 0 = one-shot) re-arms the timer each
+      time the handler raises, in case something swallows the timeout.
+    * A timer that was already running when the clock started (an outer
+      clock's, or a watchdog's) is cancelled, as it always was.  Putting it
+      back (round 4c's first version) let a nearly expired outer timer that
+      the clock had just replaced deliver its alarm late, inside the block,
+      where it read as the clock's own 20-s timeout (2-3 false timeouts per
+      24 000 trefoil conversions under a 0.2-ms caller timer).
+    * ``fired`` is the timeout the clock raised, if it raised one, so a
+      caller can report a block the clock cut short AS a timeout even where
+      something on the way turned the timeout into another exception.
+
+    The handler keeps round 4b's marks (``_dt_toolkit_clock``,
+    ``_dt_toolkit_raised``) for the guard on spherogram's decoder
+    (_clock_snapshot / _clock_swallowed_since)."""
+
+    def __init__(self, limit, signal, make_timeout, refire=0.0):
+        self.limit = float(limit)
+        self.signal = signal
+        self.make_timeout = make_timeout
+        self.refire = float(refire or 0.0)
+        self.state = "new"          # "armed" while the block runs, then "ended"
+        self.armings = 0
+        self.arrivals = 0
+        self.fired = None
+        self.previous = None
+        self.outer = None
+        self.t_armed = None
+        clock = self
+
+        def _fire(_signum, frame):
+            if clock.state == "new":
+                return              # not this clock's alarm
+            clock.arrivals += 1
+            if clock.state != "armed":
+                return              # after the block: nothing to stop
+            if frame is not None and frame.f_code in _AlarmClock._OWN_CODES:
+                return              # the block has ended; its clean-up is running
+            exc = clock.make_timeout()
+            clock.fired = exc
+            _fire._dt_toolkit_raised = exc
+            if clock.refire:
+                clock.signal.setitimer(clock.signal.ITIMER_REAL, clock.refire)
+                clock.armings += 1
+            raise exc
+        # round 4b (2026-10-20): marked, so the guard on spherogram's decoder
+        # can tell that this clock fired inside its replay even where
+        # spherogram itself caught the timeout (it catches ValueError in
+        # marked_arc / bridge, and EmbeddingTimeout is one) --
+        # _clock_swallowed_since
+        _fire._dt_toolkit_clock = True
+        _fire._dt_toolkit_raised = None
+        self.handler = _fire
+
+    def __enter__(self):
+        import time
+        signal = self.signal
+        self.previous = signal.signal(signal.SIGALRM, self.handler)
         try:
-            yield
-        finally:
-            signal.setitimer(signal.ITIMER_REAL, 0)
-            signal.signal(signal.SIGALRM, previous)
-    return _limited()
+            self.state = "armed"
+            self.t_armed = time.monotonic()
+            outer = signal.setitimer(signal.ITIMER_REAL, self.limit)
+            self.armings += 1
+            if outer[0] > 0.0:
+                self.outer = outer
+        except BaseException:
+            self._end()
+            raise
+        return self
+
+    def __exit__(self, *_exc_info):
+        self._end()
+        return False
+
+    def _end(self):
+        if self.state == "ended":
+            return
+        self.state = "ended"        # from here on the handler does nothing
+        signal = self.signal
+        try:
+            left = signal.setitimer(signal.ITIMER_REAL, 0)[0]
+        except Exception:                                        # noqa: BLE001
+            left = 0.0
+        if left == 0.0 and self.arrivals < self.armings:
+            self._settle()
+        signal.signal(signal.SIGALRM, signal.SIG_DFL if self.previous is None
+                      else self.previous)
+        # an outer timer (self.outer) stays cancelled, as before round 4c:
+        # see the class docstring
+
+    def _settle(self):
+        """Wait (at most _ALARM_SETTLE_SECONDS) for an alarm that is due."""
+        import time
+        end = time.monotonic() + _ALARM_SETTLE_SECONDS
+        while self.arrivals < self.armings and time.monotonic() < end:
+            time.sleep(0.0001)
+
+
+_AlarmClock._OWN_CODES = frozenset(
+    f.__code__ for f in (_AlarmClock.__exit__, _AlarmClock._end, _AlarmClock._settle))
+
+
+def _clock_timeout(clock):
+    """The timeout ``clock`` (an _AlarmClock or _NoClock) raised, or None.
+    A block the clock cut short is reported as a timeout whatever exception
+    reached the caller: spherogram can turn the timeout into another one on
+    the way out (FatEdge.slot re-raises a ValueError as 'Vertex is not an
+    end of this edge.'), which used to be reported as the decoder's verdict
+    on the code (round 4c, 2026-10-20)."""
+    return getattr(clock, "fired", None)
 
 
 def signal_mod():
@@ -594,30 +1166,302 @@ def _as_components(raw, what="code"):
     return comps
 
 
+# --------------------------------------------------------------------------- #
+#  The DT + flip vector form, 'DT: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]'.
+#  The block between the BEGIN and END markers is the toolkit's shared reader,
+#  BYTE-IDENTICAL in every tool that reads DT text (like the version resolver
+#  helpers above), so every tool accepts and refuses the same spellings.  One
+#  bit per crossing: bit k belongs to the crossing whose odd label is 2k+1 (the
+#  k-th DT entry).  Walk along the visit with the SMALLER label: bit 0 when the
+#  other strand crosses from your right to your left, 1 when from left to
+#  right.  Complementing every bit reflects the page -- the mirror image.
+# --------------------------------------------------------------------------- #
+# BEGIN dt-flips helpers (keep identical in every tool)
+_DT_FLIPS_ERROR = ("could not read %r after the DT code as a flip vector "
+                   "(one 0/1 per crossing, e.g. 'DT: [(4, 6, 2)], [0,0,1]')")
+
+
+def split_dt_flips(text):
+    """Split 'DT: [...], [0,1,...]' into ('DT: [...]', [False, True, ...]).
+
+    Text with nothing after the DT code's closing bracket comes back
+    UNCHANGED with None, so a bare code takes exactly its old path; so does
+    an old multi-list spelling whose later lists hold more components
+    ('DT: [(-6,-8)], [(-4,-2)]').  Also read: ', 010001' / '; 010001' / no
+    separator, '(0,1,..)', spaces instead of commas, T/F and True/False, and
+    the tuple wrapper 'DT: ([(..)], [0,1,..])' (str() of spherogram's
+    DT_code(flips=True)).  A vector has one bit per entry of the code's list.
+    A trailing '# comment' is dropped (a bare code with one comes back
+    without it).  Any other text after the code raises ValueError -- it is
+    never ignored."""
+    s = str(text)
+    t = s.rstrip()
+    i = t.find("[")
+    if i < 0:
+        return s, None
+    depth, j = 0, -1
+    for j in range(i, len(t)):
+        if t[j] == "[":
+            depth += 1
+        elif t[j] == "]":
+            depth -= 1
+            if depth == 0:
+                break
+    if depth != 0:
+        if t.count("[") > 1:
+            raise ValueError("unbalanced brackets in %r: the code's list must "
+                             "close before a flip vector, e.g. "
+                             "'DT: [(4, 6, 2)], [0,0,1]'" % s[:80])
+        return s, None            # unbalanced: the caller's parser reports it
+    head, rest = t[:i], t[j + 1:]
+    note = rest.find("#")
+    base = s if note < 0 else t[:j + 1 + note].rstrip()
+    rest = (rest if note < 0 else rest[:note]).strip()
+    wrapped = head.rstrip().endswith("(") and rest.endswith(")")
+    if wrapped:
+        rest = rest[:-1].strip()
+    if not rest:
+        inner = t[i + 1:j]
+        if "(" in inner and re.search(r"\d", re.sub(r"\([^()]*\)", "", inner)):
+            raise ValueError("numbers outside the parenthesised components of "
+                             "%r: a flip vector goes AFTER the code's closing "
+                             "bracket, e.g. 'DT: [(4, 6, 2)], [0,0,1]'" % s[:80])
+        return base, None
+    code = (head.rstrip()[:-1] if wrapped else head) + t[i:j + 1]
+    body = rest[1:].strip() if rest[0] in ",;" else rest
+    if body and body[0] + body[-1] in ("[]", "()"):
+        body = body[1:-1].strip()
+    tokens = [x for x in re.split(r"[\s,;]+", body) if x]
+    bits = None
+    if len(tokens) == 1 and re.fullmatch(r"[01]+|[TFtf]+", tokens[0]):
+        bits = [ch in "1Tt" for ch in tokens[0]]
+    elif tokens and all(x.lower() in ("0", "1", "t", "f", "true", "false")
+                        for x in tokens):
+        bits = [x.lower() in ("1", "t", "true") for x in tokens]
+    labels = [int(v) for v in re.findall(r"\d+", t[i + 1:j])]
+    n = len(labels)
+    if bits is not None and len(bits) == n:
+        return code, bits
+    labels += [int(v) for v in re.findall(r"\d+", rest)]
+    if (len(labels) > n and sorted(labels) == list(range(2, 2 * len(labels) + 1, 2))
+            and not re.search(r"[^\s,;|()\[\]\d\-\u2212\u2012\u2013\u2014\ufe63\uff0d]", rest)):
+        return base, None         # more components: an old multi-list spelling
+    if bits is not None:
+        raise ValueError("the flip vector has %d entries but the code has %d "
+                         "crossings" % (len(bits), n))
+    raise ValueError(_DT_FLIPS_ERROR % rest)
+
+
+def format_dt_flips(dt_text, flips):
+    """'DT: [...]' + flips -> 'DT: [...], [0,1,...]' (dt_converter's spelling);
+    the bare text unchanged when flips is None."""
+    if flips is None:
+        return dt_text
+    return "%s, [%s]" % (str(dt_text).rstrip(),
+                         ",".join("1" if f else "0" for f in flips))
+
+
+def check_flips(comps, flips):
+    """Raise ValueError unless ``flips`` is a legal vector for the signed DT
+    code ``comps`` (a list of tuples of even integers): one bit per crossing,
+    and the diagram it describes lies on the sphere (every connected piece
+    has genus 0: faces == crossings + 2 x pieces).  Pure Python; accepts the
+    kink vectors spherogram's DTcodec cannot build."""
+    entries = [int(e) for c in comps for e in c]
+    n = len(entries)
+    flips = [bool(f) for f in flips]
+    if len(flips) != n:
+        raise ValueError("the flip vector has %d entries but the code has %d "
+                         "crossings" % (len(flips), n))
+    cross, nxt, start = {}, {}, 1
+    for c in comps:
+        labels = list(range(start, start + 2 * len(c)))
+        for a, b in zip(labels, labels[1:] + labels[:1]):
+            nxt[a] = b
+        start += 2 * len(c)
+    for k, e in enumerate(entries):
+        cross[2 * k + 1] = cross[abs(e)] = k
+    if sorted(cross) != list(range(1, 2 * n + 1)):
+        raise ValueError("not a DT code: the even labels are not a "
+                         "permutation of 2..%d" % (2 * n))
+
+    def slots(p):                 # (in slot, out slot) of label p: S0 E1 N2 W3
+        k = cross[p]
+        small = min(2 * k + 1, abs(entries[k]))
+        if p != small:
+            return 1, 3
+        return (2, 0) if flips[k] else (0, 2)
+
+    other = {}
+    for p in range(1, 2 * n + 1):
+        q = nxt[p]
+        a, b = (cross[p], slots(p)[1]), (cross[q], slots(q)[0])
+        other[a], other[b] = b, a
+    seen, faces = set(), 0
+    for d in other:
+        if d in seen:
+            continue
+        faces += 1
+        while d not in seen:
+            seen.add(d)
+            k, sl = other[d]
+            d = (k, (sl + 1) % 4)
+    parent = list(range(n))
+
+    def root(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    for p in range(1, 2 * n + 1):
+        parent[root(cross[p])] = root(cross[nxt[p]])
+    pieces = len({root(k) for k in range(n)})
+    if faces != n + 2 * pieces:
+        raise ValueError(
+            "the flip vector %s is not a legal one for this DT code: it "
+            "describes no diagram on the sphere (%d faces; a planar diagram "
+            "with %d crossing(s) in %d piece(s) has %d)"
+            % ("".join("1" if f else "0" for f in flips), faces, n, pieces,
+               n + 2 * pieces))
+
+
+def flips_crossing_signs(comps, flips):
+    """Crossing signs (+1 / -1, in DT entry order) of the diagram (comps,
+    flips) in spherogram's convention, where a NEGATIVE entry means the even
+    visit is the over-crossing: negative exactly when
+    flip XOR (even visit over) XOR (even label < odd label)."""
+    out = []
+    for k, e in enumerate(int(e) for c in comps for e in c):
+        neg = bool(flips[k]) ^ (e < 0) ^ (abs(e) < 2 * k + 1)
+        out.append(-1 if neg else 1)
+    return out
+# END dt-flips helpers
+
+
 def _parse_flips(text, n=None):
-    """Parse a flip vector: '110', '1,1,0', '[1,1,0]', 'TFT'.  Returns a list
-    of bools, or None for an empty/absent spec."""
+    """Parse a --flips vector: '110', '1,1,0', '[1,1,0]', '(1,1,0)', 'TFT',
+    'True,True,False'.  Returns a list of bools, or None for an empty/absent
+    spec ('auto', 'none' and '-' too).
+
+    Read by the shared split_dt_flips, exactly as a vector written after a DT
+    code is, so --flips and the 'DT: [...], [...]' form accept the same
+    spellings (until 1.2 this reader also took any integers in the text, so
+    'a1b0' read as 10, and '[1,1,0' as 110).  split_dt_flips takes a vector
+    only with exactly one bit per entry of the code before it, so the text is
+    put after a stand-in code of m entries: first m = n, then every m up to
+    its length (a vector of m bits reads with exactly one of them), so a
+    vector of the wrong length is reported as such."""
     if text is None:
         return None
     text = normalise_text(text).strip()
     if not text or text.lower() in ("auto", "none", "-"):
         return None
-    body = text.strip("[]() ")
-    if re.fullmatch(r"[01]+", body):
-        flips = [c == "1" for c in body]
-    elif re.fullmatch(r"[TFtf]+", body):
-        flips = [c in "Tt" for c in body]
-    else:
-        vals = _ints_in(body)
-        if not vals or any(v not in (0, 1) for v in vals):
-            raise ConversionError(
-                "a flip vector is a string of 0/1 (one per crossing), e.g. "
-                "'110'; got %r" % text[:40])
-        flips = [bool(v) for v in vals]
+    flips = None
+    for m in ([n] if n else []) + list(range(1, len(text) + 1)):
+        try:
+            _code, flips = split_dt_flips("[%s], %s" % (",".join(["2"] * m), text))
+        except ValueError:
+            flips = None
+        if flips:
+            break
+    if not flips:
+        raise ConversionError(
+            "a flip vector is a string of 0/1 (one per crossing), e.g. "
+            "'110'; got %r" % text[:40])
     if n is not None and len(flips) != n:
         raise ConversionError("the flip vector has %d entries but the code has "
                               "%d crossings" % (len(flips), n))
     return flips
+
+
+# The input spellings in which the user TYPED a flip vector, as opposed to one
+# computed from a PD code, braid word, name or extended Gauss code.
+_TYPED_FLIPS_SOURCES = ("dt-flips", "dt-alpha", "dt-hex", "dt-compact")
+
+_FLIPS_ADVICE = ("Flip vectors are constrained, not free: only 2 of the "
+                 "trefoil's 8 are legal. Drop the vector to let the chirality "
+                 "be resolved, then read a legal one off the dt-flips output")
+
+
+def _has_kink(comps):
+    """True when some crossing joins two CONSECUTIVE visits of one component
+    -- a one-crossing loop, on which spherogram's DT decoder refuses some legal
+    flip vectors (``DT: [(-2,), (-4,)], [1,1]`` is legal, and it cannot build
+    it)."""
+    nxt, start = {}, 1
+    for c in comps:
+        labels = list(range(start, start + 2 * len(c)))
+        for a, b in zip(labels, labels[1:] + labels[:1]):
+            nxt[a] = b
+        start += 2 * len(c)
+    for k, e in enumerate(x for c in comps for x in c):
+        odd, even = 2 * k + 1, abs(int(e))
+        if nxt.get(odd) == even or nxt.get(even) == odd:
+            return True
+    return False
+
+
+def _check_typed_flips(diagram, where):
+    """check_flips on a vector the user typed in the input; returns the
+    diagram, marked ``_flips_checked``.  Run by the parsers themselves, so a
+    typed vector is checked on every path -- --no-validate, no spherogram, and
+    every caller of parse_input -- and an illegal one is reported as an
+    illegal FLIP VECTOR, not as an unrealisable DT code."""
+    if diagram.flips is None:
+        return diagram
+    try:
+        check_flips(diagram.comps, diagram.flips)
+    except ValueError as exc:
+        raise ConversionError("refused the flip vector written %s: %s. %s"
+                              % (where, exc, _FLIPS_ADVICE))
+    diagram._flips_checked = True
+    return diagram
+
+
+def _decoder_refused(comps, flips, exc, stage):
+    """The ConversionError for spherogram refusing (comps, flips).
+
+    With a flip vector the refusal is NOT the verdict: check_flips is.  An
+    illegal vector is reported as one; a legal vector spherogram cannot build
+    (kinks) is reported as exactly that, never as illegal."""
+    if flips is None:
+        if stage == "codec" and no_diagram_reason(comps):
+            if _is_decoder_loop(exc):
+                # round 4c (2026-10-20): a code no diagram has whose bare
+                # decode also loops -- the no-diagram verdict wins (it used
+                # to be refused with the DecoderLoop text alone)
+                return ConversionError(
+                    "%s, so there is nothing to convert (spherogram's DT "
+                    "decoder never returns on this kinked code either); check "
+                    "the code" % NO_DIAGRAM_TEXT)
+            # round 4: certain, so said as such (it used to be hedged)
+            return ConversionError(
+                "%s, so there is nothing to convert (spherogram's DT decoder "
+                "fails on it too: %s: %s); check the code"
+                % (NO_DIAGRAM_TEXT, type(exc).__name__, str(exc)[:120]))
+        if stage == "codec":
+            return ConversionError(
+                "spherogram's DT decoder could not build a diagram from this "
+                "code (%s: %s). Usually that means no planar diagram produces "
+                "the code -- but not always: the decoder also refuses some codes "
+                "that ARE realisable, so this is its verdict, not a proof."
+                % (type(exc).__name__, str(exc)[:160]))
+        return ConversionError(
+            "spherogram could not build a link from this DT code (%s: %s); see "
+            "the note in _codec about codes it refuses that are nonetheless "
+            "realisable" % (type(exc).__name__, str(exc)[:160]))
+    try:
+        check_flips(comps, flips)
+    except ValueError as bad:
+        return ConversionError("%s. %s" % (bad, _FLIPS_ADVICE))
+    return ConversionError(
+        "spherogram cannot build this %s (flips %s): the flip vector is legal "
+        "-- it describes a diagram on the sphere -- but spherogram's DT decoder "
+        "refuses it (%s: %s). The spellings that need no spherogram (dt-flips, "
+        "dt-alpha, dt-hex, gauss-ext and the polynomials) still work"
+        % ("kinked realisation" if _has_kink(comps) else "realisation",
+           "".join("1" if f else "0" for f in flips), type(exc).__name__,
+           str(exc)[:120]))
 
 
 def validate_dt_components(comps):
@@ -768,9 +1612,17 @@ class Diagram(object):
         false negative, so when the normalisation fails the flip space is
         searched instead, smallest vector first.  It is bounded: 2**n builds
         cost about 0.07 s at n = 10, so the search runs only up to
-        FLIP_SEARCH_LIMIT crossings and otherwise reports the failure."""
+        FLIP_SEARCH_LIMIT crossings and otherwise reports the failure.
+
+        The normalisation can also come back ILLEGAL: on split codes such as
+        ``DT: [(4,6,2),(10,12,8)]`` (two trefoils side by side) spherogram's
+        decoder reads the bare code as 001000, which describes no diagram on
+        the sphere, and the report used to blame "the flip vector 001000" --
+        a vector the user never gave.  That vector is now checked
+        (check_flips) and mended piece by piece; see _repair_normalisation."""
         if self.flips is not None:
             return self
+        repaired, link = False, None
         try:
             codec = _codec(self.comps, None)
             flips = [bool(f) for f in codec.flips]
@@ -787,9 +1639,18 @@ class Diagram(object):
                     "smallest flip vector that does was used instead. The "
                     "choice is arbitrary, exactly as the normalisation's is"
                     % str(exc).split("(")[-1].rstrip(")")[:70])
+        else:
+            try:
+                check_flips(self.comps, flips)
+            except ValueError:
+                flips, note, link = self._repair_normalisation(flips)
+                repaired = True
         out = Diagram(self.comps, flips, self.source, self.notes)
         out.note(note)
         out._resolved_from_normalisation = True
+        if repaired:
+            out._normalisation_repaired = True
+            out._link = link
         pieces = out.reflectable_pieces()
         out._pieces = pieces
         if pieces and pieces > 1:
@@ -804,6 +1665,114 @@ class Diagram(object):
                 % (pieces, 2 ** pieces, 2 ** (pieces - 1),
                    out.link().writhe()))
         return out
+
+    def _repair_normalisation(self, normalised):
+        """(flips, note, link) for a bare code whose normalised vector
+        ``normalised`` -- DTcodec(comps).flips -- is not a legal one.
+
+        Every split piece is a separate sphere, so a vector is legal exactly
+        when each piece's bits are.  Each piece keeps spherogram's own bits
+        when they are legal for it; the others take the bits of a legal
+        vector read off a planar embedding of the code (_embedding_flips),
+        reflected where needed so that the piece's first crossing is positive
+        -- spherogram's own rule.  spherogram must also BUILD the result (it
+        refuses some legal vectors of kinked pieces), so whole pieces are
+        reflected, in a fixed order, until it does.  Deterministic.  If no
+        legal vector exists, or spherogram builds none of these, the
+        ConversionError says plainly that spherogram cannot read the bare code
+        and how to give a vector."""
+        comps = self.comps
+        given = _flip_str(normalised)
+        base, status = _embedding_flips(comps)
+        if base is None and no_diagram_reason(comps):
+            # round 4b (2026-10-20): the one no-diagram wording, as on the
+            # codec-stage branch of _decoder_refused
+            raise ConversionError(
+                "%s, so there is nothing to convert (spherogram's DT decoder "
+                "reads it as the flip vector %s, which describes no diagram on "
+                "the sphere either); check the code" % (NO_DIAGRAM_TEXT, given))
+        if base is None:
+            raise ConversionError(
+                "spherogram cannot read this bare code: its DT decoder reads it "
+                "as the flip vector %s, which describes no diagram on the "
+                "sphere, and %s"
+                % (given, "no flip vector does: no planar diagram has this DT "
+                   "code" if status == "not planar" else "no legal flip vector "
+                   "was found for it either (%s)" % status))
+        walk = dt_walk(comps)
+        n = walk[0]
+        roots = _crossing_roots(n, _crossing_edges(walk))
+        by_root = {}
+        for x in range(n):
+            by_root.setdefault(roots[x], []).append(x)
+        pieces = list(by_root.values())
+        signs = _crossing_signs(base, walk)
+        fixed, wrong = list(base), []
+        for piece in pieces:
+            trial = list(base)
+            for k in piece:
+                trial[k] = normalised[k]
+            try:
+                check_flips(comps, trial)
+            except ValueError:
+                wrong.append(piece)
+                if signs[piece[0]] < 0:
+                    for k in piece:
+                        fixed[k] = not base[k]
+                continue
+            for k in piece:
+                fixed[k] = normalised[k]
+        link, cand, turned = None, fixed, []
+        for mask in range(1 << min(len(pieces), 8)):
+            cand = list(fixed)
+            turned = [p for i, p in enumerate(pieces) if mask >> i & 1]
+            for piece in turned:
+                for k in piece:
+                    cand[k] = not cand[k]
+            try:
+                link = dt_to_link(comps, cand)
+            except EmbeddingTimeout:
+                raise
+            except ConversionError:
+                continue
+            break
+        if link is None:
+            raise ConversionError(
+                "spherogram cannot read this bare code: its DT decoder reads it "
+                "as the flip vector %s, which describes no diagram on the "
+                "sphere%s, and it cannot build the legal vector %s found for it "
+                "either. Say which realisation you mean with a flip vector -- "
+                "e.g. -i '%s' or --flips %s -- and the spellings that need no "
+                "spherogram (dt-flips, dt-alpha, dt-hex, gauss-ext and the "
+                "polynomials) will work"
+                % (given, " (its decoder gets split codes like this one wrong)"
+                   if len(pieces) > 1 else "", _flip_str(fixed),
+                   format_dt_flips(fmt_dt(comps), fixed), _flip_str(fixed)))
+
+        def where(group):
+            return " and ".join(_crossing_list(p) for p in group)
+        how = []
+        if len(wrong) < len(pieces):
+            how.append("spherogram's own bits on the piece%s it read right"
+                       % ("s" if len(pieces) - len(wrong) > 1 else ""))
+        how.append("%s on crossings %s a vector read off a planar embedding "
+                   "of the code, with %s first crossing positive (spherogram's "
+                   "rule)" % ("on the piece" if len(wrong) == 1 else
+                              "on the pieces", where(wrong),
+                              "its" if len(wrong) == 1 else "each piece's"))
+        if turned:
+            how.append("then the piece%s on crossings %s reflected as a whole, "
+                       "since spherogram could not build the vector otherwise"
+                       % ("s" if len(turned) > 1 else "", where(turned)))
+        note = ("chirality was not given by the input, and spherogram's "
+                "normalisation read this code as the flip vector %s, which "
+                "describes no diagram on the sphere%s; the legal vector %s was "
+                "used instead: %s. The choice is arbitrary, exactly as the "
+                "normalisation's is"
+                % (given, " (its decoder gets split codes like this one wrong)"
+                   if len(pieces) > 1 else "", _flip_str(cand),
+                   "; ".join(how)))
+        return cand, note, link
 
     def reflectable_pieces(self):
         """How many pieces of this diagram the DT code lets you reflect
@@ -838,7 +1807,12 @@ class Diagram(object):
             try:
                 dt_to_link(self.comps, candidate)
             except EmbeddingTimeout:
-                return None
+                # round 4c (2026-10-20): passed on.  It used to end the search
+                # with None, and with_flips_resolved then reported the bare
+                # decoder's failure ('never returns on this kinked code' for a
+                # code the converter converts at the default limit) instead
+                # of the limit that cut the search short.
+                raise
             except ConversionError:
                 continue
             return candidate
@@ -861,7 +1835,9 @@ class Diagram(object):
         mirror for the report."""
         comps = tuple(tuple(-x for x in c) for c in self.comps)
         out = Diagram(comps, self.flips, self.source, self.notes)
-        for attr in ("_resolved_from_normalisation", "_pieces"):
+        for attr in ("_resolved_from_normalisation", "_pieces",
+                     "_flips_from_arg", "_flips_checked",
+                     "_normalisation_repaired"):
             if hasattr(self, attr):
                 setattr(out, attr, getattr(self, attr))
         out._mirrored = not getattr(self, "_mirrored", False)
@@ -1310,36 +2286,58 @@ def _codec(comps, flips):
     DTcodec = dt_codec_cls()
     if DTcodec is None:
         _need_spherogram("building a planar embedding from a DT code")
+    outer = sys.exc_info()[1]       # what a caller was handling: not ours to re-raise
+    clock = _time_limit()
     try:
-        with _time_limit():
+        with clock:
             return DTcodec([tuple(c) for c in comps],
                            list(flips) if flips is not None else None)
-    except ConversionError:
+    except ConversionError as exc:
+        # round 4c (2026-10-20): a block the clock cut short is a timeout,
+        # whatever it turned into on the way
+        if _clock_timeout(clock) is not None and not isinstance(exc, EmbeddingTimeout):
+            raise _clock_timeout(clock)
+        if flips is None and _is_decoder_loop(exc) and no_diagram_reason(comps):
+            # round 4c: a code no diagram has whose bare decode also loops is
+            # refused in the one no-diagram wording (_decoder_refused)
+            raise _decoder_refused(comps, flips, exc, "codec")
         raise
     except Exception as exc:                                     # noqa: BLE001
-        raise ConversionError(
-            "spherogram's DT decoder could not build a diagram from this code "
-            "(%s: %s). Usually that means no planar diagram produces the code "
-            "-- but not always: the decoder also refuses some codes that ARE "
-            "realisable, so this is its verdict, not a proof."
-            % (type(exc).__name__, str(exc)[:160]))
+        if _clock_timeout(clock) is not None:
+            raise _clock_timeout(clock)
+        _reraise_clock(exc, outer)      # another tool's clock (engine, find_link)
+        if _is_decoder_loop(exc):
+            # the guard another dt_converter module instance installed
+            if flips is None and no_diagram_reason(comps):
+                raise _decoder_refused(comps, flips, exc, "codec")
+            raise DecoderLoop(str(exc))
+        # with a flip vector, check_flips says whether the VECTOR is illegal
+        # or spherogram merely cannot build it (see _decoder_refused)
+        raise _decoder_refused(comps, flips, exc, "codec")
 
 
 def dt_to_link(comps, flips=None):
     """The spherogram Link.  Raises ConversionError for a code that no planar
-    diagram realises."""
+    diagram realises -- or, with a flip vector, for an illegal vector, or a
+    legal one spherogram's decoder cannot build (kinks), each said as such."""
     _need_spherogram("building a Link from a DT code")
     codec = _codec(comps, flips)
+    outer = sys.exc_info()[1]
+    clock = _time_limit()
     try:
-        with _time_limit():
+        with clock:
             return codec.link()
-    except ConversionError:
+    except ConversionError as exc:
+        if _clock_timeout(clock) is not None and not isinstance(exc, EmbeddingTimeout):
+            raise _clock_timeout(clock)
         raise
     except Exception as exc:                                     # noqa: BLE001
-        raise ConversionError(
-            "spherogram could not build a link from this DT code (%s: %s); see "
-            "the note in _codec about codes it refuses that are nonetheless "
-            "realisable" % (type(exc).__name__, str(exc)[:160]))
+        # round 4c (2026-10-20): a timeout -- this clock's, or another
+        # tool's -- is reported as one, never as spherogram's verdict
+        if _clock_timeout(clock) is not None:
+            raise _clock_timeout(clock)
+        _reraise_clock(exc, outer)
+        raise _decoder_refused(comps, flips, exc, "link")
 
 
 def link_to_dt(link):
@@ -1944,8 +2942,8 @@ def dt_names(diagram):
 def fmt_dt(comps):
     """The project's DT spelling: ``DT: [(-8, -12, 16), (...)]``.
 
-    One deliberate difference from canonical_dt_V2_0.fmt_dt: a one-crossing
-    component is written ``(-4,)`` with the trailing comma, not ``(-4)``.
+    A one-crossing component is written ``(-4,)`` with the trailing comma,
+    not ``(-4)`` (canonical_dt_V2_1.fmt_dt does the same since 2026-09-15).
     Without it the string is not the tuple it looks like -- ast.literal_eval
     reads ``[(-4), (-2)]`` as the flat list ``[-4, -2]``, which then reads back
     as a ONE-component code, silently turning the Hopf link into a knot.
@@ -1982,9 +2980,18 @@ def _cached_gauss(d, cache):
 def _emit_dt(d, cache):
     if d.flips is not None:
         pieces = getattr(d, "_pieces", None)
+        built = True
         if pieces is None:
-            pieces = d.reflectable_pieces()
-        if pieces and pieces > 1:
+            try:
+                pieces = d.reflectable_pieces()
+            except ConversionError:
+                # a legal vector spherogram cannot build (a kink), reachable
+                # only when the INPUT gave the flips: the pieces cannot be
+                # counted, and the bare code is still worth printing
+                built = False
+        if not built:
+            lost = "which realisation you have"
+        elif pieces and pieces > 1:
             lost = ("which of the %d diagrams this code realises you have -- "
                     "it is a connected sum / split union of %d independently "
                     "reflectable pieces" % (2 ** (pieces - 1), pieces))
@@ -2008,8 +3015,8 @@ def _emit_dt_flips(d, cache):
         raise ConversionError(
             "the chirality could not be resolved for this diagram, so there is "
             "no flip vector to print")
-    return "%s, [%s]" % (fmt_dt(d.comps), ",".join(
-        "1" if f else "0" for f in d.flips))
+    # the toolkit's one spelling of the DT + flips form (format_dt_flips)
+    return format_dt_flips(fmt_dt(d.comps), d.flips)
 
 
 def _emit_dt_alpha(d, cache):
@@ -2148,16 +3155,56 @@ def _emit_invariants(d, cache):
 
 
 # -- parsers.  Each takes the raw text and returns a Diagram. --------------- #
-def _split_trailing_flips(text):
-    """Peel a trailing ``, [1,1,0]`` (or ``, 110``) flip vector off a DT string.
-    Returns (dt part, flips-or-None)."""
-    m = re.search(r",\s*\[\s*([01](?:\s*,?\s*[01])*)\s*\]\s*$", text)
-    if m:
-        return text[:m.start()], _parse_flips(m.group(1))
-    m = re.search(r"\]\s*[,;]\s*([01]{2,})\s*$", text)
-    if m:
-        return text[:m.start() + 1], _parse_flips(m.group(1))
-    return text, None
+def _bracket_bare_groups(body):
+    """'DT: (4,6,2), [0,0,1]' -> 'DT: [(4,6,2)] [0,0,1]'.
+
+    Components written without the outer brackets and FOLLOWED by something
+    (a flip vector) get the brackets split_dt_flips needs to see where the code
+    ends; the old reader took this spelling, so it must keep working.  A body
+    that is only the groups -- every bare code -- comes back unchanged, and so
+    does the tuple spelling 'DT: ([(..)], [..])', which split_dt_flips reads
+    itself."""
+    p, b = body.find("("), body.find("[")
+    if p < 0 or 0 <= b < p:
+        return body
+    m = re.match(r"^([^()\[\]]*?)((?:\(\s*[^()\[\]]*\)\s*,?\s*)+)(.*)$",
+                 body, re.S)
+    if not m or not m.group(3).strip():
+        return body
+    return "%s[%s] %s" % (m.group(1), m.group(2).strip().rstrip(",").strip(),
+                          m.group(3).strip())
+
+
+def _split_dt_text(text):
+    """(DT text, flips-or-None) for one numeric DT string, as _parse_dt reads
+    it: the shared split_dt_flips after the ``DT Code`` header fold and
+    _bracket_bare_groups, its ValueError turned into a ConversionError, and a
+    last guard that nothing outside the components is left unread when no
+    vector was found (an unbalanced '[' used to drop a vector silently:
+    'DT: [(10, 6, 2, 4, 12, 8), 0,1,0,0,0,1').
+
+    The guard looks at the CODE only -- from its first '[' (or, written
+    without brackets, its first '(') on -- never at a label before it, so
+    'DT2: [(4,6,2)]', '3_1 DT: [(4,6,2)]' or '1) DT: [...]' read as they
+    always did."""
+    body = re.sub(r"^\s*DT\s*Code\s*", "DT", normalise_text(text),
+                  flags=re.I).strip()
+    try:
+        body, flips = split_dt_flips(_bracket_bare_groups(body))
+    except ValueError as exc:
+        raise ConversionError(str(exc))
+    start = body.find("[")
+    if start < 0:
+        start = body.find("(")
+    code = body[start:] if start >= 0 else ""
+    if (flips is None and "(" in code
+            and re.search(r"\d", re.sub(r"\([^()]*\)", "", code))):
+        raise ConversionError(
+            "could not read %r: there are numbers outside the parenthesised "
+            "components, and no flip vector after the code's closing bracket "
+            "(check the brackets; the form is 'DT: [(4, 6, 2)], [0,0,1]')"
+            % body[:80])
+    return body, flips
 
 
 def _dt_components_from_text(text):
@@ -2187,16 +3234,22 @@ def _dt_components_from_text(text):
 
 
 def _parse_dt(text):
-    """The numeric DT spellings, with or without a trailing flip vector."""
-    text = normalise_text(text)
-    body = re.sub(r"^\s*DT\s*Code\s*", "DT", text, flags=re.I).strip()
-    body, flips = _split_trailing_flips(body)
+    """The numeric DT spellings, with or without a flip vector after the code
+    -- 'DT: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]' and every other spelling
+    split_dt_flips reads.  A trailing '# comment' is dropped and an old
+    multi-list spelling ('DT: [6,8],[2,4]') is one code; anything else after
+    the code that is not a vector is an error, never ignored.  A vector is
+    checked here, with check_flips, so it is checked on every path:
+    --no-validate, no spherogram, every caller of parse_input."""
+    body, flips = _split_dt_text(text)
     comps = _dt_components_from_text(body)
     if flips is not None and len(flips) != sum(len(c) for c in comps):
         raise ConversionError(
             "the flip vector has %d entries but the code has %d crossings"
             % (len(flips), sum(len(c) for c in comps)))
-    return Diagram(comps, flips, "dt-flips" if flips else "dt")
+    return _check_typed_flips(
+        Diagram(comps, flips, "dt-flips" if flips else "dt"),
+        "after the DT code")
 
 
 def _parse_dt_unsigned(text):
@@ -2218,17 +3271,20 @@ def _parse_dt_unsigned(text):
 
 def _parse_dt_alpha(text):
     comps, flips = alpha_to_dt(text)
-    return Diagram(comps, flips, "dt-alpha")
+    return _check_typed_flips(Diagram(comps, flips, "dt-alpha"),
+                              "after the dot of the alphabetical DT code")
 
 
 def _parse_dt_hex(text):
     comps, flips = hex_to_dt(text)
-    return Diagram(comps, flips, "dt-hex")
+    return _check_typed_flips(Diagram(comps, flips, "dt-hex"),
+                              "in the packed DT code (bit 6 of each byte)")
 
 
 def _parse_dt_compact(text):
     comps, flips = compact_to_dt(text)
-    return Diagram(comps, flips, "dt-compact")
+    return _check_typed_flips(Diagram(comps, flips, "dt-compact"),
+                              "in the compact DT code")
 
 
 def _parse_gauss(text):
@@ -2339,7 +3395,16 @@ FORMAT_TABLE = (
          parse=_parse_dt, emit=_emit_dt_flips, carries_chirality=True, needs=(),
          example="DT: [(4, 6, 2)], [0,0,1]",
          blurb="The same code plus spherogram's chirality tag, one bit per "
-               "crossing. Faithful where the bare DT code is not."),
+               "crossing (bit k: the crossing with odd label 2k+1). Faithful "
+               "where the bare DT code is not: with [0,1,0,0,0,1] the code "
+               "(10, 6, 2, 4, 12, 8) is the square knot, and bare it is also "
+               "the granny. The bits may also be written 010001, T/F or "
+               "(0,1,..), after a comma, a semicolon or nothing, inside the "
+               "tuple ([(..)], [..]) spherogram prints, and without the DT: "
+               "header. The vector is checked (it must describe a diagram on "
+               "the sphere). After the code a trailing # comment is ignored "
+               "and a bare code written as several lists ([6,8],[2,4]) is "
+               "still one code; any other text after it is refused."),
     dict(id="dt-alpha", aliases=("dt-alphabetical", "alpha", "knotscape"),
          title="alphabetical DT code (Knotscape / SnapPy)",
          parse=_parse_dt_alpha, emit=_emit_dt_alpha, carries_chirality=True,
@@ -3421,8 +4486,8 @@ def _poly_pd(d, cache):
             raise ConversionError(
                 "the DT code with flips %s does not describe a planar diagram "
                 "(%d faces where a planar one has %d), so it has no "
-                "polynomials. Without spherogram a --flips vector is checked "
-                "only here; drop it to let the chirality be resolved"
+                "polynomials; drop the vector to let the chirality be "
+                "resolved"
                 % (_flip_str(d.flips), faces, len(pd) + 2 * pieces))
         cache["pd"] = pd
     return cache["pd"]
@@ -3723,6 +4788,425 @@ def report_polynomials(rows, diagram, log=print):
 
 
 # --------------------------------------------------------------------------- #
+#  5c. Can re-reading a BARE code change the link?  (composite_danger)
+# --------------------------------------------------------------------------- #
+# The other tools re-read DT codes all the time -- the scorer's root, the
+# engine's archive of minimal diagrams, the strand-passage GUI -- and a BARE
+# code goes to spherogram, which picks a realisation by its own rule (first
+# crossing positive).  For a prime diagram that can only mirror the whole
+# link, which every tool treats as the same diagram.  For a connected sum or a
+# split union it can reflect one part against another -- the granny knot's
+# code read as the square knot -- and that is a different link.
+# composite_danger() tells the two apart from the code alone, so those tools
+# keep the realisation (a flip vector) exactly where it matters and stay
+# byte-identical everywhere else.
+
+COMPOSITE_DANGER_MIN_ATOM = 2      # parts of fewer crossings are kinks
+_EMBEDDING_FLIPS_BRUTE_LIMIT = 12  # without networkx: 2**n check_flips calls
+_COMPOSITE_DANGER_CACHE = {}
+_COMPOSITE_DANGER_CACHE_MAX = 20000
+
+
+def _crossing_edges(walk):
+    """The crossing multigraph of a dt_walk() result: one edge per arc of the
+    diagram, (crossing it leaves, crossing it enters).  A kink's arc is a
+    loop."""
+    _n, comp_positions, pos_cross, _over, _pairs = walk
+    edges = []
+    for cp in comp_positions:
+        for i, p in enumerate(cp):
+            edges.append((pos_cross[p], pos_cross[cp[(i + 1) % len(cp)]]))
+    return edges
+
+
+def _crossing_roots(n, edges, skip=()):
+    """Union-find root of every crossing, the edges whose indices are in
+    ``skip`` taken out."""
+    parent = list(range(n))
+
+    def root(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    for i, (u, v) in enumerate(edges):
+        if i not in skip:
+            parent[root(u)] = root(v)
+    return [root(x) for x in range(n)]
+
+
+def _crossing_bridges(n, edges, skip):
+    """Indices of the bridges of the crossing multigraph with the edges in
+    ``skip`` taken out (loops never are bridges).  Iterative Tarjan, so a long
+    chain of kinks cannot exhaust the recursion limit."""
+    adj = [[] for _ in range(n)]
+    for i, (u, v) in enumerate(edges):
+        if i in skip or u == v:
+            continue
+        adj[u].append((v, i))
+        adj[v].append((u, i))
+    disc, low, t, out = [-1] * n, [0] * n, 0, []
+    for s in range(n):
+        if disc[s] != -1:
+            continue
+        disc[s] = low[s] = t
+        t += 1
+        stack = [(s, -1, iter(adj[s]))]
+        while stack:
+            u, parent_edge, it = stack[-1]
+            advanced = False
+            for v, ei in it:
+                if ei == parent_edge:
+                    continue
+                if disc[v] == -1:
+                    disc[v] = low[v] = t
+                    t += 1
+                    stack.append((v, ei, iter(adj[v])))
+                    advanced = True
+                    break
+                low[u] = min(low[u], disc[v])
+            if not advanced:
+                stack.pop()
+                if stack:
+                    p = stack[-1][0]
+                    low[p] = min(low[p], low[u])
+                    if low[u] > disc[p]:
+                        out.append(parent_edge)
+    return out
+
+
+def _reflection_atoms(walk):
+    """(pieces, atoms) of a diagram: its split pieces, and its ATOMS -- the
+    classes of crossings that lie on the same side of every minimal 2-edge cut
+    of the crossing multigraph, within each piece.
+
+    A 2-edge cut is where a connected sum (or a kink, or a chain of bigons)
+    joins the rest of the diagram: the DT code lets each side be reflected
+    against the other, and records neither the cut nor the relative
+    reflection.  Every edge cut of a 4-regular graph is even, so there are no
+    1-edge cuts; the 2-edge cuts are the pairs {i, b} with b a bridge of the
+    graph without edge i.  Each list is in order of its smallest crossing."""
+    n = walk[0]
+    edges = _crossing_edges(walk)
+    roots = _crossing_roots(n, edges)
+    by_root = {}
+    for x in range(n):
+        by_root.setdefault(roots[x], []).append(x)
+    pieces = [frozenset(p) for p in by_root.values()]
+    piece_of = {}
+    for i, p in enumerate(pieces):
+        for x in p:
+            piece_of[x] = i
+    seen, cuts = set(), []
+    for i, (u, v) in enumerate(edges):
+        if u == v:
+            continue
+        for b in _crossing_bridges(n, edges, {i}):
+            key = frozenset((i, b))
+            if key in seen:
+                continue
+            seen.add(key)
+            cut_roots = _crossing_roots(n, edges, key)
+            piece = pieces[piece_of[u]]
+            a_side = frozenset(x for x in piece if cut_roots[x] == cut_roots[u])
+            b_side = piece - a_side
+            if not a_side or not b_side:
+                continue
+            # the side WITHOUT the piece's smallest crossing, so that one cut
+            # found from either of its edges gives the same key
+            side = b_side if min(piece) in a_side else a_side
+            cuts.append((side, piece_of[u]))
+    atoms = {}
+    for x in range(n):
+        key = (piece_of[x],) + tuple(x in side for side, p in cuts
+                                     if p == piece_of[x])
+        atoms.setdefault(key, []).append(x)
+    return pieces, [frozenset(a) for a in atoms.values()]
+
+
+def _embedding_flips(comps):
+    """(flips, status): one legal flip vector of the code -- verified with
+    check_flips -- read off a planar embedding of its crossing gadgets.
+
+    Each crossing becomes a wheel (a hub joined to four ports in a cycle), the
+    odd visit runs from port 0 to port 2 and the even one from 1 to 3, and the
+    arcs join out-ports to in-ports.  A wheel's rotation is rigid, so a planar
+    embedding is a realisation of the code, and the rotation at each hub gives
+    the crossing's flip bit (with spherogram's label-order term, as
+    draw_dt_original_labels*'s dt_flips_from_embedding).  networkx's planarity
+    test is exact and deterministic.
+
+    status: "embedding" (found), "not planar" (no diagram on the sphere has
+    this code -- certain), "no candidate" (planar, yet no candidate passed
+    check_flips: should not happen), "brute force" (no networkx; the smallest
+    legal vector, up to _EMBEDDING_FLIPS_BRUTE_LIMIT crossings) or "no
+    networkx"."""
+    comps = [tuple(int(x) for x in c) for c in comps]
+    n, comp_positions, pos_cross, _over, pairs = dt_walk(comps)
+    try:
+        import networkx as nx
+    except ImportError:
+        if n > _EMBEDDING_FLIPS_BRUTE_LIMIT:
+            return None, "no networkx"
+        for mask in range(1 << n):
+            cand = [bool(mask >> i & 1) for i in range(n)]
+            try:
+                check_flips(comps, cand)
+            except ValueError:
+                continue
+            return cand, "brute force"
+        return None, "not planar"
+    entries = [e for c in comps for e in c]
+    G = nx.Graph()
+    for k in range(n):
+        for j in range(4):
+            G.add_edge(("h", k), ("p", k, j))
+            G.add_edge(("p", k, j), ("p", k, (j + 1) % 4))
+
+    def ports(p):
+        return (0, 2) if p == pairs[pos_cross[p]][0] else (1, 3)
+    for cp in comp_positions:
+        for i, p in enumerate(cp):
+            q = cp[(i + 1) % len(cp)]
+            G.add_edge(("p", pos_cross[p], ports(p)[1]), ("e", p))
+            G.add_edge(("e", p), ("p", pos_cross[q], ports(q)[0]))
+    planar, emb = nx.check_planarity(G)
+    if not planar:
+        return None, "not planar"
+    turn = []
+    for k in range(n):
+        cw = [nb[2] for nb in emb.neighbors_cw_order(("h", k))]
+        turn.append(cw[(cw.index(0) + 1) % 4] == 1)
+    small_even = [abs(entries[k]) < 2 * k + 1 for k in range(n)]
+    first = [a ^ b for a, b in zip(turn, small_even)]
+    for cand in (first, turn, [not x for x in first], [not x for x in turn]):
+        try:
+            check_flips(comps, cand)
+        except ValueError:
+            continue
+        return list(cand), "embedding"
+    return None, "no candidate"
+
+
+def legal_flips(comps):
+    """One legal flip vector for the bare DT code ``comps`` (pure Python plus
+    networkx, no spherogram), or None when no diagram on the sphere has the
+    code; a code that is not well formed raises ConversionError.  See
+    _embedding_flips; the vector describes one realisation, and for a
+    connected sum or split union an arbitrary one."""
+    return _embedding_flips(comps)[0]
+
+
+NO_DIAGRAM_TEXT = ("no diagram on the sphere has this DT code: no flip vector "
+                   "makes it planar")
+
+
+def no_diagram_reason(comps):
+    """NO_DIAGRAM_TEXT when no diagram on the sphere has the bare DT code
+    ``comps`` -- certain: no planar embedding of its crossing gadgets exists
+    (_embedding_flips' "not planar"), so check_flips refuses every one of its
+    2**n flip vectors -- else None (a realisable code, a code that is not well
+    formed, or one beyond the brute force without networkx: the caller's old
+    path decides).  Pure Python plus networkx, no spherogram, about 1 ms; it
+    never raises.  Empty components are dropped first, as spherogram's
+    decoder drops them (round 4d, 2026-10-20: 'DT: [(4,6,8,10,2), ()]'
+    escaped every no-diagram refusal and ended in tracebacks)."""
+    try:
+        comps = [c for c in comps if len(c)]
+        if not comps:
+            return None
+        flips, status = _embedding_flips(comps)
+    except Exception:                                            # noqa: BLE001
+        return None
+    return NO_DIAGRAM_TEXT if flips is None and status == "not planar" else None
+
+
+def _unlink_jones(c):
+    """Jones polynomial of the c-component unlink, delta^(c-1) with
+    delta = -(t^(1/2) + t^(-1/2)), in jones_polynomial's exponents of t^(1/2)."""
+    poly = {0: 1}
+    for _ in range(c - 1):
+        poly = _pmul(poly, {1: -1, -1: -1})
+    return poly
+
+
+def _atom_jones(pd, walk, atom):
+    """Jones polynomial of the closure of one atom: the sub-diagram on its
+    crossings, every arc that leaves it joined to where it comes back (the
+    rest of the diagram replaced by arcs).  ``pd`` is oriented_pd() of a legal
+    realisation; the product of the atoms' polynomials, times delta per extra
+    split piece, is the whole diagram's (measured on 660 codes).  Returns
+    (polynomial, components of the closure)."""
+    _n, comp_positions, pos_cross, _over, _pairs = walk
+    prev, ncomp = {}, 0
+    for cp in comp_positions:
+        inside = [p for p in cp if pos_cross[p] in atom]
+        if inside:
+            ncomp += 1
+        for i, p in enumerate(inside):
+            prev[p] = inside[i - 1]
+    tuples = []
+    for k in sorted(atom):
+        _ui, uo, _oi, oo, sign = pd[k]
+        tuples.append((prev[uo], uo, prev[oo], oo, sign))
+    return jones_polynomial(tuples), ncomp
+
+
+def _crossing_list(atom):
+    """'c1-c3,c7': an atom's crossings, 1-based as the drawing tool numbers
+    them (crossing k is the one at the k-th odd DT label)."""
+    ks = sorted(atom)
+    runs, start, prev = [], ks[0], ks[0]
+    for k in ks[1:]:
+        if k != prev + 1:
+            runs.append((start, prev))
+            start = k
+        prev = k
+    runs.append((start, prev))
+    return ",".join("c%d" % (a + 1) if a == b else "c%d-c%d" % (a + 1, b + 1)
+                    for a, b in runs)
+
+
+def _parts_text(atoms):
+    """'of 3 and 3 crossings: c1,c5-c6 / c2-c4' -- the crossing lists only
+    while they stay short."""
+    sizes = [len(a) for a in atoms]
+    head = "of %s crossings" % (
+        "%d" % sizes[0] if len(sizes) == 1 else
+        "%s and %d" % (", ".join("%d" % k for k in sizes[:-1]), sizes[-1]))
+    lists = " / ".join(_crossing_list(a) for a in atoms)
+    return head if len(lists) > 48 else "%s: %s" % (head, lists)
+
+
+def _composite_danger(comps, flips):
+    try:
+        walk = dt_walk(comps)
+    except ConversionError as exc:
+        return False, ("not a well-formed DT code (%s), so there is nothing to "
+                       "re-read" % exc)
+    n = walk[0]
+    _pieces, atoms = _reflection_atoms(walk)
+    big = [a for a in atoms if len(a) >= COMPOSITE_DANGER_MIN_ATOM]
+    if len(big) < 2:
+        return False, ("prime up to kinks: no two parts of %d or more "
+                       "crossings can be reflected independently, so "
+                       "re-reading the bare code can only mirror the whole "
+                       "diagram (and its kinks)" % COMPOSITE_DANGER_MIN_ATOM)
+    base = None
+    if flips is not None and len(flips) == n:
+        try:
+            check_flips(comps, flips)
+            base = [bool(f) for f in flips]
+        except ValueError:
+            base = None
+    if base is None:
+        base, status = _embedding_flips(comps)
+        if base is None and status == "not planar":
+            return False, ("no diagram on the sphere has this code, so there "
+                           "is no realisation to keep")
+        if base is None:
+            return True, ("no legal flip vector was found to test its %d "
+                          "independently reflectable parts (%s), so it is "
+                          "treated as dangerous" % (len(big), status))
+    pd = oriented_pd(Diagram(comps, base))
+    nontrivial = []
+    for atom in big:
+        try:
+            poly, ncomp = _atom_jones(pd, walk, atom)
+        except Exception as exc:                                 # noqa: BLE001
+            return True, ("the Jones polynomial of its part on crossings %s "
+                          "could not be computed (%s), so it is treated as "
+                          "dangerous" % (_crossing_list(atom),
+                                         str(exc)[:80] or type(exc).__name__))
+        if poly != _unlink_jones(ncomp):
+            nontrivial.append(atom)
+    if len(nontrivial) >= 2:
+        return True, ("composite: %d of its %d independently reflectable parts "
+                      "(%s) are knotted or linked by their Jones polynomials, "
+                      "and a bare DT code does not record how they are "
+                      "reflected against each other, so re-reading it can "
+                      "give a different link (the granny knot's code gives "
+                      "the square knot)"
+                      % (len(nontrivial), len(big), _parts_text(nontrivial)))
+    return False, ("%d independently reflectable parts (%s), but %s knotted or "
+                   "linked by its Jones polynomial, so reflecting them "
+                   "independently cannot change the link"
+                   % (len(big), _parts_text(big),
+                      "only one is" if nontrivial else "none is"))
+
+
+def composite_danger(comps, flips=None):
+    """(dangerous, reason): can re-reading the BARE DT code ``comps`` give a
+    different link from the realisation it was written from?
+
+    A bare signed DT code records the diagram up to reflecting the pieces of
+    a connected sum or split union independently (module docstring: the
+    granny knot's code is also the square knot's).  spherogram resolves a bare
+    code by its own rule, so a tool that writes a code without its flip vector
+    and reads it back can change the link -- but only when two or more pieces
+    are themselves knotted or linked.  Pure Python (networkx for a legal
+    vector when none is given), deterministic, and cached per (code, flips):
+
+    1. the crossing multigraph from the DT pairing; its split pieces; every
+       minimal 2-edge cut; the ATOMS -- crossings on the same side of every
+       cut (_reflection_atoms);
+    2. fewer than two atoms of COMPOSITE_DANGER_MIN_ATOM (2) or more crossings:
+       SAFE.  This is every minimal prime diagram, at about 0.1-0.3 ms;
+    3. otherwise take a legal vector -- ``flips`` when given and legal, else
+       one read off a planar embedding of the code (_embedding_flips) -- and
+       compute the Jones polynomial of each such atom's closure (this file's
+       Kauffman bracket on the oriented PD restricted to the atom, each arc
+       that leaves it joined to where it returns): DANGEROUS when at least two
+       differ from the unlink's with the same number of components;
+    4. fail safe: a Jones computation that runs out of steps or raises, or a
+       planar code with no legal candidate vector, is DANGEROUS.  A code that
+       is not well formed, or that no diagram on the sphere has, is SAFE:
+       there is no realisation to lose, and the caller's own path fails on it
+       as before.
+
+    Measured (2026-10-18/19) on 1121 bare codes whose true realisation is
+    known: no false positive on 470 PRIME codes (214 HTLinkExteriors entries
+    of <= 9 crossings, the four 4BL diagrams and the Borromean rings, 119
+    harvested minimal codes, 132 kinky backtrack intermediates of 7-47
+    crossings), and no miss on 651 COMPOSITE codes (connected sums, Hopf
+    chains, split unions, their backtrack scrambles and harvested minimal
+    codes): every one of the 260 codes whose bare re-reading by spherogram
+    measurably changes the link is flagged, including the 72 drifts a
+    whole-diagram Jones test cannot see (summands 9_42, 10_48, 10_71, 10_125,
+    whose own Jones polynomials are symmetric).  This port gives the
+    prototype's verdict on all 1121 codes, the same verdict with the code's
+    own flips as without, and the same reasons under any PYTHONHASHSEED.  It
+    flags on purpose some composites whose re-reading happens not to change
+    the link (amphichiral summands: 3_1#4_1, 4_1#4_1, Borromean#3_1 -- 118 of
+    521): a flagged code is one whose realisation should be kept, not one
+    known to drift.  Cost: 0.13 ms median on minimal primes (3.5 ms on the
+    48-crossing 8-ring chain, 23 ms on T(2,101)); 1.5-4 ms median on
+    composites; under 0.3 s on every corpus code up to 131 crossings.
+
+    ``reason`` is one sentence for a log line."""
+    try:
+        code = tuple(tuple(int(x) for x in c) for c in comps)
+    except (TypeError, ValueError) as exc:
+        return False, ("not a DT code (%s), so there is nothing to re-read"
+                       % exc)
+    vec = None if flips is None else tuple(bool(f) for f in flips)
+    key = (code, vec)
+    hit = _COMPOSITE_DANGER_CACHE.get(key)
+    if hit is not None:
+        return hit
+    try:
+        out = _composite_danger(code, vec)
+    except Exception as exc:                                     # noqa: BLE001
+        out = (True, "the code could not be analysed (%s: %s), so it is "
+                     "treated as dangerous"
+               % (type(exc).__name__, str(exc)[:80]))
+    if len(_COMPOSITE_DANGER_CACHE) >= _COMPOSITE_DANGER_CACHE_MAX:
+        _COMPOSITE_DANGER_CACHE.clear()
+    _COMPOSITE_DANGER_CACHE[key] = out
+    return out
+
+
+# --------------------------------------------------------------------------- #
 #  6. Input format detection
 # --------------------------------------------------------------------------- #
 _NAME_RE = re.compile(r"""^\s*(?:
@@ -3768,6 +5252,28 @@ def detect_format(text):
         return "dt-alpha", "an all-letter body, so an alphabetical DT code"
     if m and re.search(r"\d", body):
         return "dt", "a DT header with numeric entries"
+    # A DT code followed by a flip vector WITHOUT the 'DT' header, as in
+    # '[(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]' or the str() of spherogram's
+    # DT_code(flips=True), '([(..)], [..])'.  The integer heuristics below
+    # would read the bits as more integers and land on 'braid'.  A string that
+    # carries no vector never gets here with one, so every headerless input
+    # detected before is detected exactly as before -- except two-list braid
+    # 'words' like '[4,6,2], [1,1,1]': with no parenthesised components the
+    # vector must also be LEGAL to be taken as one (check_flips).
+    if "[" in raw:
+        try:
+            code, bits = split_dt_flips(_bracket_bare_groups(raw))
+        except ValueError:
+            bits = None
+        if bits is not None:
+            try:
+                comps = _dt_components_from_text(code)
+                validate_dt_components(comps)
+                if "(" not in code:
+                    check_flips(comps, bits)
+                return "dt", "a DT code followed by a flip vector"
+            except ValueError:          # ConversionError is one too
+                pass
     if re.fullmatch(r"[1-9][A-Za-z0-9]*[A-Za-z][A-Za-z0-9]*", raw):
         return "dt-compact", "a digit followed by letters, so a compact DT code"
 
@@ -3796,7 +5302,12 @@ def detect_format(text):
 
 
 def parse_input(text, fmt="auto"):
-    """Parse text into a Diagram.  Returns (diagram, format id, why)."""
+    """Parse text into a Diagram.  Returns (diagram, format id, why).
+
+    A flip vector the text carries ('DT: [...], [0,1,..]', or the alphabetical,
+    hex and compact spellings) is checked with check_flips here -- the
+    diagram's ``_flips_checked`` is then True; the realisability of a BARE
+    code is left to prepare_diagram (or the caller's .link())."""
     text = normalise_text(text).strip()
     if not text:
         raise ConversionError("no input code given")
@@ -3821,6 +5332,13 @@ def parse_input(text, fmt="auto"):
     refined = diagram.source if diagram.source in FORMATS else fmt_id
     if refined != fmt_id:
         why = "%s; read as %s" % (why, refined)
+    if fmt_id == "dt-flips" and diagram.flips is None:
+        # only reachable with --from dt-flips (detection says 'dt'), so a
+        # plain bare-code run never sees this note
+        diagram.note("--from dt-flips, but no flip vector was found after the "
+                     "DT code, so it was read as a BARE code (to give the "
+                     "chirality, write 'DT: [(4, 6, 2)], [0,0,1]' or use "
+                     "--flips)")
     if entry["parse_note"]:
         diagram.note(entry["parse_note"])
     elif diagram.flips is None:
@@ -3950,31 +5468,61 @@ def check_against_toolkit(diagram):
     ``nx.check_planarity`` for realisability.  Those last three are what
     ``prepare_diagram`` and ``enumerate_puncturing_dt.build_diagram`` run, and
     they are inlined at every call site rather than living in one function --
-    so the four lines are repeated here rather than imported."""
+    so the four lines are repeated here rather than imported.
+
+    When the input or --flips GAVE a flip vector (and the drawing script has
+    ``parse_dt_flips``), the DT + flips string itself is handed over, so the
+    vector is cross-checked too; the drawing script's ``embedding_from_flips``,
+    if present, then has to realise it on the gadget graph."""
     mod = draw_module()
     if mod is None or not hasattr(mod, "parse_dt"):
         return "skipped (draw_dt_original_labels*.py not importable)"
+    given = (diagram.flips is not None
+             and getattr(diagram, "_flips_checked", False)
+             and hasattr(mod, "parse_dt_flips"))
+    reader = "parse_dt_flips" if given else "parse_dt"
     try:
-        comps = mod.parse_dt(fmt_dt(diagram.comps))
+        if given:
+            comps, flips = mod.parse_dt_flips(
+                format_dt_flips(fmt_dt(diagram.comps), diagram.flips))
+        else:
+            comps = mod.parse_dt(fmt_dt(diagram.comps))
     except Exception as exc:                                     # noqa: BLE001
-        return "REJECTED by %s.parse_dt: %s" % (mod.__name__, exc)
+        return "REJECTED by %s.%s: %s" % (mod.__name__, reader, exc)
     if [tuple(c) for c in comps] != [tuple(c) for c in diagram.comps]:
-        return "MISMATCH: %s.parse_dt read a different code" % mod.__name__
+        return "MISMATCH: %s.%s read a different code" % (mod.__name__, reader)
+    if given and [bool(f) for f in (flips or ())] != list(diagram.flips):
+        return ("MISMATCH: %s.parse_dt_flips read a different flip vector (%s)"
+                % (mod.__name__, flips))
     try:
         import networkx as nx
         model = mod.build_model(comps, negative_even="over")
         graph = mod.build_gadget_graph(model)
         ok, _emb = nx.check_planarity(graph)
     except Exception as exc:                                     # noqa: BLE001
-        return ("accepted by %s.parse_dt; the gadget planarity check could not "
-                "run (%s: %s)" % (mod.__name__, type(exc).__name__,
+        return ("accepted by %s.%s; the gadget planarity check could not "
+                "run (%s: %s)" % (mod.__name__, reader, type(exc).__name__,
                                   str(exc)[:90]))
     if not ok:
-        return ("REJECTED: %s.parse_dt accepts it but its gadget graph is NOT "
+        return ("REJECTED: %s.%s accepts it but its gadget graph is NOT "
                 "planar, so draw/score/puncture would refuse to draw it"
+                % (mod.__name__, reader))
+    if not given:
+        return ("accepted by %s.parse_dt, and its gadget graph is planar"
                 % mod.__name__)
-    return ("accepted by %s.parse_dt, and its gadget graph is planar"
-            % mod.__name__)
+    if not hasattr(mod, "embedding_from_flips"):
+        return ("accepted by %s.parse_dt_flips (flips %s), and its gadget "
+                "graph is planar" % (mod.__name__, _flip_str(diagram.flips)))
+    try:
+        mod.embedding_from_flips(model, graph, list(diagram.flips))
+    except Exception as exc:                                     # noqa: BLE001
+        return ("REJECTED: %s.parse_dt_flips accepts it, but "
+                "embedding_from_flips cannot realise the flip vector %s (%s: "
+                "%s)" % (mod.__name__, _flip_str(diagram.flips),
+                         type(exc).__name__, str(exc)[:90]))
+    return ("accepted by %s.parse_dt_flips (flips %s), and "
+            "embedding_from_flips realises the vector on its gadget graph"
+            % (mod.__name__, _flip_str(diagram.flips)))
 
 
 def prepare_diagram(args):
@@ -4006,25 +5554,42 @@ def prepare_diagram(args):
     diagram, fmt_id, why = parse_input(text, getattr(args, "from_format", "auto"))
 
     flips_arg = _parse_flips(getattr(args, "flips", None), diagram.n)
-    if flips_arg is not None:
-        diagram = Diagram(diagram.comps, flips_arg, diagram.source, diagram.notes)
-        diagram.note("chirality taken from --flips")
+    typed = (diagram.flips is not None
+             and diagram.source in _TYPED_FLIPS_SOURCES)
+    if flips_arg is not None and typed:
+        # The input already carries a vector it was TYPED with.  Two different
+        # vectors are two different diagrams (the square and granny knots
+        # share a code), so one silently replacing the other is exactly the
+        # substitution this tool exists to prevent.
+        if list(flips_arg) != list(diagram.flips):
+            raise ConversionError(
+                "--flips %s contradicts the flip vector %s the input already "
+                "carries (%s): they are two different realisations of this DT "
+                "code. Give the vector once -- in the input, or with --flips"
+                % (_flip_str(flips_arg), _flip_str(diagram.flips),
+                   diagram.source))
+        diagram.note("--flips %s agrees with the flip vector the input carries"
+                     % _flip_str(flips_arg))
+    elif flips_arg is not None:
         # Flip vectors are NOT free: only some are realisable for a given code
         # (2 of the trefoil's 8).  Check now, so a bad --flips is reported as a
-        # bad --flips rather than as a bad DT code further down.
-        if spherogram_mod() is not None:
-            try:
-                diagram.link()
-            except EmbeddingTimeout:
-                raise
-            except ConversionError:
-                raise ConversionError(
-                    "the flip vector %s is not a legal one for this DT code -- "
-                    "no planar diagram has that code with those flips. Flip "
-                    "vectors are constrained, not free: only 2 of the trefoil's "
-                    "8 are realisable. Drop --flips to let the chirality be "
-                    "resolved, then read a legal vector off the dt-flips output."
-                    % "".join("1" if f else "0" for f in flips_arg))
+        # bad --flips rather than as a bad DT code further down -- with
+        # check_flips, which is exact and needs no spherogram, and which also
+        # accepts the legal vectors of kinked diagrams spherogram cannot build.
+        try:
+            check_flips(diagram.comps, flips_arg)
+        except ValueError:
+            raise ConversionError(
+                "the flip vector %s is not a legal one for this DT code -- "
+                "no planar diagram has that code with those flips. Flip "
+                "vectors are constrained, not free: only 2 of the trefoil's "
+                "8 are realisable. Drop --flips to let the chirality be "
+                "resolved, then read a legal vector off the dt-flips output."
+                % "".join("1" if f else "0" for f in flips_arg))
+        diagram = Diagram(diagram.comps, flips_arg, diagram.source, diagram.notes)
+        diagram.note("chirality taken from --flips")
+        diagram._flips_from_arg = True
+        diagram._flips_checked = True
 
     validate = not getattr(args, "no_validate", False)
     planar = None
@@ -4039,8 +5604,27 @@ def prepare_diagram(args):
                 raise
             diagram.note("the chirality could not be resolved for this code")
         if validate:
-            diagram.link()          # raises for an unrealisable DT code
-            planar = True
+            try:
+                diagram.link()      # raises for an unrealisable DT code
+                planar = True
+            except EmbeddingTimeout:
+                raise
+            except ConversionError:
+                # A vector the input or --flips gave has passed check_flips, so
+                # the diagram IS realisable: spherogram merely cannot build it
+                # (its decoder refuses some legal vectors of kinked diagrams).
+                # That is no reason to refuse the conversions that need no
+                # spherogram; the ones that do say so row by row.
+                if not getattr(diagram, "_flips_checked", False):
+                    raise
+                planar = False
+                diagram.note(
+                    "spherogram cannot build this %s (flips %s), although the "
+                    "flip vector is legal (it describes a diagram on the "
+                    "sphere), so the conversions that need spherogram are "
+                    "unavailable"
+                    % ("kinked realisation" if _has_kink(diagram.comps)
+                       else "realisation", _flip_str(diagram.flips)))
     # --mirror LAST, once the chirality is resolved, so that it mirrors exactly
     # the realisation the plain run reports (Diagram.mirror keeps the flips).
     # Mirroring first left a code with no chirality of its own to be resolved
@@ -4066,6 +5650,10 @@ def run_pipeline(args, log=print):
     poly_ids = resolve_polynomials(getattr(args, "polynomials", None))
 
     diagram, fmt_id, why, text, validate, planar = prepare_diagram(args)
+    # a vector the input or --flips gave, checked with check_flips (taken
+    # before --simplify, which rebuilds the diagram)
+    flips_checked = (diagram.flips is not None
+                     and getattr(diagram, "_flips_checked", False))
 
     if getattr(args, "simplify", False):
         sg = spherogram_mod()
@@ -4094,12 +5682,18 @@ def run_pipeline(args, log=print):
                     or getattr(diagram, "_resolved_from_normalisation", False))
                 pieces = getattr(diagram, "_pieces", None)
                 mirrored = getattr(diagram, "_mirrored", False)
+                from_arg = getattr(diagram, "_flips_from_arg", False)
+                repaired = getattr(diagram, "_normalisation_repaired", False)
                 comps, flips = link_to_dt(link)
                 diagram = Diagram(comps, flips, diagram.source, notes)
                 if was_normalised:
                     diagram._resolved_from_normalisation = True
+                if repaired:
+                    diagram._normalisation_repaired = True
                 diagram._pieces = pieces
                 diagram._mirrored = mirrored
+                if from_arg:
+                    diagram._flips_from_arg = True
                 if after < before:
                     diagram.note(
                         "--simplify reduced the diagram from %d crossings to "
@@ -4136,23 +5730,38 @@ def run_pipeline(args, log=print):
     elif getattr(resolved, "_resolved_from_normalisation", False):
         pieces = getattr(resolved, "_pieces", None)
         mirrored = getattr(resolved, "_mirrored", False)
+        # a normalised vector spherogram's decoder got wrong and that was
+        # mended piece by piece (Diagram._repair_normalisation)
+        mended = (", mended where its decoder read the code wrongly (see the "
+                  "note)" if getattr(resolved, "_normalisation_repaired", False)
+                  else "")
         if pieces and pieces > 1:
             log("[chirality]  AMBIGUOUS%s -- this code admits %d realisations "
                 "(%d diagrams up to mirror image), because it is a connected "
                 "sum / split union of %d independently reflectable pieces. "
-                "spherogram's rule (first crossing positive) picked one%s"
+                "spherogram's rule (first crossing positive) picked one%s%s"
                 % (", then mirrored" if mirrored else "", 2 ** pieces,
-                   2 ** (pieces - 1), pieces,
+                   2 ** (pieces - 1), pieces, mended,
                    ", and --mirror gives its mirror image (flips %s)"
                    % _flip_str(resolved.flips) if mirrored else ""))
         elif mirrored:
             log("[chirality]  normalised, then mirrored -- the input did not "
                 "say which mirror image; spherogram's rule (first crossing "
-                "positive) picked one, and --mirror gives the other (flips %s)"
-                % _flip_str(resolved.flips))
+                "positive) picked one%s, and --mirror gives the other (flips "
+                "%s)" % (mended, _flip_str(resolved.flips)))
         else:
             log("[chirality]  normalised -- the input did not say which mirror "
-                "image; spherogram's rule (first crossing positive) was used")
+                "image; spherogram's rule (first crossing positive) was used%s"
+                % mended)
+    elif getattr(resolved, "_flips_from_arg", False):
+        # the vector came from --flips, not from the input: say so
+        if getattr(resolved, "_mirrored", False):
+            log("[chirality]  determined, then mirrored -- the chirality "
+                "--flips gave, and --mirror gives its mirror image (flips %s)"
+                % _flip_str(resolved.flips))
+        else:
+            log("[chirality]  determined -- from --flips (flips %s)"
+                % _flip_str(resolved.flips))
     elif getattr(resolved, "_mirrored", False):
         log("[chirality]  determined, then mirrored -- the input's chirality, "
             "and --mirror gives its mirror image (flips %s)"
@@ -4167,8 +5776,21 @@ def run_pipeline(args, log=print):
     if validate:
         if planar:
             log("[validate]   realisable: spherogram built a planar diagram")
+        elif flips_checked and spherogram_mod() is None:
+            log("[validate]   realisable: the flip vector describes a diagram "
+                "on the sphere (check_flips, which needs no spherogram)")
+        elif flips_checked:
+            log("[validate]   realisable: the flip vector describes a diagram "
+                "on the sphere (check_flips) -- but spherogram cannot build "
+                "this %s, so the conversions that need it are unavailable"
+                % ("kinked realisation" if _has_kink(resolved.comps)
+                   else "realisation"))
         elif spherogram_mod() is None:
             log("[validate]   well formed, but realisability needs spherogram")
+    elif flips_checked:
+        log("[validate]   not enforced (--no-validate), but the flip vector "
+            "was checked anyway: it describes a diagram on the sphere, so the "
+            "code is realisable")
     else:
         log("[validate]   not enforced (--no-validate): an unrealisable code "
             "will not stop the run. The embedding is still ATTEMPTED once, to "
@@ -4360,17 +5982,21 @@ SELFTEST_CODES = (
 
 # Input the tool must REFUSE, promptly and with a reason.  Note the mixed
 # reasons: some of these are genuinely not DT codes, while the three
-# non-terminating ones and the two-component union may well be realisable
-# diagrams that spherogram's decoder simply cannot build.  The assertion here is
-# about the tool's behaviour -- refuse, do not hang, do not guess -- not about
-# the mathematics of each code.
+# non-terminating ones and the two-component union are realisable diagrams
+# that spherogram's decoder simply cannot build bare (the three are trefoils
+# with kinks; section 12 checks that the full pipeline converts them with the
+# smallest flip vector spherogram builds).  The assertion here is about the
+# bare decode -- refuse, do not hang, do not guess -- not about the
+# mathematics of each code.
 SELFTEST_BAD = (
-    # The five codes spherogram's decoder does not terminate on.  Well formed,
-    # and the project's gadget-graph planarity test passes them, so only the
-    # clock catches these -- which is the point of testing them here.
+    # Three of the five codes spherogram's flips-free decoder does not
+    # terminate on.  Well formed, and the project's gadget-graph planarity
+    # test passes them (they are realisable).  Since round 4 (2026-10-19) the
+    # guard on the decoder (guard_spherogram_decoder) refuses them at once;
+    # the clock is the backstop where the guard cannot be installed.
     # (label, code, needs_clock) -- needs_clock marks the codes spherogram's
-    # decoder never finishes on, which can only be tested where SIGALRM can be
-    # armed (see clock_available).
+    # decoder never finishes on, which can only be tested where the guard is
+    # in place or SIGALRM can be armed (see clock_available).
     ("non-terminating embedding [(8,6,2,4)]", "DT: [(8,6,2,4)]", True),
     ("non-terminating embedding [(10,6,2,4,8)]", "DT: [(10,6,2,4,8)]", True),
     ("non-terminating embedding [(10,8,2,6,4)]", "DT: [(10,8,2,6,4)]", True),
@@ -4383,6 +6009,24 @@ SELFTEST_BAD = (
     ("gauss visited once", "O1U2O3", False),
     ("gauss over twice", "O1O1U2U2", False),
     ("pd wrong arity", "PD[X[1,2,3]]", False),
+    # 1.2: a flip vector that describes no diagram, or text after the code
+    # that is not a vector (nor a '# comment', nor more components of an old
+    # multi-list spelling), is refused -- never ignored, never normalised
+    ("illegal flip vector", "DT: [(10, 6, 2, 4, 12, 8)], [0,0,0,0,0,0]",
+     False),
+    ("flip vector too short", "DT: [(10, 6, 2, 4, 12, 8)], [0,1]", False),
+    ("non-binary flip vector", "DT: [(4,6,2)], [0,0,2]", False),
+    ("text after the DT code", "DT: [(4,6,2)] trefoil", False),
+    ("a 'flips:' label after the code", "DT: [(4,6,2)], flips: [0,0,1]",
+     False),
+    ("the vector inside the code's brackets", "DT: [[(4,6,2)], [0,0,1]]",
+     False),
+    ("an unbalanced bracket before a vector", "DT: [(4,6,2), [0,0,1]", False),
+    ("the square knot's vector with a misplaced bracket",
+     "DT: [(10, 6, 2, 4, 12, 8), [0,1,0,0,0,1]", False),
+    ("a vector after an unclosed code",
+     "DT: [(10, 6, 2, 4, 12, 8), 0,1,0,0,0,1", False),
+    ("illegal alphabetical flip vector", "DT[fafecabfd.000000]", False),
 )
 
 # Formats whose round trip must return the IDENTICAL DT code and flip vector.
@@ -4454,6 +6098,222 @@ def _selftest_corpus(log):
             d = d.with_flips_resolved()
         corpus.append((label, list(d.comps), d.flips))
     return corpus
+
+
+class _SignalProxy(object):
+    """The signal module, for the clock self-test: ``setitimer(.., 0)``
+    reports ``left`` seconds left (0.0 = the timer had expired) and then
+    calls ``on_cancel``; ``on_arm`` is called after a timer is armed."""
+
+    def __init__(self, real, left=None, on_cancel=None, on_arm=None):
+        self.real, self.left = real, left
+        self.on_cancel, self.on_arm = on_cancel, on_arm
+
+    def __getattr__(self, name):
+        return getattr(self.real, name)
+
+    def setitimer(self, which, seconds, interval=0.0):
+        old = self.real.setitimer(which, seconds, interval)
+        if seconds == 0:
+            if self.left is not None:
+                old = (self.left, old[1])
+            if self.on_cancel is not None:
+                self.on_cancel()
+        elif self.on_arm is not None:
+            self.on_arm()
+        return old
+
+
+def _selftest_clocks(check):
+    """The round-4c checks of _AlarmClock (2026-10-20); main thread only.
+    Returns the number of checks skipped (none)."""
+    import signal
+    import threading
+    import time
+    import types
+    global _ALARM_SETTLE_SECONDS, _EMBED_TIMEOUT
+    calls = []
+
+    def _test_handler(_signum, _frame):
+        calls.append(1)         # an alarm the clock let through
+
+    def _timeout():
+        return EmbeddingTimeout("test clock")
+
+    def _clean():
+        return (signal.getitimer(signal.ITIMER_REAL) == (0.0, 0.0)
+                and signal.getsignal(signal.SIGALRM) is _test_handler)
+
+    # The busy loops run in functions of their own, never in the frame of the
+    # with / try that is to catch the timeout: CPython 3.13 leaves a loop's
+    # back-edge at the end of a try body out of every exception-table range,
+    # so a signal handler's exception raised there escapes the try, the with
+    # and the finally of that frame alike (measured: a plain setitimer
+    # script, no toolkit code).  An exception that arrives from a call is
+    # always caught.  The toolkit's clocked blocks are single calls.
+    def _busy(end):
+        while time.monotonic() < end:
+            pass
+
+    def _swallow(end, box):
+        try:
+            _busy(end)
+        except EmbeddingTimeout:
+            box[0] += 1
+    saved = signal.signal(signal.SIGALRM, _test_handler)
+    settle = _ALARM_SETTLE_SECONDS
+    try:
+        # 1. it stops a block, and leaves nothing behind
+        got = None
+        try:
+            with _AlarmClock(0.02, signal, _timeout):
+                _busy(time.monotonic() + 5.0)
+        except EmbeddingTimeout as exc:
+            got = exc
+        check("_AlarmClock stops a block that runs past its limit, and leaves "
+              "no timer and no handler of its own behind",
+              got is not None and _clean() and not calls, repr(got))
+        # 2. inert in its own clean-up and after the block
+        clock = _AlarmClock(10.0, signal, _timeout)
+        in_exit = types.SimpleNamespace(f_code=_AlarmClock.__exit__.__code__)
+        with clock:
+            quiet = clock.handler(signal.SIGALRM, in_exit) is None
+            try:
+                clock.handler(signal.SIGALRM, sys._getframe())
+                live = False
+            except EmbeddingTimeout:
+                live = True
+        after = clock.handler(signal.SIGALRM, None) is None
+        check("an alarm in the clock's own clean-up or after its block does "
+              "nothing; one in the block raises the timeout",
+              quiet and live and after and _clean())
+        # 3. an alarm due when the timer is cancelled is waited for
+        main = threading.main_thread().ident
+
+        def _late():
+            time.sleep(0.002)
+            signal.pthread_kill(main, signal.SIGALRM)
+        _ALARM_SETTLE_SECONDS = 2.0
+        proxy = _SignalProxy(signal, left=0.0,
+                             on_cancel=lambda: threading.Thread(target=_late).start())
+        clock = _AlarmClock(10.0, proxy, _timeout)
+        t0 = time.monotonic()
+        with clock:
+            pass
+        waited = time.monotonic() - t0
+        check("an alarm the kernel delivers after setitimer(0) returned lands "
+              "on the clock's inert handler, never on the restored one",
+              not calls and clock.arrivals == 1 and _clean() and waited < 1.9,
+              "%d call(s), %d arrival(s), %.3f s" % (len(calls), clock.arrivals, waited))
+        # 4. a timer cancelled with time left needs no wait
+        t0 = time.monotonic()
+        with _AlarmClock(10.0, signal, _timeout):
+            pass
+        check("a clock whose timer is cancelled with time left ends at once",
+              time.monotonic() - t0 < 0.5 and _clean())
+        # 5. the wait is bounded when nothing comes
+        _ALARM_SETTLE_SECONDS = 0.05
+        t0 = time.monotonic()
+        with _AlarmClock(10.0, _SignalProxy(signal, left=0.0), _timeout):
+            pass
+        waited = time.monotonic() - t0
+        check("the wait for a due alarm that never comes is bounded",
+              0.04 <= waited < 1.0 and _clean() and not calls, "%.3f s" % waited)
+        _ALARM_SETTLE_SECONDS = settle
+        # 6. an alarm while __enter__ finishes
+        box = {}
+
+        def _fire_now():
+            if "clock" in box:
+                box["clock"].handler(signal.SIGALRM, sys._getframe())
+        clock = box["clock"] = _AlarmClock(10.0, _SignalProxy(signal, on_arm=_fire_now),
+                                           _timeout)
+        ran, got = False, None
+        try:
+            with clock:
+                ran = True
+        except EmbeddingTimeout as exc:
+            got = exc
+        check("an alarm while the clock is set up leaves __enter__ as the "
+              "timeout, with nothing left behind",
+              got is not None and not ran and clock.fired is got and _clean())
+        # 7. re-firing
+        box = [0]
+        end = time.monotonic() + 5.0
+        try:
+            with _AlarmClock(0.01, signal, _timeout, refire=0.02):
+                _swallow(end, box)          # the first timeout, swallowed
+                _swallow(end, box)          # ... and the clock fires again
+        except EmbeddingTimeout:            # (one between the two calls)
+            box[0] += 1
+        check("a re-firing clock fires again when its first timeout is "
+              "swallowed, and its timer ends with the block",
+              box[0] >= 2 and time.monotonic() < end and _clean(),
+              "%d firing(s)" % box[0])
+        # 8. an outer timer stays cancelled (putting it back let its late
+        # alarm read as the clock's own timeout)
+        signal.setitimer(signal.ITIMER_REAL, 5.0)
+        with _AlarmClock(10.0, signal, _timeout):
+            pass
+        left = signal.setitimer(signal.ITIMER_REAL, 0)[0]
+        check("a timer already running when the clock starts is cancelled, "
+              "as before round 4c", left == 0.0 and _clean(), "%.3f s left" % left)
+        # 9. a decode the clock cut short is reported as a timeout
+        class _TurningCodec(object):
+            def __init__(self, comps, flips):
+                try:
+                    signal.getsignal(signal.SIGALRM)(signal.SIGALRM, sys._getframe())
+                except EmbeddingTimeout:
+                    raise ValueError("Vertex is not an end of this edge.")
+                self.flips = flips
+        missing = object()
+        before = _BACKEND.get("DTcodec", missing)
+        _BACKEND["DTcodec"] = _TurningCodec
+        limit = _EMBED_TIMEOUT
+        _EMBED_TIMEOUT = 20.0       # whatever --timeout the self-test was given
+        try:
+            got = None
+            try:
+                _codec([(4, 6, 2)], None)
+            except ConversionError as exc:
+                got = exc
+        finally:
+            _EMBED_TIMEOUT = limit
+            if before is missing:
+                del _BACKEND["DTcodec"]
+            else:
+                _BACKEND["DTcodec"] = before
+        check("a decode the clock cut short is reported as a timeout, also "
+              "when spherogram turned the timeout into a ValueError",
+              isinstance(got, EmbeddingTimeout) and _clean(), repr(got)[:120])
+        # 10. ... and so is a flip-vector search it cut short
+        real_codec, real_link = _codec, dt_to_link
+
+        def _looping_codec(comps, flips):
+            if flips is None:
+                raise DecoderLoop(DECODER_LOOP_TEXT)
+            return real_codec(comps, flips)
+
+        def _timed_out_link(comps, flips=None):
+            raise EmbeddingTimeout("the planar-embedding search did not finish "
+                                   "within 1e-04 s")
+        globals()["_codec"], globals()["dt_to_link"] = _looping_codec, _timed_out_link
+        try:
+            got = None
+            try:
+                Diagram([(4, 6, 2)]).with_flips_resolved()
+            except ConversionError as exc:
+                got = exc
+        finally:
+            globals()["_codec"], globals()["dt_to_link"] = real_codec, real_link
+        check("a flip-vector search the clock cut short is reported as the "
+              "timeout, not as the bare decoder's DecoderLoop",
+              isinstance(got, EmbeddingTimeout), repr(got)[:120])
+    finally:
+        _ALARM_SETTLE_SECONDS = settle
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, saved)
+    return 0
 
 
 def run_selftest(log=print, verbose=True):
@@ -4552,6 +6412,69 @@ def run_selftest(log=print, verbose=True):
                 failed.append("%s: dt-hex emitted a %d-crossing code past its "
                               "31-crossing cap" % (label, n_cross))
 
+    # composite_danger needs no spherogram (section 11 has the full subset)
+    for code, want in (([(10, 6, 2, 4, 12, 8)], True),
+                       ([(22, 16, 12, -18, 14, 6, 10, 2, 4, -8, 24, 20)], True),
+                       ([(4, 6, 2)], False),
+                       ([(-8, -12, 16), (-24, -22, -28, -26), (-10, -14, -2),
+                         (-20, -6, -18, -4)], False)):
+        got = composite_danger(code)
+        check("composite_danger without spherogram: %s is %s"
+              % (fmt_dt(code), "flagged" if want else "not flagged"),
+              got[0] is want, got[1][:100])
+
+    # no_diagram_reason needs no spherogram (round 4, 2026-10-19): certain for
+    # a code no flip vector makes planar, None for every other code
+    for code, want in (([(4, 6, 8, 10, 2)], True),
+                       ([(8, 10, 12), (2, 4, 6)], True),
+                       ([(4, 6, 2)], False), ([(8, 6, 2, 4)], False),
+                       ([(10, 6, 2, 4, 12, 8)], False), ([(-2,), (-4,)], False),
+                       ([(3, 6, 2)], False), ([(4, 4, 2)], False),
+                       # round 4d (2026-10-20): empty components are dropped
+                       # first, as spherogram's decoder drops them
+                       ([(4, 6, 8, 10, 2), ()], True),
+                       ([(), (8, 10, 12), (2, 4, 6)], True),
+                       ([(4, 6, 2), ()], False), ([()], False)):
+        got = no_diagram_reason(code)
+        check("no_diagram_reason without spherogram: %s %s"
+              % (fmt_dt(code), "has no diagram" if want else "is not refused"),
+              got == (NO_DIAGRAM_TEXT if want else None), str(got))
+    check("bare_decoder_loops: a kink-free code never loops (no spherogram "
+          "needed)", bare_decoder_loops([(4, 6, 2)]) is False)
+
+    # round 4b (2026-10-20): the guard passes a toolkit clock's timeout on --
+    # also one spherogram turned into another exception (no spherogram needed)
+    def _raised(fn):
+        try:
+            fn()
+        except Exception as exc:                                 # noqa: BLE001
+            return exc
+        return None
+    tick = EmbeddingTimeout("tick")
+    turned = RuntimeError("Vertex must have two marked edges.")
+    turned.__context__ = tick
+    check("_reraise_clock re-raises a clock's timeout that spherogram turned "
+          "into another exception", _raised(lambda: _reraise_clock(turned)) is tick)
+    check("_reraise_clock stops at the exception the caller was already "
+          "handling", _raised(lambda: _reraise_clock(turned, tick)) is None)
+    check("_reraise_clock leaves a decoder failure alone",
+          _raised(lambda: _reraise_clock(ValueError("not planar"))) is None)
+    check("the toolkit's clock timeouts are marked, DecoderLoop is not one",
+          _is_toolkit_clock(tick) and not _is_toolkit_clock(DecoderLoop("x"))
+          and _is_decoder_loop(DecoderLoop("x")) and not _is_decoder_loop(tick))
+    check("_time_limit is not a generator (its cleanup never waits for the "
+          "garbage collector)", not hasattr(_time_limit(5), "gen"))
+
+    # round 4c (2026-10-20): the clock never kills, never leaves a timer or a
+    # live handler behind, never fires outside its block, and a block it cut
+    # short is reported as a timeout.  Deterministic: no spherogram, a test
+    # handler in place of the default action (a failure is a FAIL, not a
+    # death), simulated alarms where the timing would otherwise decide.
+    if clock_available():
+        skipped += _selftest_clocks(check)
+    else:
+        skipped += 10
+
     if sg is None:
         log("\n[selftest]   spherogram absent: PD, braid, name and chirality "
             "checks skipped")
@@ -4590,6 +6513,32 @@ def run_selftest(log=print, verbose=True):
                 except ConversionError:
                     continue
             writhes = sorted({rw for _c, rw in realised})
+            # check_flips -- THE realisability test for a given vector, 1.2 --
+            # accepts every vector spherogram builds, and no other unless the
+            # diagram has a kink (whose legal vectors spherogram's decoder
+            # partly refuses); and it agrees, vector by vector, with this
+            # file's own ribbon-graph genus (pd_is_planar), written separately
+            legal, genus_disagrees = [], 0
+            for mask in range(1 << n_cross):
+                cand = [bool((mask >> i) & 1) for i in range(n_cross)]
+                try:
+                    check_flips(comps, cand)
+                    legal.append(cand)
+                    is_legal = True
+                except ValueError:
+                    is_legal = False
+                genus_ok = pd_is_planar(oriented_pd(Diagram(comps, cand)))[0]
+                genus_disagrees += (is_legal != genus_ok)
+            check("%s: check_flips accepts every vector spherogram builds"
+                  % label, all(c in legal for c, _w in realised),
+                  "%d built, %d legal" % (len(realised), len(legal)))
+            if not _has_kink(comps):
+                check("%s: ... and no other (no kink)" % label,
+                      len(legal) == len(realised),
+                      "%d built, %d legal" % (len(realised), len(legal)))
+            check("%s: check_flips = the ribbon-graph genus on all %d vectors"
+                  % (label, 1 << n_cross), genus_disagrees == 0,
+                  "%d disagreement(s)" % genus_disagrees)
             if prime:
                 check("%s: prime code has exactly 2 realisations" % label,
                       len(realised) == 2, "got %d" % len(realised))
@@ -4648,7 +6597,9 @@ def run_selftest(log=print, verbose=True):
 
     for label, code in SELFTEST_CODES + (
             ("3_1, by name", "3_1"), ("trefoil, as a braid", "BR[2,{1,1,1}]"),
-            ("trefoil, with its flips", "DT: [(4,6,2)], [0,0,1]")):
+            ("trefoil, with its flips", "DT: [(4,6,2)], [0,0,1]"),
+            ("square knot, DT + flips",
+             "DT: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]")):
         try:
             plain = pipeline("-i", code)
             mirrored = pipeline("-i", code, "--mirror")
@@ -4880,21 +6831,33 @@ def run_selftest(log=print, verbose=True):
                        ("O1U2O3U1O2U3", "gauss"),
                        ("DT: [(4,6,2)]", "dt"), ("4 6 2", "dt"),
                        ("[1,-2,3,-1,2,-3]", "gauss"),
-                       ("[-1,-1,-1]", "braid")):
+                       ("[-1,-1,-1]", "braid"),
+                       # 1.2: headerless DT + flips ('braid' before)
+                       ("[(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]", "dt"),
+                       ("([(4, 6, 2)], [0, 0, 1])", "dt"),
+                       ("(4,6,2), [0,0,1]", "dt"),
+                       ("[4,6,2], 001", "dt"),
+                       # ... but not a two-list braid word whose second list
+                       # is no legal vector (111 is none for [4,6,2])
+                       ("[4,6,2], [1,1,1]", "braid")):
         got = detect_format(text)[0]
         check("detect %r" % text, got == want, "got %s, wanted %s" % (got, want))
 
     # 7. malformed input is rejected with a reason, not converted.  A short
-    # clock here: three of these codes hang spherogram's decoder outright, and
-    # the assertion is that they are REJECTED promptly, not that we wait.  1 s
-    # is a ~300x margin -- the slowest realisable embedding measured was 3.1 ms,
-    # on a 101-crossing torus knot.
+    # clock here: three of these codes hang spherogram's flips-free decoder
+    # outright, and the assertion is that the bare decode is REJECTED
+    # promptly, not that we wait.  Since round 4 (2026-10-19) the guard on the
+    # decoder rejects them at once (DecoderLoop), so they need the clock only
+    # where the guard could not be installed.  1 s is a ~300x margin -- the
+    # slowest realisable embedding measured was 3.1 ms, on a 101-crossing
+    # torus knot.
     saved_timeout = _EMBED_TIMEOUT
     set_embed_timeout(1)
-    have_clock = clock_available()
+    have_clock = clock_available() or bool(guard_spherogram_decoder())
     if not have_clock:
         log("  note  no clock in this thread (SIGALRM reaches the main thread "
-            "only), so the non-terminating codes are skipped rather than run")
+            "only) and no guard on spherogram's decoder, so the codes it never "
+            "finishes on are skipped rather than run")
     for label, text, needs_clock in SELFTEST_BAD:
         if needs_clock and not have_clock:
             skipped += 1
@@ -5097,6 +7060,646 @@ def run_selftest(log=print, verbose=True):
         failed.append("the lark 6BL's HOMFLY-PT was not refused")
         log("  FAIL  the lark 6BL's HOMFLY-PT was not refused")
 
+    # 10. the DT + flip vector form (1.2).  'DT: [(10, 6, 2, 4, 12, 8)],
+    # [0,1,0,0,0,1]' is the SQUARE knot; the bare code's normalisation is the
+    # granny, so a vector that is not read -- or read and then dropped -- shows
+    # up here as the wrong knot, not as an error.
+    sq_code = "DT: [(10, 6, 2, 4, 12, 8)]"
+    sq_comps = [(10, 6, 2, 4, 12, 8)]
+    sq_flips = [False, True, False, False, False, True]
+    for label, text in (
+            ("the documented form", sq_code + ", [0,1,0,0,0,1]"),
+            ("no spaces", "DT:[(10,6,2,4,12,8)],[0,1,0,0,0,1]"),
+            ("spaced bits", sq_code + ", [0, 1, 0, 0, 0, 1]"),
+            ("space-separated bits", sq_code + ", [0 1 0 0 0 1]"),
+            ("a bit string after a comma", sq_code + ", 010001"),
+            ("a bit string after a semicolon", sq_code + "; 010001"),
+            ("no separator", sq_code + " [0,1,0,0,0,1]"),
+            ("only a newline between", sq_code + "\n[0,1,0,0,0,1]"),
+            ("a comma and a newline", sq_code + ",\n  [0,1,0,0,0,1]\n\n"),
+            ("CRLF", sq_code + ", [0,1,0,0,0,1]\r\n"),
+            ("parenthesised bits", sq_code + ", (0,1,0,0,0,1)"),
+            ("True/False", sq_code + ", [False, True, False, False, False, "
+                                     "True]"),
+            ("T/F letters", sq_code + ", [F,T,F,F,F,T]"),
+            ("a T/F string", sq_code + ", FTFFFT"),
+            ("a lowercase header", "dt: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]"),
+            ("the 'DT Code:' header",
+             "DT Code: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]"),
+            ("a flat list", "DT: [10, 6, 2, 4, 12, 8], [0,1,0,0,0,1]"),
+            ("components without the brackets",
+             "DT: (10, 6, 2, 4, 12, 8), [0,1,0,0,0,1]"),
+            ("the tuple spherogram prints",
+             "DT: ([(10, 6, 2, 4, 12, 8)], [0, 1, 0, 0, 0, 1])"),
+            ("no header", "[(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]"),
+            ("no header, the tuple", "([(10, 6, 2, 4, 12, 8)], [0, 1, 0, 0, 0, "
+                                     "1])"),
+            ("non-breaking spaces",
+             "DT: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]")):
+        try:
+            d, fid, _why = parse_input(text)
+            ok = (fid == "dt-flips" and d.flips == sq_flips
+                  and [tuple(c) for c in d.comps] == sq_comps
+                  and getattr(d, "_flips_checked", False))
+            detail = "%s %s %s" % (fid, list(d.comps), d.flips)
+        except ConversionError as exc:
+            ok, detail = False, str(exc)[:110]
+        check("DT + flips, %s: the square knot's vector is read" % label, ok,
+              detail)
+    for label, text, comps, flips in (
+            ("Unicode minus signs",
+             "DT: [(−10, −6, −2, −4, −12, −8)], "
+             "[0,1,0,0,0,1]", [(-10, -6, -2, -4, -12, -8)], sq_flips),
+            ("comma-less one-crossing components (the Hopf link)",
+             "DT: [(-4), (-2)], [1,0]", [(-4,), (-2,)], [True, False]),
+            ("one bit for a one-crossing code", "DT: [(-2,)], 1", [(-2,)],
+             [True])):
+        try:
+            d = parse_input(text)[0]
+            got = ([tuple(c) for c in d.comps], d.flips)
+        except ConversionError as exc:
+            got = str(exc)[:110]
+        check("DT + flips, %s: read as written" % label,
+              got == (comps, flips), "got %s" % (got,))
+    # what is NOT a vector reads as it did before 1.2: a label BEFORE the code
+    # (the guard against an unread vector looks at the code only), an old
+    # multi-list spelling of a bare code, and a trailing '# comment', which is
+    # dropped even when it holds a list (1.1 read '[(8, 10)]' in it as more
+    # components); a comment after a vector keeps the vector
+    for label, text, fmt, want in (
+            ("a 'DT2:' header", "DT2: [(4,6,2)]", "auto",
+             ("dt", [(4, 6, 2)], None)),
+            ("a knot name before the code", "3_1 DT: [(4,6,2)]", "dt",
+             ("dt", [(4, 6, 2)], None)),
+            ("a census name before the code", "K3a1 DT: [(4,6,2)]", "dt",
+             ("dt", [(4, 6, 2)], None)),
+            ("'L2a1:' before the code", "L2a1: DT: [(-4,), (-2,)]", "dt",
+             ("dt", [(-4,), (-2,)], None)),
+            ("'link 1' before the code", "link 1 DT: [(-4,), (-2,)]", "dt",
+             ("dt", [(-4,), (-2,)], None)),
+            ("a numbered line", "1) DT: [(4,6,2)]", "dt",
+             ("dt", [(4, 6, 2)], None)),
+            ("two flat lists", "DT: [6,8],[2,4]", "auto",
+             ("dt", [(6, 8), (2, 4)], None)),
+            ("two one-entry lists", "DT: [-4], [-2]", "auto",
+             ("dt", [(-4,), (-2,)], None)),
+            ("two bracketed component lists", "DT: [(-6,-8)], [(-4,-2)]",
+             "auto", ("dt", [(-6, -8), (-4, -2)], None)),
+            ("components split by '|'", "DT: (-6,-8) | (-4,-2)", "auto",
+             ("dt", [(-6, -8), (-4, -2)], None)),
+            ("components split by ';'", "DT: (-6,-8); (-4,-2)", "auto",
+             ("dt", [(-6, -8), (-4, -2)], None)),
+            ("a trailing comment", "DT: [(4,6,2)]  # trefoil", "auto",
+             ("dt", [(4, 6, 2)], None)),
+            ("a comment holding a list", "DT: [(4,6,2)]  # not [(8, 10)]",
+             "auto", ("dt", [(4, 6, 2)], None)),
+            ("a vector and a comment", sq_code + ", [0,1,0,0,0,1]  # square",
+             "auto", ("dt-flips", sq_comps, sq_flips))):
+        try:
+            d, fid, _why = parse_input(text, fmt)
+            got = (fid, [tuple(c) for c in d.comps], d.flips)
+        except ConversionError as exc:
+            got = str(exc)[:110]
+        check("DT text, %s: %r reads as before" % (label, text), got == want,
+              "got %s" % (got,))
+    # the vector carries the realisation: the code's four legal vectors are
+    # four diagrams -- granny, square twice, granny's mirror -- and the
+    # crossing signs come from (code, vector) with no spherogram at all
+    for bits, writhe, jones in (
+            ("001101", 6, "t^2 + 2*t^4 - 2*t^5 + t^6 - 2*t^7 + t^8"),
+            ("010001", 0, "-t^(-3) + t^(-2) - t^(-1) + 3 - t + t^2 - t^3"),
+            ("101110", 0, "-t^(-3) + t^(-2) - t^(-1) + 3 - t + t^2 - t^3"),
+            ("110010", -6,
+             "t^(-8) - 2*t^(-7) + t^(-6) - 2*t^(-5) + 2*t^(-4) + t^(-2)")):
+        text = "%s, [%s]" % (sq_code, ",".join(bits))
+        try:
+            d = pipeline("-i", text)
+            signs = flips_crossing_signs(d.comps, d.flips)
+            got_w = (sum(signs), d.link().writhe(),
+                     sum(_crossing_signs(d.flips, dt_walk(d.comps))))
+            got_j = compute_polynomials(d, ["jones"])[0]["value"]
+            chir = d.chirality
+        except ConversionError as exc:
+            got_w, got_j, chir = str(exc)[:110], None, None
+        check("DT + flips %s: writhe %d (shared rule = spherogram = this "
+              "file's) and the input's chirality" % (bits, writhe),
+              got_w == (writhe, writhe, writhe) and chir == "determined",
+              "got %s, %s" % (got_w, chir))
+        check("DT + flips %s: Jones %s" % (bits, jones), got_j == jones,
+              "got %s" % got_j)
+    # the corpus: the spelling the dt-flips target emits, and the tuple
+    # spherogram's DT_code(flips=True) prints, read back exactly; the shared
+    # sign rule agrees with this file's
+    for label, comps, flips in corpus:
+        if flips is None:
+            continue
+        check("%s: dt-flips emits format_dt_flips' spelling" % label,
+              _emit_dt_flips(Diagram(comps, flips), {})
+              == format_dt_flips(fmt_dt(comps), flips))
+        for spelling in (format_dt_flips(fmt_dt(comps), flips),
+                         str(([tuple(c) for c in comps],
+                              [int(f) for f in flips]))):
+            try:
+                d = parse_input(spelling)[0]
+                got = ([tuple(c) for c in d.comps], d.flips)
+            except ConversionError as exc:
+                got = str(exc)[:80]
+            check("%s: %s... reads back" % (label, spelling[:24]),
+                  got == ([tuple(c) for c in comps], list(flips)),
+                  "got %s" % (got,))
+        check("%s: flips_crossing_signs = _crossing_signs" % label,
+              flips_crossing_signs(comps, flips)
+              == _crossing_signs(flips, dt_walk(comps)))
+    # a bare code is untouched by all this: no vector, no mark
+    bare = parse_input("DT: [(4,6,2)]")[0]
+    check("a bare DT code carries no flip vector and is not marked checked",
+          bare.flips is None and not getattr(bare, "_flips_checked", False))
+    # refusals: flips-specific, on every path -- also --no-validate and with
+    # no spherogram -- and never the decoder's "could not build" text
+    for label, argv in (
+            ("an illegal vector", ["-i", sq_code + ", [0,0,0,0,0,0]"]),
+            ("an illegal vector, --no-validate",
+             ["-i", sq_code + ", [0,0,0,0,0,0]", "--no-validate"]),
+            ("an illegal alphabetical vector, --no-validate",
+             ["-i", "DT[fafecabfd.000000]", "--no-validate"]),
+            ("an illegal --flips", ["-i", sq_code, "--flips", "000000"])):
+        for masked in (False, True):
+            saved = dict(_BACKEND)
+            if masked:
+                _BACKEND.update(spherogram=None, DTcodec=None, snappy=None,
+                                b64dt=(None, None))
+            try:
+                pipeline(*argv)
+                msg = None
+            except ConversionError as exc:
+                msg = str(exc)
+            finally:
+                _BACKEND.clear()
+                _BACKEND.update(saved)
+            check("%s is refused as an illegal flip vector%s"
+                  % (label, " (no spherogram)" if masked else ""),
+                  msg is not None and "not a legal one" in msg
+                  and "could not build" not in msg, str(msg)[:110])
+    try:
+        dt_to_link([(4, 6, 2)], [False, False, False])
+        msg = None
+    except ConversionError as exc:
+        msg = str(exc)
+    check("dt_to_link on an illegal vector says the vector is illegal",
+          msg is not None and "not a legal one" in msg, str(msg)[:110])
+    # --flips against the input's own vector: an error naming both when they
+    # differ, a note when they agree; 'auto' keeps the input's
+    try:
+        pipeline("-i", sq_code + ", [0,1,0,0,0,1]", "--flips", "001101")
+        msg = None
+    except ConversionError as exc:
+        msg = str(exc)
+    check("--flips against a different vector in the input is an error "
+          "naming both", msg is not None and "001101" in msg
+          and "010001" in msg, str(msg)[:110])
+    for flag in ("010001", "auto"):
+        try:
+            d = pipeline("-i", sq_code + ", [0,1,0,0,0,1]", "--flips", flag)
+            got = (d.flips, any("agrees" in n for n in d.notes))
+        except ConversionError as exc:
+            got = str(exc)[:110]
+        check("--flips %s with the same vector in the input keeps it" % flag,
+              got == (sq_flips, flag != "auto"), "got %s" % (got,))
+
+    def lines_of(*argv):
+        out = []
+        run_pipeline(build_parser().parse_args(list(argv) + clock),
+                     log=out.append)
+        return out
+    for label, argv, want in (
+            ("--flips", ["-i", "DT: [(4,6,2)]", "--flips", "110"],
+             "determined -- from --flips (flips 110)"),
+            ("--flips and --mirror",
+             ["-i", "DT: [(4,6,2)]", "--flips", "110", "--mirror"],
+             "the chirality --flips gave"),
+            ("a vector in the input", ["-i", "DT: [(4,6,2)], [1,1,0]"],
+             "determined -- carried through from the input (flips 110)")):
+        try:
+            got = [ln for ln in lines_of(*(argv + ["--to", "dt-flips"]))
+                   if ln.startswith("[chirality]")][0]
+        except ConversionError as exc:
+            got = str(exc)
+        check("the [chirality] line names the source, %s" % label,
+              want in got, got[:110])
+    # --from dt-flips on a bare code is not silently a bare run
+    try:
+        d = pipeline("-i", "DT: [(4,6,2)]", "--from", "dt-flips")
+        got = any("no flip vector was found" in n for n in d.notes)
+    except ConversionError as exc:
+        got = str(exc)[:110]
+    check("--from dt-flips on a bare code says no vector was found",
+          got is True, str(got))
+    # a LEGAL vector spherogram cannot build (two kinks, 11) is not called
+    # illegal: the run goes on, says why, and the spherogram-free targets and
+    # the polynomials work
+    try:
+        lines = lines_of("-i", "DT: [(-2,), (-4,)], [1,1]", "--to",
+                         "dt-flips,gauss-ext,pd", "--polynomials", "jones")
+        text = "\n".join(lines)
+        ok = ("cannot build this kinked realisation" in text
+              and "dt-flips   DT: [(-2,), (-4,)], [1,1]" in text
+              and "-t^(-1/2) - t^(1/2)" in text and "not a legal" not in text)
+    except ConversionError as exc:
+        ok, text = False, str(exc)
+    check("a legal vector spherogram cannot build (kinks) is converted, "
+          "and said to be unbuildable, not illegal", ok, text[-200:])
+    try:
+        d = pipeline("-i", "DT: [(-2,), (-4,)]", "--flips", "11")
+        got = (d.flips, getattr(d, "_flips_from_arg", False))
+    except ConversionError as exc:
+        got = str(exc)[:110]
+    check("--flips with a legal kink vector spherogram cannot build is "
+          "accepted", got == ([True, True], True), "got %s" % (got,))
+    # --flips reads the same spellings as the vector after a code
+    for spec, want in (("110", [True, True, False]),
+                       ("[1, 1, 0]", [True, True, False]),
+                       ("(1,1,0)", [True, True, False]),
+                       ("True,True,False", [True, True, False]),
+                       ("TTF", [True, True, False])):
+        try:
+            got = _parse_flips(spec, 3)
+        except ConversionError as exc:
+            got = str(exc)[:80]
+        check("--flips %r is read" % spec, got == want, "got %s" % (got,))
+    for spec in ("a1b0", "[1,1,0", "1,1,2"):
+        try:
+            _parse_flips(spec)
+            ok = False
+        except ConversionError:
+            ok = True
+        check("--flips %r is refused" % spec, ok)
+    try:
+        _parse_flips("011", 6)
+        got = None
+    except ConversionError as exc:
+        got = str(exc)
+    check("--flips of the wrong length is refused as such",
+          got is not None and "has 3 entries but the code has 6" in got,
+          str(got))
+    # the GUI's example of the form converts to the square knot
+    ex_map = dict(EXAMPLES)
+    try:
+        d = parse_input(ex_map["square knot, DT + flips"])[0]
+        got = (d.flips, sum(flips_crossing_signs(d.comps, d.flips)))
+    except (ConversionError, KeyError) as exc:
+        got = str(exc)[:80]
+    check("the GUI example 'square knot, DT + flips' is the square knot",
+          got == (sq_flips, 0), "got %s" % (got,))
+
+    # 11. composite_danger, the gate the other tools ask before they re-read a
+    # BARE code (1.2, 2026-10-19).  A representative subset of the corpus it
+    # was measured on (1121 codes; module docstring of composite_danger):
+    # composites must be flagged -- including 3_1#4_1, flagged although its
+    # re-reading happens not to change the link, and the Jones-invisible
+    # 9_42 summand -- and primes, kinky backtrack intermediates among them,
+    # must not.  The gate needs no spherogram.
+    for label, code, want in (
+            ("granny/square code", "DT: [(10, 6, 2, 4, 12, 8)]", True),
+            ("3_1#3_1#3_1", "DT: [(16, 6, 2, 4, 12, 8, 10, 18, 14)]", True),
+            ("3_1#4_1", "DT: [(4, 12, 14, 10, 6, 8, 2)]", True),
+            ("9_42#3_1 (a Jones-invisible summand)",
+             "DT: [(22, 16, 12, -18, 14, 6, 10, 2, 4, -8, 24, 20)]", True),
+            ("9_42#3_1 after 5 backtrack moves",
+             "DT: [(10, -12, -14, -16, 18, 2, 4, 6, 8, -30, 34, 36, 28, 32, "
+             "24, -20, 26, 22)]", True),
+            ("Borromean#3_1", "DT: [(8, 18, 16, 10, 6), (2, 4), (12, 14)]",
+             True),
+            ("Hopf#Hopf, the 3-ring chain", "DT: [(6, 8), (4,), (2,)]", True),
+            ("the 4-ring chain of simply linked rings",
+             "DT: [(6, -10), (2,), (12, -4), (8,)]", True),
+            ("the 4-ring chain, another spelling",
+             "DT: [(-12,), (-10, -8), (-6,), (-4, -2)]", True),
+            ("trefoil beside trefoil (split)",
+             "DT: [(4, 6, 2), (10, 12, 8)]", True),
+            ("trefoil", "DT: [(4, 6, 2)]", False),
+            ("figure-eight", "DT: [(4, 6, 8, 2)]", False),
+            ("5_2", "DT: [(-6, -8, -10, -4, -2)]", False),
+            ("Hopf link", "DT: [(-4,), (-2,)]", False),
+            ("Borromean rings", "DT: [(6, -8), (-10, 12), (-2, 4)]", False),
+            ("4BL rosette", DEFAULT_INPUT, False),
+            ("4BL Balanced clasp",
+             "DT:[(-28,-22,10,18),(-8,24,-20),(12,6,-26,-2),(4,16,-14)]",
+             False),
+            ("4BL Lopsided clasp",
+             "DT:[(-28,-26,-22,14,16,20),(-4,24,-2),(-6,12),(10,8,-18)]",
+             False),
+            ("trefoil beside a kinked unknot", "DT: [(-4, -6, -2), (-8,)]",
+             False),
+            ("kinky trefoil (20 crossings, two parts, one knotted)",
+             "DT: [(38, 12, -16, -28, 8, -2, 14, 4, 18, 6, -20, -22, -24, 26, "
+             "-30, 10, 36, 34, 40, 32)]", False),
+            ("kinky 7_2 (29 crossings, three parts, one knotted)",
+             "DT: [(26, -2, -4, -6, 14, 18, 10, -8, 16, -12, 36, 20, 24, 58, "
+             "-30, -52, -54, 50, 44, 48, -42, -40, -46, -38, 22, 34, -56, 32, "
+             "28)]", False),
+            ("kinky figure-eight that spherogram cannot read",
+             "DT: [(26, 24, 28, -6, 10, 40, 38, -36, -34, 32, -30, 8, -2, -4, "
+             "22, 20, -18, 16, 14, -12)]", False)):
+        try:
+            comps = [tuple(c) for c in _dt_components_from_text(code)]
+            _COMPOSITE_DANGER_CACHE.clear()
+            got, why = composite_danger(comps)
+            again = composite_danger([list(c) for c in comps])
+            _COMPOSITE_DANGER_CACHE.clear()
+            fresh = composite_danger(comps)
+            vec = legal_flips(comps)
+            check_flips(comps, vec)
+            with_vec = composite_danger(comps, vec)[0]
+        except (ConversionError, ValueError, TypeError) as exc:
+            got, why, again, fresh, with_vec = None, str(exc), None, None, None
+        check("composite_danger: %s is %s" % (label, "flagged" if want
+                                              else "not flagged"),
+              got is want and again == fresh == (got, why), why[:110])
+        check("composite_danger: %s, the same verdict with a legal vector "
+              "given" % label, with_vec is want, "got %s" % (with_vec,))
+    # the atoms' closures multiply back to the whole diagram's Jones (times
+    # delta per extra split piece): what makes a per-atom test meaningful
+    for code in ("DT: [(10, 6, 2, 4, 12, 8)]", "DT: [(6, -10), (2,), (12, -4), (8,)]",
+                 "DT: [(4, 12, 14, 10, 6, 8, 2)]", "DT: [(4, 6, 2), (10, 12, 8)]",
+                 "DT: [(38, 12, -16, -28, 8, -2, 14, 4, 18, 6, -20, -22, -24, "
+                 "26, -30, 10, 36, 34, 40, 32)]"):
+        comps = [tuple(c) for c in _dt_components_from_text(code)]
+        walk = dt_walk(comps)
+        pieces, atoms = _reflection_atoms(walk)
+        pd = oriented_pd(Diagram(comps, legal_flips(comps)))
+        prod = _unlink_jones(len(pieces))
+        for atom in atoms:
+            prod = _pmul(prod, _atom_jones(pd, walk, atom)[0])
+        check("composite_danger: the atom closures of %s multiply back to its "
+              "Jones polynomial" % code, prod == jones_polynomial(pd))
+    for label, comps, _flips in corpus:
+        try:
+            vec = legal_flips(comps)
+            check_flips(comps, vec)
+            ok = True
+        except (ConversionError, ValueError, TypeError) as exc:
+            ok = str(exc)[:80]
+        check("legal_flips: %s gives a legal vector" % label, ok is True,
+              str(ok))
+    for label, comps, says in (
+            ("a malformed code", [(3, 6, 2)], "nothing to re-read"),
+            ("not a code at all", "x", "nothing to re-read"),
+            ("a code no diagram has", [(8, 10, 12), (2, 4, 6)], "")):
+        got = composite_danger(comps)
+        check("composite_danger: %s is not flagged, and says why" % label,
+              got[0] is False and says in got[1], got[1][:90])
+    check("legal_flips: none for a code no diagram has",
+          legal_flips([(8, 10, 12), (2, 4, 6)]) is None)
+
+    # The split-code repair (1.2, 2026-10-19).  spherogram reads the bare
+    # code of two trefoils side by side as 001000, which describes no
+    # diagram; the run used to fail blaming "the flip vector 001000", a vector
+    # the user never gave.  Now the vector is mended piece by piece and the
+    # code converts, saying so.
+    if sg is None:
+        skipped += 1
+        log("  skip  the split-code normalisation repair (needs spherogram)")
+    else:
+        for code, want_flips, wrong in (
+                ("DT: [(4,6,2),(10,12,8)]", [0, 0, 1, 0, 0, 1], "001000"),
+                ("DT: [(-4,),(-2,),(-8,),(-6,)]", [1, 0, 1, 0], "1011"),
+                ("DT: [(4,6,2),(-8,),(12,14,10)]", [0, 0, 1, 0, 0, 0, 1],
+                 "0010000")):
+            try:
+                lines = []
+                run_pipeline(build_parser().parse_args(
+                    ["-i", code, "--to", "dt-flips,invariants"] + clock),
+                    log=lines.append)
+                text = "\n".join(lines)
+                d = pipeline("-i", code)
+                link = dt_to_link(d.comps, d.flips)
+                ok = ([int(f) for f in d.flips] == want_flips
+                      and getattr(d, "_normalisation_repaired", False)
+                      and getattr(d, "_resolved_from_normalisation", False)
+                      and link.writhe() == sum(flips_crossing_signs(d.comps,
+                                                                    d.flips))
+                      and "read this code as the flip vector %s" % wrong in text
+                      and "mended where its decoder" in text
+                      and "is not a legal one" not in text
+                      and "dt-flips    %s" % format_dt_flips(
+                          fmt_dt(d.comps), d.flips) in text)
+            except ConversionError as exc:
+                ok, text = False, str(exc)
+            check("a bare split code whose normalisation spherogram gets wrong "
+                  "is mended and converts: %s" % code, ok, text[-200:])
+        try:
+            plain = pipeline("-i", "DT: [(4,6,2),(10,12,8)]")
+            mirrored = pipeline("-i", "DT: [(4,6,2),(10,12,8)]", "--mirror")
+            lax = pipeline("-i", "DT: [(4,6,2),(10,12,8)]", "--no-validate")
+            got = (mirrored.flips == plain.flips
+                   and getattr(mirrored, "_normalisation_repaired", False)
+                   and lax.flips == plain.flips)
+        except ConversionError as exc:
+            got = str(exc)[:110]
+        check("the mended split code: --mirror keeps the mended vector, and "
+              "--no-validate resolves it too", got is True, str(got))
+        # a code whose normalisation spherogram gets right is untouched
+        d = pipeline("-i", "DT: [(4,6,2),(8,10,12)]")
+        check("a split code spherogram reads right is not 'mended'",
+              not getattr(d, "_normalisation_repaired", False)
+              and _flip_str(d.flips) == "001000", _flip_str(d.flips))
+
+    # 12. the guard on spherogram's flips-free DT decoder (round 4,
+    # 2026-10-19).  spherogram 2.3's decoder loops for ever on some kinked
+    # bare codes -- 'DT: [(8,6,2,4)]', a trefoil with a kink, and its family
+    # -- and guard_spherogram_decoder makes it raise DecoderLoop there, and
+    # only there: bare_decoder_loops re-runs spherogram's own search with
+    # every walk bounded.  Measured against the real decoder on 21 779 codes
+    # (module docstring of bare_decoder_loops); this is a representative
+    # subset.  Each decode runs under a 10-s clock where one can be armed, so
+    # a failed guard is a FAIL here, not a hang.
+    family = ("DT: [(8,6,2,4)]", "DT: [(10,6,2,4,8)]", "DT: [(10,6,2,8,4)]",
+              "DT: [(10,6,8,4,2)]", "DT: [(10,8,2,6,4)]")
+    for code in family:
+        comps = [tuple(c) for c in _dt_components_from_text(code)]
+        check("bare_decoder_loops: spherogram's decoder loops on %s" % code,
+              bare_decoder_loops(comps) is True)
+    for label, code in (("trefoil", "DT: [(4,6,2)]"),
+                        ("granny/square code", "DT: [(10, 6, 2, 4, 12, 8)]"),
+                        ("4BL rosette", DEFAULT_INPUT),
+                        ("one kink", "DT: [(2,)]"),
+                        ("two kinks, split", "DT: [(-2,), (-4,)]"),
+                        ("trefoil beside a kinked unknot",
+                         "DT: [(-4, -6, -2), (-8,)]"),
+                        ("trefoil beside trefoil (split)",
+                         "DT: [(4, 6, 2), (10, 12, 8)]")):
+        comps = [tuple(c) for c in _dt_components_from_text(code)]
+        check("bare_decoder_loops: spherogram's decoder returns or raises on "
+              "%s" % label, bare_decoder_loops(comps) is False)
+    DTcodec = dt_codec_cls()
+    import time as _time
+    first = guard_spherogram_decoder()
+    embed_once = DTcodec.embed
+    second = guard_spherogram_decoder()
+    check("guard_spherogram_decoder is installed, and idempotent",
+          first is True and second is True and DTcodec.embed is embed_once
+          and getattr(DTcodec, "_dt_toolkit_unguarded_embed", None)
+          is not None
+          and DTcodec._dt_toolkit_unguarded_embed is not embed_once)
+    t0 = _time.perf_counter()
+    try:
+        with _time_limit(10):
+            DTcodec([(8, 6, 2, 4)])
+        got = "returned"
+    except Exception as exc:                                     # noqa: BLE001
+        got = (str(exc) if _is_decoder_loop(exc)
+               else "%s: %s" % (type(exc).__name__, str(exc)[:80]))
+    check("the guarded decoder raises DecoderLoop at once on DT: [(8,6,2,4)]",
+          got == DECODER_LOOP_TEXT and _time.perf_counter() - t0 < 5.0,
+          "%s after %.1f s" % (got, _time.perf_counter() - t0))
+    for label, code in (("trefoil", "DT: [(4,6,2)]"),
+                        ("4BL rosette", DEFAULT_INPUT),
+                        ("granny/square code", "DT: [(10, 6, 2, 4, 12, 8)]")):
+        comps = [tuple(c) for c in _dt_components_from_text(code)]
+        guarded = [bool(f) for f in DTcodec(comps).flips]
+        DTcodec.embed = DTcodec._dt_toolkit_unguarded_embed
+        try:
+            with _time_limit(10):
+                plain = [bool(f) for f in DTcodec(comps).flips]
+        finally:
+            DTcodec.embed = embed_once
+        check("the guarded decoder reads the %s exactly as the unguarded one"
+              % label, guarded == plain, "%s vs %s" % (guarded, plain))
+    try:
+        lines = []
+        run_pipeline(build_parser().parse_args(
+            ["-i", "DT: [(8,6,2,4)]", "--to", "dt-flips"] + clock),
+            log=lines.append)
+        text = "\n".join(lines)
+    except ConversionError as exc:
+        text = "error: %s" % exc
+    check("the converter resolves DT: [(8,6,2,4)] (a trefoil with a kink) with "
+          "the smallest flip vector spherogram builds",
+          "dt-flips  DT: [(8, 6, 2, 4)], [0,1,0,0]" in text
+          and DECODER_LOOP_TEXT in text, text[-200:])
+    try:
+        pipeline("-i", "DT: [(8,10,12),(2,4,6)]")
+        text = "converted"
+    except ConversionError as exc:
+        text = str(exc)
+    check("a code no diagram on the sphere has is refused in the one wording",
+          text.startswith(NO_DIAGRAM_TEXT) and "check the code" in text,
+          text[:160])
+    # round 4b (2026-10-20): also the one spherogram reads as an illegal vector
+    try:
+        pipeline("-i", "DT: [(4,6,8,10,2)]")
+        text = "converted"
+    except ConversionError as exc:
+        text = str(exc)
+    check("a code no diagram has, read by spherogram as an illegal vector, is "
+          "refused in the one wording too",
+          text.startswith(NO_DIAGRAM_TEXT + ", so there is nothing to convert")
+          and "00010" in text and text.endswith("; check the code"), text[:200])
+    # round 4c (2026-10-20): ... and one whose bare decode also loops (the
+    # no-diagram verdict wins over the DecoderLoop text)
+    loop_nodiag = [(-16, 6, 14, 2, 12, 4, -10, 8)]
+    try:
+        pipeline("-i", "DT: [(-16, 6, 14, 2, 12, 4, -10, 8)]")
+        text = "converted"
+    except ConversionError as exc:
+        text = str(exc)
+    check("a code no diagram has whose bare decode loops is refused in the "
+          "one no-diagram wording",
+          no_diagram_reason(loop_nodiag) == NO_DIAGRAM_TEXT
+          and bare_decoder_loops(loop_nodiag) is True
+          and text == NO_DIAGRAM_TEXT + ", so there is nothing to convert "
+          "(spherogram's DT decoder never returns on this kinked code either); "
+          "check the code", text[:200])
+    # round 4c: an EMPTY component -- spherogram's decoder skips it, and
+    # loops exactly as without it; the guard replays it the same way
+    check("bare_decoder_loops sees through empty components, as spherogram's "
+          "decoder does",
+          bare_decoder_loops([(8, 6, 2, 4), ()]) is True
+          and bare_decoder_loops([(), (10, 6, 2, 4, 8)]) is True
+          and bare_decoder_loops([(), (8, 6, 2, 4), ()]) is True
+          and bare_decoder_loops([(4, 6, 2), ()]) is False
+          and bare_decoder_loops([()]) is False)
+    got = []
+    for code in ([(8, 6, 2, 4), ()], [(), (8, 6, 2, 4)]):
+        t0 = _time.perf_counter()
+        try:
+            with _time_limit(10):
+                DTcodec(code)
+            got.append("returned")
+        except Exception as exc:                                 # noqa: BLE001
+            got.append("DecoderLoop" if _is_decoder_loop(exc) and
+                       _time.perf_counter() - t0 < 5.0 else
+                       "%s: %s" % (type(exc).__name__, str(exc)[:60]))
+    check("the guarded decoder raises DecoderLoop at once on a looping code "
+          "with an empty component", got == ["DecoderLoop"] * 2, str(got))
+    check("... and reads a code with an empty component as without it",
+          [bool(f) for f in DTcodec([(), (4, 6, 2)]).flips]
+          == [bool(f) for f in DTcodec([(4, 6, 2), ()]).flips]
+          == [bool(f) for f in DTcodec([(4, 6, 2)]).flips])
+    # round 4b: a clock's timeout that spherogram swallows inside the guard's
+    # replay (embed_arc catches ValueError around marked_arc, and
+    # EmbeddingTimeout is one) is raised by the guard all the same: simulated
+    # deterministically with a marked handler and a marked_arc that "fires"
+    import signal as _signal
+    from spherogram.codecs import DT as _D
+
+    def _fake_clock(_signum, _frame):
+        pass
+    _fake_clock._dt_toolkit_clock = True
+    _fake_clock._dt_toolkit_raised = None
+    fired = EmbeddingTimeout("simulated")
+    real_marked_arc = _D.DTFatGraph.marked_arc
+
+    def _firing_marked_arc(self, vertex):
+        if _fake_clock._dt_toolkit_raised is None:
+            _fake_clock._dt_toolkit_raised = fired
+            raise fired
+        return real_marked_arc(self, vertex)
+    got = "not run"
+    if clock_available():
+        previous = _signal.signal(_signal.SIGALRM, _fake_clock)
+        _D.DTFatGraph.marked_arc = _firing_marked_arc
+        try:
+            got = _raised(lambda: bare_decoder_loops([(4, 8, 2, 6)]))
+        finally:
+            _D.DTFatGraph.marked_arc = real_marked_arc
+            _signal.signal(_signal.SIGALRM, previous)
+        check("a clock's timeout that spherogram swallows inside the guard's "
+              "replay is raised by the guard", got is fired, repr(got))
+        check("... and with no clock firing, the replay reads that code as "
+              "before", bare_decoder_loops([(4, 8, 2, 6)]) is False)
+    else:
+        skipped += 2
+    # round 4b: installing the guard from many threads at once leaves ONE
+    # marked wrapper around spherogram's own embed
+    import threading as _threading
+    original = DTcodec._dt_toolkit_unguarded_embed
+    DTcodec.embed = original
+    del DTcodec._dt_toolkit_unguarded_embed
+    barrier = _threading.Barrier(32)
+    answers = []
+
+    def _install():
+        barrier.wait()
+        answers.append(guard_spherogram_decoder())
+    switch = sys.getswitchinterval()
+    sys.setswitchinterval(1e-6)
+    try:
+        threads = [_threading.Thread(target=_install) for _ in range(32)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+    finally:
+        sys.setswitchinterval(switch)
+    check("32 threads installing the guard at once leave one marked wrapper "
+          "around spherogram's own embed",
+          answers == [True] * 32
+          and getattr(DTcodec.embed, "_dt_toolkit_guard", False)
+          and DTcodec._dt_toolkit_unguarded_embed is original
+          and DTcodec.embed._dt_toolkit_unguarded is original
+          and _unguarded_embed(DTcodec) is original, str(answers[:3]))
+
     log("")
     log("[selftest]   %d passed, %d failed, %d skipped"
         % (passed, len(failed), skipped))
@@ -5116,6 +7719,9 @@ EXAMPLES = (
     ("4BL (this project)", DEFAULT_INPUT),
     ("Borromean rings, DT", "DT: [(-12,-10),(-4,-2),(-8,-6)]"),
     ("trefoil, DT", "DT: [(4,6,2)]"),
+    # The DT + flips form.  This code is also the granny knot's: bare, it
+    # converts as whichever realisation the normalisation picks (the granny).
+    ("square knot, DT + flips", "DT: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]"),
     ("trefoil, PD (KnotTheory)", "PD[X[1,4,2,5], X[3,6,4,1], X[5,2,6,3]]"),
     ("trefoil, braid", "BR[2,{-1,-1,-1}]"),
     ("trefoil, Gauss O/U", "O1U2O3U1O2U3"),
@@ -5139,6 +7745,15 @@ HELP = {
               "(Alexander-Briggs links \u2014 C crossings ^ K components _ "
               "index; 6_3^2, 6^{2}_{3} and a pasted 6\u00b2\u2083 are all "
               "understood), K10a3 and L6a1 (Thistlethwaite), T(3,5) (torus).\n\n"
+              "A DT code may carry its flip vector (the chirality) after it:\n"
+              "DT: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]\n"
+              "is the square knot, whose bare code is also the granny knot's. "
+              "The vector may also be written ', 010001', as T/F, or inside "
+              "the tuple spherogram's DT_code(flips=True) prints. A trailing "
+              "'# comment' is ignored, and a bare code written as several "
+              "lists (DT: [6,8],[2,4]) is still one code; anything else "
+              "after the code is refused, never ignored. See the ? next to "
+              "'Flips'.\n\n"
               "Example:\nDT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),"
               "(-20,-6,-18,-4)]"),
     "from_format": ("Input format",
@@ -5161,7 +7776,19 @@ HELP = {
               "label and no over/under choice, so it changes no DT entry, yet "
               "it mirrors the link.\n\nThe flip vector is spherogram's tag for "
               "which of the two reflections you mean — one bit per crossing, in "
-              "DT label order, e.g. 110.\n\nLeave it blank and the tool uses "
+              "DT label order, e.g. 110. Bit k belongs to the crossing whose "
+              "odd label is 2k+1; walking along the visit with the smaller "
+              "label, it is 0 when the other strand crosses from your right "
+              "to your left. Complementing every bit gives the mirror image. "
+              "A code that is a connected sum has more than two legal "
+              "vectors: DT: [(10, 6, 2, 4, 12, 8)] is the granny knot with "
+              "001101 and the SQUARE knot with 010001.\n\nThe vector can "
+              "also be written after the DT code in the input, 'DT: [...], "
+              "[0,1,0,0,0,1]'. If both are given they must agree; two "
+              "different vectors are an error, never one silently replacing "
+              "the other.\n\nEvery vector is checked: it must describe a "
+              "diagram on the sphere (only 2 of the trefoil's 8 do), also "
+              "with 'Skip validation'.\n\nLeave it blank and the tool uses "
               "whatever the input carried; if the input carried nothing, "
               "spherogram's normalisation (first crossing positive) is used and "
               "the report says so. Nothing is ever silently mirrored."),
@@ -5169,10 +7796,11 @@ HELP = {
                 "Wall-clock limit, in seconds, for one planar-embedding "
                 "attempt. 0 removes it.\n\nThis is not a performance knob — it "
                 "is a hang guard. spherogram's DT decoder does not terminate on "
-                "some well-formed DT codes ('DT: [(8,6,2,4)]', four crossings, "
-                "is the smallest known): no exception, no progress. Neither the "
-                "DT well-formedness checks nor the gadget planarity test "
-                "rejects them, so a clock is the only defence.\n\nFor scale, "
+                "some well-formed DT codes, realisable ones included "
+                "('DT: [(8,6,2,4)]', a trefoil with a kink, is the smallest "
+                "known): no exception, no progress. The tool's guard on the "
+                "decoder now refuses every such code it knows at once, and the "
+                "clock stays as a backstop.\n\nFor scale, "
                 "the slowest realisable embedding measured was 3.1 ms, on a "
                 "101-crossing torus knot — so the default 20 s never fires on a "
                 "code that was going to finish."),
@@ -5555,6 +8183,8 @@ examples:
   dt_converter.py                                  open the Tk front-end
   dt_converter.py -i 8_19                           every notation for 8_19
   dt_converter.py -i "DT: [(4,6,2)]" --to gauss-ou,pd-kt,braid
+  dt_converter.py -i "DT: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]" --to invariants
+                                                    the square knot: DT + flips
   dt_converter.py -i "PD[X[1,4,2,5],X[3,6,4,1],X[5,2,6,3]]" --to dt
   dt_converter.py -i "O1U2O3U1O2U3" --from gauss-ou --to dt,invariants
   dt_converter.py -i 4_1 --to all --json fig8.json
@@ -5568,6 +8198,11 @@ chirality:
   [chirality] line saying whether the input pinned it down or whether
   spherogram's normalisation (first crossing positive) had to choose. Use
   --flips to say which reflection you mean, or --mirror for the other one.
+  The flip vector can also follow the code in the input:
+      DT: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]
+  one bit per crossing in DT entry order (bit k: the crossing with odd label
+  2k+1; complementing every bit = the mirror image).  It is checked even with
+  --no-validate, and --flips must agree with it.
 """
 
 
@@ -5589,9 +8224,12 @@ def build_parser():
                          "'codes' (the notations, without name/isosig/invariants)")
     ap.add_argument("--flips", default=None, metavar="BITS",
                     help="the chirality tag: one 0/1 per crossing in DT label "
-                         "order, e.g. 110. Without it the input's own chirality "
-                         "is used, or spherogram's normalisation if the input "
-                         "carried none")
+                         "order, e.g. 110 (the same vector the input can carry "
+                         "as 'DT: [(4, 6, 2)], [1,1,0]'; if it does, the two "
+                         "must agree). Checked to describe a diagram on the "
+                         "sphere, also with --no-validate. Without it the "
+                         "input's own chirality is used, or spherogram's "
+                         "normalisation if the input carried none")
     ap.add_argument("--mirror", action="store_true",
                     help="convert the mirror image of what a plain run reports "
                          "instead (every crossing switched: every DT sign "
@@ -5608,10 +8246,12 @@ def build_parser():
     ap.add_argument("--timeout", type=float, default=DEFAULT_EMBED_TIMEOUT,
                     metavar="SECONDS",
                     help="wall-clock limit for one planar-embedding attempt "
-                         "(default %g; 0 = no limit). spherogram's DT decoder "
-                         "does not terminate on some well-formed codes -- "
-                         "'DT: [(8,6,2,4)]' is the smallest known -- so without "
-                         "a limit such input hangs" % DEFAULT_EMBED_TIMEOUT)
+                         "(default %g; 0 = no limit). A backstop: spherogram's "
+                         "DT decoder does not terminate on some well-formed "
+                         "codes, realisable kinked ones included "
+                         "('DT: [(8,6,2,4)]' is the smallest known), and the "
+                         "tool's guard on the decoder refuses every such code "
+                         "it knows at once" % DEFAULT_EMBED_TIMEOUT)
     ap.add_argument("--check-toolkit", action="store_true",
                     help="also run the DT code through parse_dt() in the newest "
                          "draw_dt_original_labels*.py, to confirm the rest of "

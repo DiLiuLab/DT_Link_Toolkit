@@ -204,9 +204,9 @@ def resolve_script(tool: Tool, root: Path = PROJECT_DIR) -> Optional[Path]:
     """Return the highest-versioned script file for ``tool``, or None."""
     # <base>, optionally followed by a version, then .py -- and nothing else.
     # The repository uses several suffix styles, all of which must be accepted:
-    #   draw_dt_original_labelsV5_5.py   V, no separator
-    #   link_engine_v4_0.py              _v, lowercase
-    #   canonical_dt_V2_0.py             _V, uppercase
+    #   draw_dt_original_labelsV5_9.py   V, no separator
+    #   link_engine_v4_1.py              _v, lowercase
+    #   canonical_dt_V2_1.py             _V, uppercase
     # Requiring a v/V + digit after the optional separator keeps a sibling like
     # ``score_diagram_helper.py`` from being mistaken for the tool.  Since 2026-10-11
     # the suffix must be a PURE version -- 1-3 digit numbers joined by '_' -- the same
@@ -543,7 +543,9 @@ def gui_launcher(prefer: str = "auto") -> int:
     ttk.Label(titles, text="DT Link Toolkit",
               font=("TkDefaultFont", 16, "bold")).pack(anchor="w")
     ttk.Label(titles, text="Choose a tool. Optional arguments are passed straight "
-                           "to it (for example: --dt \"DT: [(4,6,2)]\").",
+                           "to it (for example: --dt \"DT: [(4,6,2)]\"; a DT code "
+                           "with its flip vector, which fixes the chirality, is "
+                           "one quoted argument: --dt \"DT: [(4, 6, 2)], [1,1,0]\").",
               wraplength=680, foreground="#555").pack(anchor="w", pady=(2, 0))
     ttk.Frame(outer).pack(pady=5)
 

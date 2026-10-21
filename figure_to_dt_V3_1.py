@@ -1,8 +1,44 @@
 #!/usr/bin/env python3
 """
-figure_to_dt_V3_0.py  (V3.0) — Extract an extended (link) DT code from a raster
+figure_to_dt_V3_1.py  (V3.1) — Extract an extended (link) DT code from a raster
 image of a knot/link diagram.  Handles BOTH inter-component crossings and a
 component that crosses ITSELF.
+
+New in V3.1 (2026-10-18)
+------------------------
+* The figure's own chirality is no longer lost.  A bare signed DT code does
+  not fix it: the in-plane mirror of a figure has the same code (both hands of
+  a drawn trefoil came out as 'DT: [(4, 6, 2)]', and spherogram reads a bare
+  code with its first crossing positive), and a composite code has several
+  realisations (granny / square knot).  The script now also reads the DT FLIP
+  VECTOR off the traced geometry and prints an additional line
+
+      DT + flips: DT: [(4, 6, 2)], [1,1,0]
+
+  which the toolkit's tools accept as input.  One bit per crossing, bit k for
+  the crossing whose odd label is 2k+1 (spherogram/SnapPy convention): walk
+  along the visit with the SMALLER label -- 0 when the other strand crosses
+  from your right to your left, 1 when from left to right.  The image is
+  y-down, so its tangents are turned to y-up first; components the DT code
+  walks backwards are accounted for.  The result dict gains 'dt_flips' (list
+  of 0/1, or None when a crossing could not be read) and 'dt_flips_string';
+  the existing 'flips' key still means per-COMPONENT orientation reversal.
+  The GUI shows the DT + flips code in a second field with its own Copy
+  button.
+* --validate builds the link from the DT code AND the figure's flip vector
+  (``spherogram.codecs.DT.DTcodec(code, flips).link()``, after a pure-Python
+  realisability check), so the linking matrix carries the figure's own signs
+  and a composite figure is checked as drawn.  Before, it read the bare code
+  and spherogram picked a realisation.  A kinked realisation spherogram's
+  DTcodec cannot build falls back to the bare code, with a note.
+* (2026-10-19, round 4) That fallback reads the bare code with spherogram's
+  flips-free DT decoder, which loops for ever on some kinked codes ('DT:
+  [(8,6,2,4)]', a trefoil with a kink -- a vector DTcodec refuses, such as
+  its 1011, sends it there).  ``validate_dt`` now installs dt_converter's
+  guard on that decoder first (``_guard_dt_decoder``): it raises
+  dt_converter.DecoderLoop at once there, which the existing handler reports
+  as '[warn] validation failed to run: ...'.  Every other figure is read and
+  validated exactly as before.
 
 New in V3.0
 -----------
@@ -59,11 +95,11 @@ Assumptions / limitations
 
 Usage
 -----
-    python3 figure_to_dt_V3_0.py diagram.png
-    python3 figure_to_dt_V3_0.py trefoil.png --colors "R:200,30,30"
-    python3 figure_to_dt_V3_0.py fig.png --expect 4 --annotate out.png --validate
-    python3 figure_to_dt_V3_0.py fig.png --colors "A:150,150,145 B:69,106,173"
-    python3 figure_to_dt_V3_0.py messy.png --method fill
+    python3 figure_to_dt_V3_1.py diagram.png
+    python3 figure_to_dt_V3_1.py trefoil.png --colors "R:200,30,30"
+    python3 figure_to_dt_V3_1.py fig.png --expect 4 --annotate out.png --validate
+    python3 figure_to_dt_V3_1.py fig.png --colors "A:150,150,145 B:69,106,173"
+    python3 figure_to_dt_V3_1.py messy.png --method fill
 
 Note: this script needs scikit-image, which on this setup lives in the plain
 Python 3 environment and NOT in Sage -- run it with python3, not sage -python.
@@ -76,6 +112,7 @@ Dependencies: numpy, scipy, scikit-image, Pillow.  Optional: spherogram.
 import argparse
 import itertools
 import os
+import re
 import sys
 import warnings
 
@@ -88,6 +125,179 @@ from scipy.spatial import cKDTree
 from skimage.measure import find_contours
 from skimage.morphology import (skeletonize, opening, closing, disk, erosion,
                                 remove_small_holes, remove_small_objects)
+
+
+# ==========================================================================
+# 0. DT + flip vector helpers (shared, byte-identical in every toolkit tool)
+# ==========================================================================
+#
+# Spelling 'DT: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]': one bit per crossing,
+# bit k for the crossing whose odd label is 2k+1.  Walk along the visit with
+# the SMALLER label: 0 when the other strand crosses from your right to your
+# left, 1 when from left to right (spherogram/SnapPy).  Complementing every
+# bit reflects the page (the mirror image).  This script uses
+# format_dt_flips and check_flips; the block is kept whole so every copy
+# stays identical.
+# BEGIN dt-flips helpers (keep identical in every tool)
+_DT_FLIPS_ERROR = ("could not read %r after the DT code as a flip vector "
+                   "(one 0/1 per crossing, e.g. 'DT: [(4, 6, 2)], [0,0,1]')")
+
+
+def split_dt_flips(text):
+    """Split 'DT: [...], [0,1,...]' into ('DT: [...]', [False, True, ...]).
+
+    Text with nothing after the DT code's closing bracket comes back
+    UNCHANGED with None, so a bare code takes exactly its old path; so does
+    an old multi-list spelling whose later lists hold more components
+    ('DT: [(-6,-8)], [(-4,-2)]').  Also read: ', 010001' / '; 010001' / no
+    separator, '(0,1,..)', spaces instead of commas, T/F and True/False, and
+    the tuple wrapper 'DT: ([(..)], [0,1,..])' (str() of spherogram's
+    DT_code(flips=True)).  A vector has one bit per entry of the code's list.
+    A trailing '# comment' is dropped (a bare code with one comes back
+    without it).  Any other text after the code raises ValueError -- it is
+    never ignored."""
+    s = str(text)
+    t = s.rstrip()
+    i = t.find("[")
+    if i < 0:
+        return s, None
+    depth, j = 0, -1
+    for j in range(i, len(t)):
+        if t[j] == "[":
+            depth += 1
+        elif t[j] == "]":
+            depth -= 1
+            if depth == 0:
+                break
+    if depth != 0:
+        if t.count("[") > 1:
+            raise ValueError("unbalanced brackets in %r: the code's list must "
+                             "close before a flip vector, e.g. "
+                             "'DT: [(4, 6, 2)], [0,0,1]'" % s[:80])
+        return s, None            # unbalanced: the caller's parser reports it
+    head, rest = t[:i], t[j + 1:]
+    note = rest.find("#")
+    base = s if note < 0 else t[:j + 1 + note].rstrip()
+    rest = (rest if note < 0 else rest[:note]).strip()
+    wrapped = head.rstrip().endswith("(") and rest.endswith(")")
+    if wrapped:
+        rest = rest[:-1].strip()
+    if not rest:
+        inner = t[i + 1:j]
+        if "(" in inner and re.search(r"\d", re.sub(r"\([^()]*\)", "", inner)):
+            raise ValueError("numbers outside the parenthesised components of "
+                             "%r: a flip vector goes AFTER the code's closing "
+                             "bracket, e.g. 'DT: [(4, 6, 2)], [0,0,1]'" % s[:80])
+        return base, None
+    code = (head.rstrip()[:-1] if wrapped else head) + t[i:j + 1]
+    body = rest[1:].strip() if rest[0] in ",;" else rest
+    if body and body[0] + body[-1] in ("[]", "()"):
+        body = body[1:-1].strip()
+    tokens = [x for x in re.split(r"[\s,;]+", body) if x]
+    bits = None
+    if len(tokens) == 1 and re.fullmatch(r"[01]+|[TFtf]+", tokens[0]):
+        bits = [ch in "1Tt" for ch in tokens[0]]
+    elif tokens and all(x.lower() in ("0", "1", "t", "f", "true", "false")
+                        for x in tokens):
+        bits = [x.lower() in ("1", "t", "true") for x in tokens]
+    labels = [int(v) for v in re.findall(r"\d+", t[i + 1:j])]
+    n = len(labels)
+    if bits is not None and len(bits) == n:
+        return code, bits
+    labels += [int(v) for v in re.findall(r"\d+", rest)]
+    if (len(labels) > n and sorted(labels) == list(range(2, 2 * len(labels) + 1, 2))
+            and not re.search(r"[^\s,;|()\[\]\d\-\u2212\u2012\u2013\u2014\ufe63\uff0d]", rest)):
+        return base, None         # more components: an old multi-list spelling
+    if bits is not None:
+        raise ValueError("the flip vector has %d entries but the code has %d "
+                         "crossings" % (len(bits), n))
+    raise ValueError(_DT_FLIPS_ERROR % rest)
+
+
+def format_dt_flips(dt_text, flips):
+    """'DT: [...]' + flips -> 'DT: [...], [0,1,...]' (dt_converter's spelling);
+    the bare text unchanged when flips is None."""
+    if flips is None:
+        return dt_text
+    return "%s, [%s]" % (str(dt_text).rstrip(),
+                         ",".join("1" if f else "0" for f in flips))
+
+
+def check_flips(comps, flips):
+    """Raise ValueError unless ``flips`` is a legal vector for the signed DT
+    code ``comps`` (a list of tuples of even integers): one bit per crossing,
+    and the diagram it describes lies on the sphere (every connected piece
+    has genus 0: faces == crossings + 2 x pieces).  Pure Python; accepts the
+    kink vectors spherogram's DTcodec cannot build."""
+    entries = [int(e) for c in comps for e in c]
+    n = len(entries)
+    flips = [bool(f) for f in flips]
+    if len(flips) != n:
+        raise ValueError("the flip vector has %d entries but the code has %d "
+                         "crossings" % (len(flips), n))
+    cross, nxt, start = {}, {}, 1
+    for c in comps:
+        labels = list(range(start, start + 2 * len(c)))
+        for a, b in zip(labels, labels[1:] + labels[:1]):
+            nxt[a] = b
+        start += 2 * len(c)
+    for k, e in enumerate(entries):
+        cross[2 * k + 1] = cross[abs(e)] = k
+    if sorted(cross) != list(range(1, 2 * n + 1)):
+        raise ValueError("not a DT code: the even labels are not a "
+                         "permutation of 2..%d" % (2 * n))
+
+    def slots(p):                 # (in slot, out slot) of label p: S0 E1 N2 W3
+        k = cross[p]
+        small = min(2 * k + 1, abs(entries[k]))
+        if p != small:
+            return 1, 3
+        return (2, 0) if flips[k] else (0, 2)
+
+    other = {}
+    for p in range(1, 2 * n + 1):
+        q = nxt[p]
+        a, b = (cross[p], slots(p)[1]), (cross[q], slots(q)[0])
+        other[a], other[b] = b, a
+    seen, faces = set(), 0
+    for d in other:
+        if d in seen:
+            continue
+        faces += 1
+        while d not in seen:
+            seen.add(d)
+            k, sl = other[d]
+            d = (k, (sl + 1) % 4)
+    parent = list(range(n))
+
+    def root(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    for p in range(1, 2 * n + 1):
+        parent[root(cross[p])] = root(cross[nxt[p]])
+    pieces = len({root(k) for k in range(n)})
+    if faces != n + 2 * pieces:
+        raise ValueError(
+            "the flip vector %s is not a legal one for this DT code: it "
+            "describes no diagram on the sphere (%d faces; a planar diagram "
+            "with %d crossing(s) in %d piece(s) has %d)"
+            % ("".join("1" if f else "0" for f in flips), faces, n, pieces,
+               n + 2 * pieces))
+
+
+def flips_crossing_signs(comps, flips):
+    """Crossing signs (+1 / -1, in DT entry order) of the diagram (comps,
+    flips) in spherogram's convention, where a NEGATIVE entry means the even
+    visit is the over-crossing: negative exactly when
+    flip XOR (even visit over) XOR (even label < odd label)."""
+    out = []
+    for k, e in enumerate(int(e) for c in comps for e in c):
+        neg = bool(flips[k]) ^ (e < 0) ^ (abs(e) < 2 * k + 1)
+        out.append(-1 if neg else 1)
+    return out
+# END dt-flips helpers
 
 
 # ==========================================================================
@@ -818,6 +1028,100 @@ def dt_code(comp_passes, crossings, order):
 
 
 # ==========================================================================
+# 4b. DT flip vector (the figure's chirality)  -- new in V3.1
+# ==========================================================================
+#
+# The signed DT code above records which visit is over at each crossing, but
+# not which way the two strands turn round each other, so the in-plane mirror
+# of a figure has the same code and a composite code has several
+# realisations.  The flip vector does record it, and the traced polylines
+# give it directly.  Convention (spherogram/SnapPy; the toolkit's 'DT + flips'
+# input): one bit per crossing, bit k for the crossing whose odd label is
+# 2k+1; walk along the visit with the SMALLER label -- the bit is 0 when the
+# other strand crosses from your right to your left, 1 when from left to
+# right, in a y-UP frame.
+#
+# Two things would silently emit the MIRROR image, and both are handled:
+#   * the polylines are (row, col) in a y-DOWN image, so a tangent (dr, dc)
+#     is the y-up vector (dc, -dr);
+#   * dt_code may walk a component against its polyline (``orient[k]``,
+#     the existing per-component 'flips'), which reverses its tangents.
+
+def _poly_tangent(P, t, w, reverse):
+    """Unit tangent, as (x, y) with y UP, of the closed (row, col) polyline
+    ``P`` at the fractional vertex parameter ``t``, from the vertices ``w``
+    before and after; negated when the component is walked backwards."""
+    n = len(P)
+    i = int(np.floor(t)) % n
+    d = P[(i + 1 + w) % n] - P[(i - w) % n]
+    if reverse:
+        d = -d
+    v = np.array([d[1], -d[0]], float)
+    nrm = float(np.hypot(v[0], v[1]))
+    return v / nrm if nrm > 0 else None
+
+
+def dt_flip_vector(dt, seq2, traces, orient, log=print):
+    """The DT flip vector the traced figure shows, as a list of 0/1 in DT
+    entry order (bit k for odd label 2k+1), or None when a crossing cannot be
+    read or the vector is not legal for ``dt`` (then a [warn] line says so),
+    or when the figure has no crossing at all (silently: nothing to report).
+
+    ``seq2`` lists the visits (label, component, crossing id, over, polyline
+    parameter) in label order, ``orient[k]`` is True when the DT code walks
+    component k against its polyline."""
+    n = sum(len(g) for g in dt)
+    if n == 0:
+        return None              # no crossing: nothing to orient, nothing said
+    visits = {}
+    for (lab, k, cid, _over, param) in seq2:
+        visits.setdefault(cid, []).append((lab, k, param))
+    bits = [None] * n
+
+    def windows(k):
+        hw = float(traces[k].get('hw', 3.0) or 3.0)
+        w0 = max(4, int(round(1.5 * hw)))
+        return (w0, max(2, w0 // 2), 2 * w0)
+
+    unread = []
+    for cid, vs in sorted(visits.items()):
+        if len(vs) != 2:
+            unread.append(cid)
+            continue
+        (l1, k1, t1), (l2, k2, t2) = sorted(vs)       # walk the SMALLER label
+        best = None
+        for w1, w2 in zip(windows(k1), windows(k2)):
+            a = _poly_tangent(traces[k1]['poly'], t1, w1, bool(orient[k1]))
+            b = _poly_tangent(traces[k2]['poly'], t2, w2, bool(orient[k2]))
+            if a is None or b is None:
+                continue
+            z = float(a[0] * b[1] - a[1] * b[0])   # > 0: the other strand
+            if best is None or abs(z) > abs(best):  # points to our left
+                best = z
+            if abs(best) >= 0.1:                    # clear at this window
+                break
+        odd = l1 if l1 % 2 else l2
+        if best is None or abs(best) < 0.05 or not 1 <= odd <= 2 * n - 1:
+            unread.append(cid)
+            continue
+        bits[(odd - 1) // 2] = 0 if best > 0 else 1
+    if unread or any(b is None for b in bits):
+        log("[warn] no DT flip vector: the strand directions at crossing(s) "
+            f"{unread or '?'} could not be read (nearly parallel strands, or "
+            "a wrong trace -- check the annotated figure), so the figure's "
+            "chirality is not reported.")
+        return None
+    try:
+        check_flips(dt, bits)
+    except ValueError as exc:
+        log(f"[warn] no DT flip vector: the one read from the figure is not "
+            f"legal for this DT code ({exc}); the trace is probably wrong -- "
+            f"check the annotated figure.")
+        return None
+    return bits
+
+
+# ==========================================================================
 # 5. Annotation
 # ==========================================================================
 
@@ -928,15 +1232,54 @@ def _linking_matrix(link):
     return [[v // 2 for v in row] for row in lk]
 
 
-def validate_dt(dt, order, crossings=None, brunnian_limit=40, log=print):
-    """Check the emitted DT and compare it with the traced geometry."""
+def _guard_dt_decoder():
+    """dt_converter's guard on spherogram's flips-free DT decoder (2026-10-19,
+    round 4): where the decoder would loop for ever (a kinked bare code such
+    as 'DT: [(8,6,2,4)]') it raises dt_converter.DecoderLoop, a ValueError,
+    instead.  Process-wide, idempotent; a no-op when dt_converter.py cannot be
+    imported."""
+    try:
+        import dt_converter
+        dt_converter.guard_spherogram_decoder()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def validate_dt(dt, order, crossings=None, brunnian_limit=40, log=print,
+                dt_flips=None):
+    """Check the emitted DT and compare it with the traced geometry.
+
+    With ``dt_flips`` (the figure's flip vector, V3.1) every link is built
+    from the code AND the vector, so the linking-matrix signs and the
+    sublinks are the figure's own; a vector spherogram's DTcodec cannot build
+    (a kinked realisation) falls back to spherogram's reading of the bare
+    code, with a note.  Without it, the bare code is read as before."""
     try:
         import spherogram
     except ImportError:
         log("[validate] spherogram not installed; skipped.")
         return None
+    _guard_dt_decoder()      # round 4: the bare fallback below never hangs
 
-    link = spherogram.Link(f"DT: {dt}")
+    make_link = None
+    if dt_flips is not None:
+        try:
+            from spherogram.codecs.DT import DTcodec
+            check_flips(dt, dt_flips)
+            comps = [tuple(int(e) for e in g) for g in dt]
+            bits = [bool(f) for f in dt_flips]
+            DTcodec(comps, bits).link()
+            make_link = lambda: DTcodec(comps, bits).link()   # noqa: E731
+        except Exception as exc:                              # noqa: BLE001
+            log(f"[validate] spherogram cannot build the realisation "
+                f"{format_dt_flips('DT: ' + str(dt), dt_flips)} "
+                f"({type(exc).__name__}: {exc}); validating spherogram's own "
+                f"reading of the bare code instead (its chirality may differ "
+                f"from the figure's).")
+    if make_link is None:
+        make_link = lambda: spherogram.Link(f"DT: {dt}")      # noqa: E731
+
+    link = make_link()
     ncomp, ncross = len(link.link_components), len(link.crossings)
     log(f"[validate] spherogram: {ncomp} components, {ncross} crossings")
 
@@ -981,11 +1324,11 @@ def validate_dt(dt, order, crossings=None, brunnian_limit=40, log=print):
     if 3 <= ncomp and ncross <= brunnian_limit:
         sub_unlinked = []
         for drop in range(ncomp):
-            s = spherogram.Link(f"DT: {dt}")
+            s = make_link()
             s = s.sublink([i for i in range(ncomp) if i != drop])
             s.simplify('global')
             sub_unlinked.append(len(s.crossings) == 0)
-        whole = spherogram.Link(f"DT: {dt}")
+        whole = make_link()
         whole.simplify('global')
         if all(sub_unlinked) and len(whole.crossings) > 0:
             log(f"[validate] BRUNNIAN: the whole link stays at "
@@ -1023,6 +1366,11 @@ def run_extraction(image_path, colors=None, order=None, method="trace",
     ``background`` is ``"auto"`` (modal border color), ``"none"``, or an RGB
     triple.  ``expect`` is the number of components the figure is known to have;
     the run fails rather than quietly proceeding with the wrong count.
+
+    Result keys ``dt_flips`` (list of 0/1 in DT entry order, or None when it
+    could not be read) and ``dt_flips_string`` ('DT: [...], [0,1,...]', or
+    None) carry the figure's DT flip vector (V3.1); ``flips`` is unchanged and
+    still means the per-COMPONENT orientation reversal chosen by dt_code.
     """
     img = load_image(image_path)
     rgb = np.array(img).astype(float)
@@ -1161,9 +1509,17 @@ def run_extraction(image_path, colors=None, order=None, method="trace",
         for (param, cid, over) in pl:
             seq2.append((lab, k, cid, over, param)); lab += 1
 
+    # The figure's DT flip vector (V3.1): ``flips`` above is the per-component
+    # orientation reversal, NOT this.
+    dt_flips = dt_flip_vector(dt, seq2, traces, flips, log=log)
+    dt_flips_string = (format_dt_flips(f"DT: {dt}", dt_flips)
+                       if dt_flips is not None else None)
+
     log(f"\nComponent order: {order}")
     log(f"Orientation flips: {flips}   basepoint offsets: {offs}")
     log(f"\nDT: {dt}\n")
+    if dt_flips_string is not None:
+        log(f"DT + flips: {dt_flips_string}\n")
     log("Convention: even label negated iff its pass is the over-strand.")
 
     saved = None
@@ -1175,12 +1531,14 @@ def run_extraction(image_path, colors=None, order=None, method="trace",
     report = None
     if validate:
         try:
-            report = validate_dt(dt, order, crossings=crossings, log=log)
+            report = validate_dt(dt, order, crossings=crossings, log=log,
+                                 dt_flips=dt_flips)
         except Exception as exc:                              # noqa: BLE001
             # Validation is a check on the result, never a reason to lose it.
             log(f"[warn] validation failed to run: {type(exc).__name__}: {exc}")
 
     return dict(dt=dt, dt_string=f"DT: {dt}",
+                dt_flips=dt_flips, dt_flips_string=dt_flips_string,
                 order=order, flips=flips, offs=offs, crossings=crossings,
                 n_self=n_self, annotate_path=saved, refs=refs,
                 background=None if bg is None else tuple(float(v) for v in bg),
@@ -1320,6 +1678,23 @@ def launch_gui():
             root.clipboard_clear(); root.clipboard_append(dt_var.get())
             status_var.set("DT code copied to clipboard.")
     ttk.Button(bar, text="Copy DT", command=copy_dt).grid(row=1, column=3, **pad)
+
+    # V3.1: the same code with the figure's flip vector, which fixes the
+    # chirality (and, for a composite, which realisation) the bare code leaves
+    # open.  Bit k: crossing with odd label 2k+1; walking the smaller label,
+    # 0 = the other strand crosses from right to left.
+    dt_flips_var = tk.StringVar()
+    dt_flips_entry = ttk.Entry(bar, textvariable=dt_flips_var, state="readonly")
+    dt_flips_entry.grid(row=2, column=0, columnspan=3, sticky="ew", **pad)
+
+    def copy_dt_flips():
+        if dt_flips_var.get().startswith("DT:"):      # not the placeholder
+            root.clipboard_clear(); root.clipboard_append(dt_flips_var.get())
+            status_var.set("DT code with the figure's flip vector copied to clipboard.")
+        elif dt_flips_var.get():
+            status_var.set("No flip vector to copy -- see the log.")
+    ttk.Button(bar, text="Copy DT + flips",
+               command=copy_dt_flips).grid(row=2, column=3, **pad)
 
     # --- body: log (left) + annotated preview (right) --------------------
     body = ttk.Frame(root, padding=(8, 6, 8, 8))
@@ -1569,6 +1944,11 @@ def launch_gui():
                     append_log(payload)
                 elif kind == "done":
                     dt_var.set(payload["dt_string"])
+                    dt_flips_var.set(
+                        payload.get("dt_flips_string")
+                        or ("(no flip vector: no crossings)"
+                            if not any(len(g) for g in payload["dt"])
+                            else "(flip vector not read -- see the log)"))
                     status_var.set("Done. Verify the annotated figure and crossings.")
                     prev = payload.get("annotate_path")
                     if not prev:
@@ -1622,6 +2002,7 @@ def launch_gui():
         log_text.configure(state="normal"); log_text.delete("1.0", "end")
         log_text.configure(state="disabled")
         dt_var.set("")
+        dt_flips_var.set("")
         status_var.set("Running (image processing may take a few seconds)...")
         run_btn.configure(state="disabled")
         threading.Thread(target=worker, args=(params,), daemon=True).start()
@@ -1638,7 +2019,14 @@ def launch_gui():
 # ==========================================================================
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description=__doc__.split("\n")[1])
+    ap = argparse.ArgumentParser(
+        description=__doc__.split("\n")[1],
+        epilog="Besides 'DT: [...]' the script prints 'DT + flips: DT: [...], "
+               "[0,1,...]': the same code with the figure's flip vector, which "
+               "fixes its chirality (and, for a composite, which realisation). "
+               "Bit k belongs to the crossing whose odd label is 2k+1; walking "
+               "along the visit with the smaller label, 0 = the other strand "
+               "crosses from right to left (spherogram/SnapPy convention).")
     ap.add_argument("image", nargs="?", default=None,
                     help="Diagram image; omit (or pass --gui) to open the GUI.")
     ap.add_argument("--gui", action="store_true",
@@ -1669,7 +2057,12 @@ def main(argv=None):
     ap.add_argument("--max-gap", type=int, default=None,
                     help="Max bridged gap length in px (trace mode).")
     ap.add_argument("--annotate", default=None, metavar="OUT.png")
-    ap.add_argument("--validate", action="store_true")
+    ap.add_argument("--validate", action="store_true",
+                    help="Check the result with spherogram (no Sage needed): "
+                         "components, crossings, the linking matrix -- signs "
+                         "as drawn, the link being built from the DT code and "
+                         "the figure's flip vector -- per-pair crossing counts "
+                         "against the trace, and a Brunnian test.")
     ap.add_argument("--pad", type=int, default=40)
     ap.add_argument("--hue-tol", type=float, default=None,
                     help=argparse.SUPPRESS)   # V2 flag; colors are Lab now

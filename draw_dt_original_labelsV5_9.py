@@ -1,11 +1,278 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-draw_dt_original_labelsV5_8.py
+draw_dt_original_labelsV5_9.py
 ==============================
 
 Draw a smooth planar oriented link diagram from a signed Dowker-Thistlethwaite
 (DT) code while preserving the original traversal labels supplied by the user.
+
+V5.9 changes
+------------
+* Input: a DT code may carry a FLIP VECTOR (2026-10-18, at the user's request:
+  "update the DT codes compatibility with the form
+  DT: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]").  A signed DT code does not fix
+  the diagram: reflecting the page keeps every label and every over/under
+  choice, and each connected summand reflects on its own, so a prime code has
+  two realisations (mirror images) and a code with k reflectable pieces 2**k
+  -- the granny code above is the granny knot, its mirror, or the SQUARE knot
+  twice.  The vector names one: bit k belongs to the crossing with odd label
+  2k+1 (spherogram / SnapPy convention: walk along the visit with the SMALLER
+  label; 0 = the other strand crosses from your right to your left, 1 = from
+  left to right; complementing every bit reflects the page).  Also read:
+  ', 010001', '; 010001', '(0,1,..)', no separator, spaces, T/F, True/False
+  and str() of spherogram's DT_code(flips=True) (the tuple wrapper
+  'DT: ([(..)], [..])').  The vector needs exactly one bit per entry of the
+  code's list (else a length error).  A trailing '# comment' is dropped --
+  with or without a vector, also when more lines follow it -- and the code
+  is read from the text without it.  An old multi-list spelling whose later
+  lists hold the other components ('DT: [-4], [-2]'; all labels together
+  2..2N) is not a vector and reads as before.  Any other text after the code
+  ('... trefoil', a stray ',') is an error, and so are unbalanced brackets
+  with more than one '[' (both used to be ignored: '..., (0,1,0,0,0,1)'
+  drew the bare code).
+  The shared helper block (split_dt_flips / format_dt_flips / check_flips /
+  flips_crossing_signs, byte-identical in every tool of the toolkit) reads and
+  validates it: one bit per crossing, and the vector must describe a diagram
+  on the sphere (Euler) -- kink vectors spherogram's own decoder cannot build
+  are legal.  New API: `parse_dt_flips(text) -> (comps, flips | None)`
+  (errors one-line, user-facing); `parse_dt` is unchanged for a bare code and
+  REFUSES a code with a vector (it must never drop it); `build_model(...,
+  flips=)` stores model["flips"] (only when given); `embedding_from_flips`
+  builds the gadget graph's planar embedding of that realisation;
+  `drawn_flips(model, P)` reads the vector off a drawing (tangent of the
+  smaller-label visit x the other's at the crossing centre, y up);
+  `dt_flips_string_from_model` (the model's DT in spherogram's convention +
+  its vector); `dt_flips_from_embedding` returns the given vector exactly;
+  prepare_diagram's state gains "flips" (only when given).
+* 2-D with a flip vector: the requested realisation is DRAWN, not hoped for.
+  The vector's embedding replaces networkx's (tutte, shaped-tutte, holed-tutte
+  faces, 'planar', spring's start, every planar_layout fallback -- relabelled
+  to integers, so no hash order) and crossing_face_embedding's (spread-tutte,
+  cylinder-tutte), per connected piece of a split diagram (each piece
+  reflects on its own); it is built for the drawing's frame, so the default
+  --y-direction (a reflection) shows the requested vector.  cylinder-tutte
+  --flatten-orthogonal keeps only 'D' drawings that show it.  Afterwards the
+  vector is read off the finished drawing: as requested -> one [flips] line
+  (with the writhe of the link drawn); the exact complement (sphere-stereo,
+  holed-tutte's kamada wreath and --invert-ring follow their own 3-D
+  layout's hand) -> the drawing is reflected and re-audited, and the [flips]
+  line says so -- per connected piece for a split diagram (each piece is
+  laid out alone and reflects on its own); a CLEAN drawing of a DIFFERENT
+  realisation (a composite whose summand the layout reflects: sphere-stereo
+  draws the granny code as the granny knot whatever is asked) -> a one-line
+  refusal naming the layouts that honour a vector; a drawing with false or
+  undrawn crossings that does not read as the vector (kamada, spring, a kink
+  a Tutte solve crushed -- it reads inverted whatever is asked) -> a [warn]
+  that the vector cannot be confirmed there.  Measured over the corpus
+  (trefoil, 4_1, 5_2, granny code, Hopf, L4a1, Borromean, kinks, split,
+  4-ring chain, 4BL; every legal vector): tutte, shaped-tutte, cylinder-
+  tutte and spread-tutte show every vector, with 0 false crossings wherever
+  the bare drawing had 0 (cylinder-tutte's square knot: 10, as the bare
+  --hole-swap drawing of the same knot); the writhe the [flips] line reports
+  equals the drawing's own and spherogram's for (DT, flips).  Symmetry
+  enforcement snaps to a DT shift only when the shift maps the vector to
+  itself (granny: 2-fold kept; square: none).  With --negative-even under an
+  [info] line says the link drawn is the crossing-change mirror of
+  spherogram's reading of (DT, flips) (the bits describe the shadow, so they
+  are honoured either way).  On the flip-vector path a one-crossing
+  component may be written without its comma ('(-4)', Invariant 11).  A bare
+  code takes exactly the old path: positions, false-crossing counts, log
+  lines and images (apart from the script name in the caption) are
+  unchanged, and a malformed bare code still fails as before; only text
+  AFTER a bare code's closing bracket that is neither a vector nor a
+  '# comment' ('... trefoil', a stray ',') is now an error instead of being
+  ignored, unbalanced brackets with more than one '[' get the helper's
+  message, and a '# comment' followed by more lines (which `ast` could not
+  read: 'DT: [(4,6,2)] # note' + newline + 'see [x]') now reads as the code
+  before the comment.
+* 3-D with a flip vector: ONE rule for every --sphere-layout -- a positive
+  --crossing-offset builds the GIVEN realisation, a negative one its mirror
+  image (the user's decision; it is the rule the layouts already followed
+  for their own realisation) -- or the build is refused with one [error]
+  line; it never silently builds another diagram.  A [flips] status line
+  says how the realisation was obtained and gives the writhe of the curve's
+  link.  The kamada family (spherical-kamada, raw-kk, shaped-kamada,
+  cubic-kamada) reads the realisation its compacted crossing patches give,
+  seen from outside (`_sphere_realised_flips`; the read-out predicts the
+  built curve's Jones polynomial exactly): as requested -> built; the
+  mirror image -> the directions are reflected (x -> -x) BEFORE the patches
+  are built, so skeleton, shells, cube frame and audit see one curve;
+  another diagram (a composite code whose summand the layout reflects --
+  the Kamada layout of the granny code is the granny knot whatever is
+  asked, so it cannot give the square knot) -> refused, naming the layouts
+  that can.  cubic-kamada angled / grid take every crossing's port order
+  from the vector itself (`_cube_crossing_rotations`, no majority vote), so
+  a crossing-free wiring IS the requested diagram whatever the sphere layout
+  realises: equal -> wired as laid out, the mirror image -> reflected first
+  and wired, another diagram (a reflected summand) -> wired from the vector
+  over that layout's crossing positions, the router negotiating on at most
+  CUBE_FLIPS_ROUTE_SIZES (2) grid sizes (a size rejected at once because
+  crossings or ports collide does not count), and refused with one [error]
+  line if neither routes (the smooth fallback would build the layout's own
+  diagram).  Such a wiring need not exist near those positions: unbounded,
+  the router tried every grid up to 72 x 72 before refusing (the 4-ring
+  chain [0,1,1,1,0,0] angled: 914 s at the verifier's load; [1,1,0,0,0,1]:
+  466 s, six sizes); with the budget they refuse after 35-40 s.  An
+  intermediate version refused such vectors at once, which lost 44 builds
+  that route in seconds (4-ring chain, the granny code's square knot, two
+  kinked unknots, split trefoil + kink; both styles, +/-5): all 44 are back
+  (the two the re-review recorded byte-identical), each the given
+  realisation at +5 and its mirror image at -5 by the curve's Jones
+  polynomial, and each routed on the first grid size -- as did all 232 such
+  builds of 11 more composite codes (sums of three and four trefoils, of
+  two to four Hopf links, 3_1#4_1, 5_2#5_2, ...).
+  stereographic, stereo-safe, sheet and the capped cylinder lift
+  the 2-D drawing, which prepare_diagram draws with the vector; a drawing
+  with false or undrawn crossings is refused (the lift would carry them
+  into the curve: the square knot's cylinder-tutte --rotate 30 drawing, 10
+  false crossings, read as the vector at every crossing centre, and its
+  sheet lift at -5 touched itself, closest approach 1e-15, yet audited as
+  'Jones equal'), suggesting spread-tutte or --min-sep, and the drawing is
+  read again (`drawn_flips`): one that does not show the vector is
+  refused.  The capped cylinder's direction step and grid_diagram.py raise
+  on some drawings and codes ('the pole lift is not an embedding' on kinks,
+  split diagrams and some spread-tutte drawings; spherogram's braid_word on
+  a split code under --grid-any-diagram): with a vector these are one
+  [error] line, and since 2026-10-19 (approved) without one too -- see the
+  FIX entry on bare capped-cylinder / grid-diagram failures below.  A crossing
+  offset of 0 has no over/under separation, so no realisation can be built:
+  with a vector it is refused before anything is written.  grid-diagram passes
+  `dt_flips_string_from_model` to grid_diagram.py and the chain layout
+  reads model["flips"] (and gets flips= where its builder takes it); both
+  need grid_diagram.py / chain_layout.py 1.1 or later and refuse an older
+  copy, which would ignore the vector.  The xyz audit takes the given
+  realisation (its mirror image at a negative offset) as its PRIMARY
+  reference: the bare code of the link drawn plus (components, vector),
+  flips_source 'the given flip vector', prefer_flips=True, so it compares
+  the curve's Jones polynomial with the realisation's (chirality included;
+  the isometry test is mirror-blind).  Where the audit can build no
+  reference at all (spherogram's decoder refuses some legal kink vectors,
+  and the Jones comparison is out of dt_converter's bounds) the curve's
+  mirror image is audited against the complemented vector -- the same
+  question.  A FAIL means the curve is provably not the requested
+  realisation (another link, or its mirror image: the open cylinder's pole
+  chords on the Hopf link, stereographic on the square knot, a Kamada
+  layout that links the pieces of a split diagram), so the build is
+  refused and no XYZ / .glb is written (the 2-D image and --table, written
+  before the 3-D build, are drawings of the requested vector and stay).  An
+  audit that raises instead of answering is reported as inconclusive
+  ([WARN]), not as a refusal.  grid-diagram lists and orients its
+  components its own way (by column, X -> O); with a vector they are put
+  back in the code's order and orientation, matched by signed linking
+  numbers (`_grid_component_match`; the 4-ring chain's grid had two
+  components reversed, which the oriented Jones comparison read as the
+  mirror image).  The .glb asset extras
+  gain "flips", "dt_flips" and "hand" (only with a vector); the
+  negative-offset [info] line names the vector.  The capped cylinder's
+  cache key carries the vector, and the GUI rebuilds a cached 3-D curve
+  before saving projections when the DT box's vector differs from the one
+  it was built with.  Without a vector every 3-D path is unchanged (XYZ and
+  .glb byte-identical over the bare corpus x 16 layout variants x offset
+  +/-5, apart from the two fixes below).
+* FIX (approved): the open cylinder (--sphere-layout shaped-kamada
+  --surface-shape cylinder) built the MIRROR image of every other kamada
+  layout at the same offset sign: its frame was [e2, e1, e0], determinant
+  -1.  Now [e2, -e1, e0] (proper; the axis is still the PCA major axis), so
+  the curve is the old one reflected in y and has the hand of
+  spherical-kamada, the ellipsoid and the torus (measured by the curve's
+  Jones polynomial on the trefoil, 5_2, L4a1 and the granny code: mirror
+  before, equal after).  The open cylinder's pole chords (an open item since
+  V5.7) still change crossings on some links -- the Hopf link at +5 came
+  out right before only because the two errors cancelled, and is now the
+  mirror image; with a flip vector the audit refuses it.
+* FIX (approved): grid-diagram ignored --negative-even: the raw typed signs
+  went to grid_diagram.py, which reads them in spherogram's convention
+  (negative = even visit over), so under 'under' the grid was the through-
+  page mirror of what stereo-safe and spherical-kamada build.  It now gets
+  the code of the link the model draws (`dt_flips_string_from_model`,
+  identical to the old string under the default 'over').  Also corrected:
+  the grid's hand at a positive offset is that of the code's own 2-D
+  drawing for the default same-diagram grid, and spherogram's reading only
+  for --grid-any-diagram (the help and the V5.7 note said 'spherogram's
+  reading' for both).
+* FIX (approved, 2026-10-19): a BARE code whose capped-cylinder or
+  grid-diagram build fails gets ONE [error] line, as a code with a flip
+  vector already did -- it was a Python traceback after the 2-D image.
+  --sphere-layout shaped-kamada --surface-shape capped-cylinder: the
+  direction step raises 'the pole lift is not an embedding' (kinks, split
+  codes, some spread-tutte, holed-tutte and planar drawings), networkx's
+  'Bad embedding ... Euler's formula' (every kamada / spring drawing: their
+  straight-line skeleton is not planar) or a KeyError (a split diagram's
+  disconnected gadget graph); the line now reads '... capped-cylinder
+  cannot lift this 2-D drawing: its direction step failed (<type>:
+  <message>); no XYZ / .glb was written -- use --sphere-layout stereo-safe
+  or sheet, which lift the same drawing, or draw it with another --layout'
+  (both build every such input tried).  --sphere-layout grid-diagram:
+  spherogram, inside grid_diagram.py, cannot read bare kinked codes and some
+  split ones, nor braid some split ones; '... grid-diagram[ --grid-any-
+  diagram] cannot build this code: grid_diagram.py failed (<type>:
+  <message>); no XYZ / .glb was written -- ...'.  With grid_diagram.py's
+  fix of the same day the default same-diagram grid no longer needs
+  spherogram's reading, so those codes now BUILD there (the two kinked
+  unknots: a 6 x 6 grid, same DT code, xyz audit ok) and the line is left
+  for --grid-any-diagram, where it says to drop that option (or to use
+  stereo-safe / sheet).  A user-facing refusal raised inside passes
+  through as before; exit status 1 and the 2-D image are unchanged.
+  Measured over 229 runs (the 90-run capped-cylinder sweep of 10 codes x 9
+  layouts, the grid-diagram sweep, kinks / split / composite / flip-vector
+  cases, .glb shells and rods): the 123 runs that succeeded are byte-
+  identical (XYZ, SVG, .glb, stdout / stderr after normalising timings,
+  paths and the degenerate xyz-audit volumes, which differ between runs of
+  one tree); of the 106 that failed, 99 tracebacks -> 0 (82 one [error]
+  line, 17 now build) and the 7 flip-vector refusals are unchanged.
+  Worded by cause (same day, round 3): the spherogram sentence is kept for
+  a failure grid_diagram.py tags as spherogram's (reading or braiding the
+  code, `grid_bare_spherogram_step`); a same-diagram ROUTER failure (tagged
+  `grid_same_diagram_step`: 'could not route the diagram on a flat grid up
+  to 240 cells', measured on 12 kinked backtrack codes whose default tutte
+  drawings have 4-155 false or undrawn crossings) now names the router, the
+  routed drawing's false or undrawn crossings, that the grid is always
+  routed from the default drawing whatever --layout says, and stereo-safe /
+  sheet, which lift THIS drawing -- adding, when this drawing has defects
+  too, '--layout spread-tutte, the layout made for kinked diagrams'; any
+  other failure names no cause.  The line used to blame spherogram for the
+  router.
+* (2026-10-19, round 4) A bare code that no diagram on the sphere has (its
+  crossing graph is not planar, so no flip vector is legal: 'DT: [(4,6,8,10,
+  2)]', 'DT: [(8,10,12),(2,4,6)]') is refused by prepare_diagram in one
+  user-facing line, in the toolkit's one wording (dt_converter's
+  NO_DIAGRAM_TEXT): '[error] no diagram on the sphere has this DT code: no
+  flip vector makes it planar, so there is nothing to draw; check the code'.
+  It was a RuntimeError traceback from compute_positions in every layout
+  (and in chain_layout and grid_diagram --same-diagram, which call
+  prepare_diagram).  The 3-D xyz audit no longer hangs on the bare kinked
+  'DT: [(8,6,2,4)]' family: audit_xyz installs dt_converter's guard on
+  spherogram's decoder, which raises DecoderLoop where it would loop, and the
+  audit takes its existing fallback reference (Invariant 24).  Every code
+  that drew before draws byte-identically.
+* (2026-10-20, round 4d) A BARE code the parser cannot read -- an
+  alphabetical 'DT[daddcab]', a prefix-less '8,6,2,4' -- is one [error]
+  line in the scorer's wording ('the drawing script cannot parse the DT
+  code ... (...): it reads signed DT codes written as lists of nonzero even
+  integers, e.g. 'DT: [(4, 6, 2)]', optionally followed by a flip vector.
+  dt_converter.py -i "..." --to dt converts other spellings ...';
+  `_unparseable_refusal`, called by main() only when the code itself does
+  not parse), exit 1; it was a traceback in every layout, 2-D and 3-D, with
+  a per-process object address ('<ast.Name object at 0x...>') in it.  Every
+  other ValueError keeps its traceback.  --sphere-layout grid-diagram on a
+  code with an EMPTY component ('DT: [(4,6,2), ()]') printed 'grid_diagram.py
+  failed (StopIteration: )'; grid_diagram.py now builds the code without it
+  -- as spherogram reads it, as --grid-any-diagram and this script's 2-D and
+  other 3-D drawings already did -- and `_grid_component_match` (flip-vector
+  runs) matches the grid's components with the code's NON-empty ones (it
+  compared the counts and gave up).  --sphere-layout shaped-kamada
+  --surface-shape capped-cylinder on such a code ended in a ValueError
+  traceback ('need at least one array to concatenate': the empty
+  component's curve is empty, as in every layout); `_can_map_components`
+  leaves it empty and the can report skips it (no 'Mean of empty slice'
+  warnings), so it builds like the other layouts.  Every bare code that drew
+  before draws byte-identically (a flip-vector grid-diagram run with an
+  empty component no longer prints the false '[grid] the grid's components
+  could not be matched ...' line; its XYZ is unchanged).
+* (2026-10-21, round 4e review) --sphere-layout grid-diagram (either mode) on
+  a code with no crossings ('DT: [()]', 'DT: [(), ()]') says so in its one
+  [error] line; it blamed kinked or split codes.
 
 V5.8 changes
 ------------
@@ -472,7 +739,10 @@ V5.7 changes
   shells are the two planes; the 'top' projection is the grid diagram.  At a
   positive offset the lift has the chirality spherogram and dt_converter
   assign to the DT code (writhe +3 for DT: [(4,6,2)]) -- a negative offset
-  mirrors it.  --grid-steps / --grid-seed, GUI 'grid search steps / seed'.
+  mirrors it.  [Corrected in V5.9: that holds for the braid-closure grid,
+  now --grid-any-diagram; the default same-diagram grid, added below, has
+  the hand of the code's own 2-D drawing (trefoil: writhe -3 at +5).]
+  --grid-steps / --grid-seed, GUI 'grid search steps / seed'.
   The module's own check builds the grid's link in spherogram directly from
   the markers with the component orientations FIXED (Link(build=False) +
   _build(start_orientations), spherogram's own rebuild hook; left to itself
@@ -1187,7 +1457,9 @@ still available with --sphere-layout stereographic.
 
 Inputs:
   --dt       signed DT code, for example
-             'DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]'
+             'DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]',
+             optionally with a flip vector naming one realisation (V5.9),
+             e.g. 'DT: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]'
   --output   output image path (.svg, .pdf, .png, etc.)
   --table    optional CSV mapping table
 
@@ -1197,7 +1469,7 @@ Outputs:
   and a spherical XYZ coordinate file with blank lines between components.
 
 Example:
-  python draw_dt_original_labelsV5_8.py \
+  python draw_dt_original_labelsV5_9.py \
     --dt 'DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]' \
     --output example_v3.svg \
     --table example_v3.csv \
@@ -1247,7 +1519,7 @@ matplotlib.rcParams["svg.fonttype"] = "none"
 matplotlib.rcParams["pdf.fonttype"] = 42
 matplotlib.rcParams["ps.fonttype"] = 42
 DIAGRAM_FONT_FAMILY = "Arial"
-SCRIPT_VERSION = "V5.8"
+SCRIPT_VERSION = "V5.9"
 VERSION = SCRIPT_VERSION
 # V5.6: crossing-separation measurement from the most recent kamada-family XYZ
 # build, so the GUI "?" popup for the crossing angle can show live numbers.
@@ -1284,7 +1556,28 @@ GUI_HELP_TEXT = {
         "(50,30,-22,58,-64,24,-32,-56),(46,68,-78,-48,40,-70,76,-38),"
         "(-6,16,54,-62,8,-14,60,-52)]\n\n"
         "L6BL: [(14,18,-24,-16,-32,26),(2,-8),(6,34,-40,-4,10,-48,42,-12),"
-        "(22,50,-58,-20,28,-52,56,-30),(62,38,-46,-64,44,-36),(60,-54)]"
+        "(22,50,-58,-20,28,-52,56,-30),(62,38,-46,-64,44,-36),(60,-54)]\n\n"
+        "FLIP VECTOR (V5.9, optional): a signed DT code does not fix the "
+        "diagram -- reflecting the page keeps the code, and every connected "
+        "summand reflects on its own -- so a code may be followed by one bit "
+        "per crossing naming the realisation to draw:\n\n"
+        "DT: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]   (the square knot)\n"
+        "DT: [(10, 6, 2, 4, 12, 8)], [0,0,1,1,0,1]   (the granny knot)\n\n"
+        "Bit k belongs to the crossing with odd label 2k+1 (spherogram / SnapPy "
+        "convention): walk along the visit with the SMALLER label -- 0 when the "
+        "other strand crosses from your right to your left, 1 when from left "
+        "to right.  Complementing every bit gives the mirror image.  Also "
+        "accepted: ', 010001', '(0,1,0,0,0,1)', T/F.  The vector needs exactly "
+        "one bit per crossing.  A trailing '# comment' is ignored; any other "
+        "text after the code (or a stray ',') is an error, as are unbalanced "
+        "brackets; the old multi-list spelling 'DT: [-4], [-2]' still reads as "
+        "one code.  The vector must be legal "
+        "(it must describe a diagram on the sphere), else the code is refused; "
+        "the drawing is checked to show it (tutte, shaped-tutte, cylinder-"
+        "tutte, spread-tutte and a clean 'planar' draw it as given; layouts "
+        "with their own 3-D hand are reflected, or refused when they draw a "
+        "different realisation).  Without a vector the drawing is exactly as "
+        "before."
     ),
     "output": "Path for the 2D diagram image. The extension controls the format: .svg, .pdf, .png, etc.",
     "table": "Optional CSV table listing each crossing, original odd/even DT labels, components, over/under label, and 2D coordinates.",
@@ -1343,7 +1636,7 @@ GUI_HELP_TEXT = {
     "show_tutte_pca": "Overlay the layout's principal axis, in both the live preview and any saved image. For shaped-tutte: the diagram's intrinsic (circular-Tutte) PCA elongation axis (with 'show shape outline', the angle between the two equals 'tutte orient deg'). For holed-tutte: the mid-ring closed principal curved axis (for cylinder-tutte the mid-ring circle). Only shown for the shaped-tutte / holed-tutte / cylinder-tutte layouts.",
     "surface_shape": "Target surface for the shaped-kamada sphere layout: ellipsoid, cylinder, or torus. The spherical construction is warped onto this surface and the over/under crossing offset follows the local surface normal. Only used when sphere layout is shaped-kamada.  capped-cylinder (V5.7) is a CLOSED cylinder -- side wall plus two end discs -- with its own layout: the chain runs along the cylinder's axis, its two end rings lie on the two end discs, and the middle rings follow in order up the wall.  The layout is Kamada-Kawai stress minimised ON the can, started from a lift of the 2-D drawing that puts one point inside each end ring at the disc centres, and every step is certified to keep the layout an embedding, so it cannot fold the way the spherical layout folds an elongated chain.  The finished curve is projected from the centre onto concentric closed cylinders, which keeps the link exactly.  See 'end rings'.",
     "surface_end_rings": "V5.7. Only for the capped-cylinder surface: which two components lie on the two end discs, as 0-based indices such as 0,7.  'auto' (default) takes the two end rings of a chain -- the components with a single neighbour when the components are linked one after another -- and 'none' (or a link that is not a chain) uses the deepest point of the 2-D drawing and its outside as the two disc centres instead.  The can's half-height / radius is 3 unless auto aspect is off, when 'surface aspect' sets it.",
-    "cube_style": "For the cubic-kamada sphere layout, how strands are drawn on the cube.  'smooth' maps them as smooth curves on the cube faces (like the sphere), with over/under a bump onto the concentric cube at +/- the crossing offset.  'angled' and 'grid' (V5.7) WIRE the diagram over the cube's faces: every crossing sits on a node of an N x N grid per face with its two strands along the two face axes, and every connector is an axis-aligned path on the surface grid that no other strand touches, so strands turn only 90 degrees (within a face, or folding over a cube edge) and cross only at right angles.  'angled' makes each crossing a right-angle bridge: the over-strand steps out by the crossing offset along the face normal, runs over the crossing point and steps back (the under-strand steps in).  'grid' is a grid diagram in 3-D: on each face the strands along one axis (the face's over axis) run on the outer shell and the strands along the other axis on the inner shell, a strand changes level with a post wherever it turns, and a crossing is simply the outer strand passing the inner one -- no bridge.  Both are correct by construction: the order of the four ports around every crossing is the diagram's own, read from its planar embedding, and the connectors never touch, so the result is the DT diagram whatever route they take (the topology audit still runs).  A detected cyclic symmetry is aligned with a matching cube axis (4-fold to a face, 3-fold to a body diagonal, 2-fold to an edge) and the wiring is then exactly symmetric where the style allows; else the diagram's PCA axis.  The status log reports the grid, the corner count and how far the crossings moved to reach their grid nodes.  Only used when sphere layout is cubic-kamada.",
+    "cube_style": "For the cubic-kamada sphere layout, how strands are drawn on the cube.  'smooth' maps them as smooth curves on the cube faces (like the sphere), with over/under a bump onto the concentric cube at +/- the crossing offset.  'angled' and 'grid' (V5.7) WIRE the diagram over the cube's faces: every crossing sits on a node of an N x N grid per face with its two strands along the two face axes, and every connector is an axis-aligned path on the surface grid that no other strand touches, so strands turn only 90 degrees (within a face, or folding over a cube edge) and cross only at right angles.  'angled' makes each crossing a right-angle bridge: the over-strand steps out by the crossing offset along the face normal, runs over the crossing point and steps back (the under-strand steps in).  'grid' is a grid diagram in 3-D: on each face the strands along one axis (the face's over axis) run on the outer shell and the strands along the other axis on the inner shell, a strand changes level with a post wherever it turns, and a crossing is simply the outer strand passing the inner one -- no bridge.  Both are correct by construction: the order of the four ports around every crossing is the diagram's own, read from its planar embedding, and the connectors never touch, so the result is the DT diagram whatever route they take (the topology audit still runs).  V5.9, a DT code with a flip vector: the port order is the vector's, so these two styles build the given realisation even where the Kamada sphere layout realises another diagram of the code (a reflected connected summand, which the other kamada layouts refuse); the wiring then follows that layout's crossing positions, the router negotiates on at most two grid sizes, and the build is refused with one [error] line if neither routes (measured: every such wiring found routed on the first size, in seconds).  A detected cyclic symmetry is aligned with a matching cube axis (4-fold to a face, 3-fold to a body diagonal, 2-fold to an edge) and the wiring is then exactly symmetric where the style allows; else the diagram's PCA axis.  The status log reports the grid, the corner count and how far the crossings moved to reach their grid nodes.  Only used when sphere layout is cubic-kamada.",
     "cube_grid": "V5.7. For cube styles 'angled' and 'grid': the routing grid, in cells per cube face side (the base cube's face is split N x N; crossings sit on grid nodes and wires run along grid lines).  0 (default) picks N from the diagram -- about 12 cells between the two closest crossings, at least 6 -- and refines it automatically, by 30%% at a time, if the crossings collide or the wires cannot all be routed.  A coarser grid gives longer straight runs and fewer lanes, and moves each crossing by up to half a cell from its layout position; a finer one follows the layout more closely.  A requested value that is too coarse is refined too, and the status log says so.  Ignored by the smooth style.",
     "surface_auto_orient": "Shaped-kamada auto orient. When on, the surface's primary axis (ellipsoid major, cylinder length, torus symmetry) is aligned to the diagram's principal (3D PCA) axis. When off, 'surface orient deg' spins the mapping about that primary axis, measured from the PCA axis. Independent of auto aspect.",
     "surface_auto_aspect": "Shaped-kamada auto aspect. When on, the surface proportions (ellipsoid axis ratios, cylinder length/radius, or torus tube ratio) are derived from the diagram's own 3D PCA magnitudes so the surface is as elongated as the diagram. It does NOT equalize strand lengths. When off, the manual surface aspect / tube values are used. Independent of orientation.",
@@ -1360,9 +1653,9 @@ GUI_HELP_TEXT = {
     "line_width": "2D strand line width in Matplotlib points. Default: 2.0.",
     "gap_frac": "Under-strand gap size in the 2D image. This is a ratio of the overall 2D diagram span, not an absolute coordinate distance. Default: 0.025.",
     "over_gap_factor": "Length of the colored OVER-strand piece redrawn on top of each crossing gap, as a multiple of the under-strand gap. At each crossing the under strand is masked with a white piece and the over strand is then redrawn over it; if this piece is too short a white nick shows at the crossing. Must be > 1 so the over strand fully covers the white mask; increase for thicker lines or if nicks appear. Default: 2.0.",
-    "sphere_layout": "XYZ sphere layout. spherical-kamada distributes the graph directly over the sphere and is best for symmetric spherical models. shaped-kamada warps that construction onto a shaped surface. cubic-kamada maps it onto a cube, aligning a detected cyclic symmetry with a matching cube axis (see cube style for smooth vs 90-degree-angled strands). raw-kk skips the projection altogether: the 3-D Kamada-Kawai layout puts nodes at different distances from the centre, and the other layouts throw that away by pushing everything onto one sphere. raw-kk keeps each crossing at its own radius, so the diagram sits on as many concentric shells as the graph actually wants, and the sorted radii are printed as [raw-KK] status lines (1.000 = the mean shell). Some links layer cleanly -- the Bing-double clasps put one component pair on its own outer shell -- while others give a continuous spread. Useful for seeing the structure the projection hides; the strands still carry the usual over/under bumps and the topology audit still runs. stereographic maps the current 2D drawing onto a sphere. stereo-safe uses the audited planar layout, stereographically lifts it, and adds only radial crossing bumps; it is the correct-by-construction choice when a dense Kamada layout fails the topology audit.  grid-diagram (V5.7) is different in kind: it ignores the sphere and lifts a MINIMAL GRID DIAGRAM of the link into 3-D -- an n x n grid with one X and one O per row and column (KnotInfo's grid notation; the smallest n is the link's arc index), vertical segments on the plane z = +offset, horizontal ones on z = -offset, and a post at every X and O.  Every edge is parallel to an axis and every crossing is the upper strand passing the lower one at a right angle.  grid_diagram.py builds it from THIS diagram's 2-D layout and shrinks it by planar isotopies, so the DT code is unchanged (default; see 'grid diagram keeps this diagram'), or from the braid closure over all diagrams of the link, certified minimal when the HOMFLY-PT bound is met.  The grid spans the sphere radius in x and y.  sheet (V5.7) keeps an elongated link elongated: the 2-D drawing is lifted onto a ruled sheet along its own long axis -- flat, bent about that axis (sheet bend) or twisted along it (sheet twist) -- with over / under as an offset within each cross-section, so the three layers are concentric and the lift is correct by construction like stereo-safe, but the two ends of a chain never curl towards each other.  The 2-D drawing sets the proportions (an elliptical shaped-tutte layout with a large aspect draws a chain as a straight caterpillar); sheet aspect can stretch it further.  chain (V5.7) is for LINEAR chains only -- links whose rings form a path, each linked only with its neighbours, like the 8-ring Brunnian chain: segment-and-reunite (chain_layout.py) cuts an elongated 2-D drawing into its clasps by one straight line through every middle ring, lays each clasp out in 3-D by a certified relaxation, reunites them by twisting slab k by k x chain twist about the chain's axis, and relaxes the whole chain into a straight rubber-band chain whose consecutive rings interlock in nearly perpendicular planes.  Every step is certified or exact, a self-check compares Jones polynomial and linking numbers, and a positive crossing offset gives spherogram's reading of the DT code, a negative one its mirror.  Anything that is not a chain, or a chain no drawing can cut, is refused with a message.  It takes one to two minutes for 48 crossings (cached within a session).  'chain form' folded builds the same chain as relaxed rubber bands instead: round end rings, doubled bands, clasps at 90 degrees.",
+    "sphere_layout": "XYZ sphere layout. spherical-kamada distributes the graph directly over the sphere and is best for symmetric spherical models. shaped-kamada warps that construction onto a shaped surface. cubic-kamada maps it onto a cube, aligning a detected cyclic symmetry with a matching cube axis (see cube style for smooth vs 90-degree-angled strands). raw-kk skips the projection altogether: the 3-D Kamada-Kawai layout puts nodes at different distances from the centre, and the other layouts throw that away by pushing everything onto one sphere. raw-kk keeps each crossing at its own radius, so the diagram sits on as many concentric shells as the graph actually wants, and the sorted radii are printed as [raw-KK] status lines (1.000 = the mean shell). Some links layer cleanly -- the Bing-double clasps put one component pair on its own outer shell -- while others give a continuous spread. Useful for seeing the structure the projection hides; the strands still carry the usual over/under bumps and the topology audit still runs. stereographic maps the current 2D drawing onto a sphere. stereo-safe uses the audited planar layout, stereographically lifts it, and adds only radial crossing bumps; it is the correct-by-construction choice when a dense Kamada layout fails the topology audit.  grid-diagram (V5.7) is different in kind: it ignores the sphere and lifts a MINIMAL GRID DIAGRAM of the link into 3-D -- an n x n grid with one X and one O per row and column (KnotInfo's grid notation; the smallest n is the link's arc index), vertical segments on the plane z = +offset, horizontal ones on z = -offset, and a post at every X and O.  Every edge is parallel to an axis and every crossing is the upper strand passing the lower one at a right angle.  grid_diagram.py builds it from THIS diagram's 2-D layout and shrinks it by planar isotopies, so the DT code is unchanged (default; see 'grid diagram keeps this diagram'), or from the braid closure over all diagrams of the link, certified minimal when the HOMFLY-PT bound is met.  The grid spans the sphere radius in x and y.  sheet (V5.7) keeps an elongated link elongated: the 2-D drawing is lifted onto a ruled sheet along its own long axis -- flat, bent about that axis (sheet bend) or twisted along it (sheet twist) -- with over / under as an offset within each cross-section, so the three layers are concentric and the lift is correct by construction like stereo-safe, but the two ends of a chain never curl towards each other.  The 2-D drawing sets the proportions (an elliptical shaped-tutte layout with a large aspect draws a chain as a straight caterpillar); sheet aspect can stretch it further.  chain (V5.7) is for LINEAR chains only -- links whose rings form a path, each linked only with its neighbours, like the 8-ring Brunnian chain: segment-and-reunite (chain_layout.py) cuts an elongated 2-D drawing into its clasps by one straight line through every middle ring, lays each clasp out in 3-D by a certified relaxation, reunites them by twisting slab k by k x chain twist about the chain's axis, and relaxes the whole chain into a straight rubber-band chain whose consecutive rings interlock in nearly perpendicular planes.  Every step is certified or exact, a self-check compares Jones polynomial and linking numbers, and a positive crossing offset gives spherogram's reading of the DT code (V5.9: the given realisation when the code carries a flip vector), a negative one its mirror.  Anything that is not a chain, or a chain no drawing can cut, is refused with a message.  It takes one to two minutes for 48 crossings (cached within a session).  'chain form' folded builds the same chain as relaxed rubber bands instead: round end rings, doubled bands, clasps at 90 degrees.  V5.9, a DT code with a flip vector: every layout builds the given realisation at a positive crossing offset and its mirror image at a negative one, or refuses with one [error] line.  stereographic, stereo-safe, sheet and the capped cylinder lift the 2-D drawing, which is drawn with the vector; a drawing with false or undrawn crossings is refused for them (use spread-tutte or a min separation); the kamada layouts reflect their directions when needed and refuse a different diagram of the code (a reflected connected summand), except the angled / grid cube, which wires the vector's own port order over it (first two grid sizes; refused if neither routes); a crossing offset of 0 is refused; grid-diagram and chain get the code with its vector.  A curve the topology audit proves to be another link or the wrong hand (it compares Jones polynomials) is refused, not written.",
     "grid_steps": "V5.7. Only for sphere layout grid-diagram: how many steps the random search takes to shrink the grid diagram (commutations and cyclic shifts of rows and columns, destabilisations whenever a 2 x 2 block holds three markers, an occasional stabilisation to escape a dead end).  It stops early when the size reaches the Morton-Beltrami lower bound (HOMFLY-PT a-breadth + 2), which proves it minimal; otherwise more steps or another seed may still find a smaller one.  Results are cached for the session.  Default 20000.",
-    "grid_same_diagram": "V5.7. Only for sphere layout grid-diagram.  Checked (default): the grid diagram is a grid diagram of THIS diagram -- it is built by routing the DT code's own 2-D layout rectilinearly with the over strand vertical at every crossing, and simplified by planar isotopies only (destabilisations, commutations of non-overlapping segments, kink-free stabilisations; no cyclic shifts), so it has exactly the input's crossings and the same DT code, which the status log verifies by canonical DT code.  It is the smallest grid found for this diagram; the link's arc-index bound does not apply to it.  Unchecked: the search minimises over ALL diagrams of the link (grid number / arc index), starting from the braid closure, and the result is in general a different diagram of the same link -- 4BL's 12 x 12 grid is a clasp, not the rosette.  CLI: --grid-any-diagram.",
+    "grid_same_diagram": "V5.7. Only for sphere layout grid-diagram.  Checked (default): the grid diagram is a grid diagram of THIS diagram -- it is built by routing the DT code's own 2-D layout rectilinearly with the over strand vertical at every crossing, and simplified by planar isotopies only (destabilisations, commutations of non-overlapping segments, kink-free stabilisations; no cyclic shifts), so it has exactly the input's crossings and the same DT code, which the status log verifies by canonical DT code.  It is the smallest grid found for this diagram; the link's arc-index bound does not apply to it.  Unchecked: the search minimises over ALL diagrams of the link (grid number / arc index), starting from the braid closure, and the result is in general a different diagram of the same link -- 4BL's 12 x 12 grid is a clasp, not the rosette.  CLI: --grid-any-diagram.  Hand (V5.9, corrected): at a positive crossing offset the default grid has the hand of the DT code's own 2-D drawing (grid_diagram re-draws the code with the default layout; trefoil DT: [(4,6,2)]: writhe -3), the link-level search the hand spherogram assigns to the code (writhe +3 for the knot); a negative offset mirrors either.  With a flip vector both follow the vector: the given realisation at a positive offset, its mirror image at a negative one.  The code is passed in spherogram's convention, so --negative-even under gives the same link as the other layouts (up to V5.8 the grid was then their mirror image).",
     "sheet_bend": "V5.7. Only for sphere layout sheet: the angle, in degrees, that the sheet's cross-section bends through about the long axis.  0 = a flat sheet (the 2-D drawing with over / under bumps, lying in a plane); 90-180 = a curved trough or half-cylinder around the chain's axis; 360 = a closed tube, the top and bottom edges of the drawing meeting along a seam in the outer face.  Over / under is radial within the cross-section, so the layers are concentric arcs and the lift stays correct as long as the crossing offset is smaller than the arc radius (width / bend), which the status log checks.",
     "sheet_twist": "V5.7. Only for sphere layout sheet: the total twist of the cross-section about the long axis from one end to the other, in degrees -- 180 turns the sheet into a half-twisted ribbon along the chain, 360 a full twist.  Cross-sections stay in disjoint planes whatever the twist, so the lift remains correct by construction.",
     "chain_twist": "V5.7. Only for sphere layout chain, chain form perpendicular: the STARTING turn of each clasp slab about the chain's axis relative to the previous one, in degrees, applied when the clasps are reunited.  Slab k is turned k x this angle -- always ADDING (an alternating 0 / 90 pattern was tried and fails).  The turn is applied by the twist map (u, v, w) -> (R(theta(u)) (v, w), u), which cannot change the link.  It is not the final angle between the rings: the first end ring is turned 90 degrees in its own segment, and the global relaxation (chain relax rounds > 0) pulls consecutive rings toward perpendicular planes whatever the twist.  So 0 does NOT give a flat chain -- the 8-ring chain at 0 still ends with consecutive ring planes 73-80 degrees apart; with 0 rounds as well the middle clasps stay nearly flat (the 4-ring chain: 88, 10, 12 degrees, the first end ring still turned).  The default 90 starts the rings where the relaxation wants them.",
@@ -1376,7 +1669,7 @@ GUI_HELP_TEXT = {
     "grid_seed": "V5.7. Only for sphere layout grid-diagram: the seed of the random search.  Different seeds give different (equally valid) grid diagrams of the same size; try a few for the prettiest.  Default 0.",
     "sphere_radius": "Base radius of the sphere in XYZ coordinate units. Default: 50.0. With crossing offset = 0, all XYZ points lie at this radius.",
     "sphere_extent": "Only used by stereographic. Dimensionless. After centering the 2D drawing, the farthest planar point is scaled to this radius before inverse stereographic projection. 1.0 reaches the equator; larger values use more of the southern hemisphere.",
-    "crossing_offset": "Signed radial offset in XYZ coordinate units, not a ratio. Over-layer radius is R + offset; under-layer radius is R - offset. Default: 5.0. Use 0 for a perfect sphere with no height separation. A NEGATIVE value swaps the two layers, inverting every crossing: the exported curve is then the MIRROR of the positive-offset build. That is a legitimate second realisation, because a signed DT code does not determine handedness -- but note the topology audit cannot tell the two apart (SnapPy's isometry test is mirror-blind). Only the magnitude is limited by the sphere radius.",
+    "crossing_offset": "Signed radial offset in XYZ coordinate units, not a ratio. Over-layer radius is R + offset; under-layer radius is R - offset. Default: 5.0. Use 0 for a perfect sphere with no height separation (refused with a flip vector: without over/under separation no realisation can be built). A NEGATIVE value swaps the two layers, inverting every crossing: the exported curve is then the MIRROR of the positive-offset build. That is a legitimate second realisation, because a signed DT code does not determine handedness -- but note the topology audit cannot tell the two apart (SnapPy's isometry test is mirror-blind). Only the magnitude is limited by the sphere radius.  V5.9: when the DT code carries a flip vector ('DT: [...], [0,1,...]') the realisation is named, and every 3-D layout follows one rule: a POSITIVE offset builds the given realisation, a NEGATIVE one its mirror image (the status log's [flips] line says which, with the writhe).  The kamada layouts reflect their directions when they land on the mirror image, and REFUSE (one [error] line) when they land on a different diagram of the code -- a composite whose summand they reflect, e.g. the square knot of DT: [(10, 6, 2, 4, 12, 8)]: use stereo-safe, sheet or shaped-kamada capped-cylinder (which lift the 2-D drawing, drawn with the vector; a drawing with false crossings is refused -- draw it with spread-tutte or a min separation), or the angled / grid cube, which wires the vector's own port order over the Kamada layout (on its first two grid sizes; refused if neither routes).  The audit then compares the curve's Jones polynomial with the given realisation's (or its mirror's), and a curve it proves to be another link or the wrong hand is refused, not written.",
     "sphere_bump_frac": "Dimensionless ratio, not an absolute distance. It does not change the 2D preview. Without direct connecting, it controls local crossing bump width: 1.0 uses the whole crossing patch and smaller values narrow the bump. With direct connecting, local crossing arcs stay on their inner/outer layer; for dip-to-bump or bump-to-dip connectors this fraction controls how much of the connector is used for the smooth radial transition. Default: 1.0.",
     "sphere_crossing_angle": "Angular half-size of each local crossing patch, in degrees. Larger values make crossings more open on the sphere. Default: 15 degrees.\n\nHOW LARGE CAN IT BE? Each crossing occupies a patch of this half-width, so two neighbouring crossings need TWICE this angle between their centres or their patches overlap -- and overlapping patches let strands belonging to DIFFERENT crossings meet, which is how a dense kamada layout comes out as the wrong link. The governing number is the closest pair of crossings on the sphere ('nn min'): the largest safe crossing angle is nn min / 2. The average spacing ('nn mean') describes typical crowding and can look comfortable while nn min is already too tight, so read the minimum, not the mean.\n\nEvery kamada-family 3-D build prints a [geom] line with both numbers and the verdict, before any repair runs. Nothing is clamped automatically -- the angle you ask for is the angle you get; the numbers are advisory. The hard limit is still below 28.5 degrees.",
     "sphere_refine": "V5.6. After the kamada layout is projected onto the sphere, run a SECOND stress minimisation with the points constrained to the sphere and distances measured as great-circle arcs. Default: OFF.\n\nWhy it exists: the kamada layouts minimise the stress in flat 3-D space and only then project onto the sphere, so the energy that was optimised is not the energy of the arrangement that is actually drawn. This closes that gap. It is a refinement, never a replacement -- started from scratch the spherical stress collapses into degenerate minima, so it is always warm-started from the projected layout, and if it cannot improve on its input the unrefined layout is kept.\n\nApplies to spherical-kamada, shaped-kamada (ellipsoid / cylinder / torus) and cubic-kamada alike, because it acts on the directions BEFORE the gadgets are compacted; the shaped and cube warps run afterwards as usual. Not used by stereographic or stereo-safe.\n\nAcross 17 test links it lowered the spherical stress in every case but improved the closest crossing spacing in only some of them, so it is opt-in. When on, a [refine] status line reports stress, closest pair and mean spacing before and after, so you can check whether it helped THIS diagram. Costs roughly 1.4-2x the layout time.",
@@ -1404,19 +1697,218 @@ GUI_HELP_TEXT = {
 }
 
 
+# ---------------------------------------------------------------------------
+#  DT + flip vector input -- shared helper.  Every tool carries a BYTE-IDENTICAL
+#  copy of this block (from the BEGIN to the END marker), like the version
+#  resolver helpers of Invariant 26.  Needs only ``re``.
+#
+#  Spelling: 'DT: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]'.  One bit per
+#  crossing; bit k belongs to the crossing whose odd label is 2k+1 (the k-th
+#  DT entry).  spherogram/SnapPy convention: walk along the visit with the
+#  SMALLER label -- bit 0 when the other strand crosses from your right to
+#  your left, 1 when from left to right.  Complementing every bit reflects the
+#  page (the mirror image).  A prime diagram has exactly two legal vectors
+#  (complements); a code with k independently reflectable pieces has 2**k.
+# ---------------------------------------------------------------------------
+# BEGIN dt-flips helpers (keep identical in every tool)
+_DT_FLIPS_ERROR = ("could not read %r after the DT code as a flip vector "
+                   "(one 0/1 per crossing, e.g. 'DT: [(4, 6, 2)], [0,0,1]')")
+
+
+def split_dt_flips(text):
+    """Split 'DT: [...], [0,1,...]' into ('DT: [...]', [False, True, ...]).
+
+    Text with nothing after the DT code's closing bracket comes back
+    UNCHANGED with None, so a bare code takes exactly its old path; so does
+    an old multi-list spelling whose later lists hold more components
+    ('DT: [(-6,-8)], [(-4,-2)]').  Also read: ', 010001' / '; 010001' / no
+    separator, '(0,1,..)', spaces instead of commas, T/F and True/False, and
+    the tuple wrapper 'DT: ([(..)], [0,1,..])' (str() of spherogram's
+    DT_code(flips=True)).  A vector has one bit per entry of the code's list.
+    A trailing '# comment' is dropped (a bare code with one comes back
+    without it).  Any other text after the code raises ValueError -- it is
+    never ignored."""
+    s = str(text)
+    t = s.rstrip()
+    i = t.find("[")
+    if i < 0:
+        return s, None
+    depth, j = 0, -1
+    for j in range(i, len(t)):
+        if t[j] == "[":
+            depth += 1
+        elif t[j] == "]":
+            depth -= 1
+            if depth == 0:
+                break
+    if depth != 0:
+        if t.count("[") > 1:
+            raise ValueError("unbalanced brackets in %r: the code's list must "
+                             "close before a flip vector, e.g. "
+                             "'DT: [(4, 6, 2)], [0,0,1]'" % s[:80])
+        return s, None            # unbalanced: the caller's parser reports it
+    head, rest = t[:i], t[j + 1:]
+    note = rest.find("#")
+    base = s if note < 0 else t[:j + 1 + note].rstrip()
+    rest = (rest if note < 0 else rest[:note]).strip()
+    wrapped = head.rstrip().endswith("(") and rest.endswith(")")
+    if wrapped:
+        rest = rest[:-1].strip()
+    if not rest:
+        inner = t[i + 1:j]
+        if "(" in inner and re.search(r"\d", re.sub(r"\([^()]*\)", "", inner)):
+            raise ValueError("numbers outside the parenthesised components of "
+                             "%r: a flip vector goes AFTER the code's closing "
+                             "bracket, e.g. 'DT: [(4, 6, 2)], [0,0,1]'" % s[:80])
+        return base, None
+    code = (head.rstrip()[:-1] if wrapped else head) + t[i:j + 1]
+    body = rest[1:].strip() if rest[0] in ",;" else rest
+    if body and body[0] + body[-1] in ("[]", "()"):
+        body = body[1:-1].strip()
+    tokens = [x for x in re.split(r"[\s,;]+", body) if x]
+    bits = None
+    if len(tokens) == 1 and re.fullmatch(r"[01]+|[TFtf]+", tokens[0]):
+        bits = [ch in "1Tt" for ch in tokens[0]]
+    elif tokens and all(x.lower() in ("0", "1", "t", "f", "true", "false")
+                        for x in tokens):
+        bits = [x.lower() in ("1", "t", "true") for x in tokens]
+    labels = [int(v) for v in re.findall(r"\d+", t[i + 1:j])]
+    n = len(labels)
+    if bits is not None and len(bits) == n:
+        return code, bits
+    labels += [int(v) for v in re.findall(r"\d+", rest)]
+    if (len(labels) > n and sorted(labels) == list(range(2, 2 * len(labels) + 1, 2))
+            and not re.search(r"[^\s,;|()\[\]\d\-\u2212\u2012\u2013\u2014\ufe63\uff0d]", rest)):
+        return base, None         # more components: an old multi-list spelling
+    if bits is not None:
+        raise ValueError("the flip vector has %d entries but the code has %d "
+                         "crossings" % (len(bits), n))
+    raise ValueError(_DT_FLIPS_ERROR % rest)
+
+
+def format_dt_flips(dt_text, flips):
+    """'DT: [...]' + flips -> 'DT: [...], [0,1,...]' (dt_converter's spelling);
+    the bare text unchanged when flips is None."""
+    if flips is None:
+        return dt_text
+    return "%s, [%s]" % (str(dt_text).rstrip(),
+                         ",".join("1" if f else "0" for f in flips))
+
+
+def check_flips(comps, flips):
+    """Raise ValueError unless ``flips`` is a legal vector for the signed DT
+    code ``comps`` (a list of tuples of even integers): one bit per crossing,
+    and the diagram it describes lies on the sphere (every connected piece
+    has genus 0: faces == crossings + 2 x pieces).  Pure Python; accepts the
+    kink vectors spherogram's DTcodec cannot build."""
+    entries = [int(e) for c in comps for e in c]
+    n = len(entries)
+    flips = [bool(f) for f in flips]
+    if len(flips) != n:
+        raise ValueError("the flip vector has %d entries but the code has %d "
+                         "crossings" % (len(flips), n))
+    cross, nxt, start = {}, {}, 1
+    for c in comps:
+        labels = list(range(start, start + 2 * len(c)))
+        for a, b in zip(labels, labels[1:] + labels[:1]):
+            nxt[a] = b
+        start += 2 * len(c)
+    for k, e in enumerate(entries):
+        cross[2 * k + 1] = cross[abs(e)] = k
+    if sorted(cross) != list(range(1, 2 * n + 1)):
+        raise ValueError("not a DT code: the even labels are not a "
+                         "permutation of 2..%d" % (2 * n))
+
+    def slots(p):                 # (in slot, out slot) of label p: S0 E1 N2 W3
+        k = cross[p]
+        small = min(2 * k + 1, abs(entries[k]))
+        if p != small:
+            return 1, 3
+        return (2, 0) if flips[k] else (0, 2)
+
+    other = {}
+    for p in range(1, 2 * n + 1):
+        q = nxt[p]
+        a, b = (cross[p], slots(p)[1]), (cross[q], slots(q)[0])
+        other[a], other[b] = b, a
+    seen, faces = set(), 0
+    for d in other:
+        if d in seen:
+            continue
+        faces += 1
+        while d not in seen:
+            seen.add(d)
+            k, sl = other[d]
+            d = (k, (sl + 1) % 4)
+    parent = list(range(n))
+
+    def root(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    for p in range(1, 2 * n + 1):
+        parent[root(cross[p])] = root(cross[nxt[p]])
+    pieces = len({root(k) for k in range(n)})
+    if faces != n + 2 * pieces:
+        raise ValueError(
+            "the flip vector %s is not a legal one for this DT code: it "
+            "describes no diagram on the sphere (%d faces; a planar diagram "
+            "with %d crossing(s) in %d piece(s) has %d)"
+            % ("".join("1" if f else "0" for f in flips), faces, n, pieces,
+               n + 2 * pieces))
+
+
+def flips_crossing_signs(comps, flips):
+    """Crossing signs (+1 / -1, in DT entry order) of the diagram (comps,
+    flips) in spherogram's convention, where a NEGATIVE entry means the even
+    visit is the over-crossing: negative exactly when
+    flip XOR (even visit over) XOR (even label < odd label)."""
+    out = []
+    for k, e in enumerate(int(e) for c in comps for e in c):
+        neg = bool(flips[k]) ^ (e < 0) ^ (abs(e) < 2 * k + 1)
+        out.append(-1 if neg else 1)
+    return out
+# END dt-flips helpers
+
+
 # --------------------------------------------------------------------------- #
 #  1. Parsing and combinatorial model
 # --------------------------------------------------------------------------- #
-def parse_dt(text):
-    """Parse a string like 'DT: [(-8,-12,16),(-24,...)]'."""
-    # Copy-pasting from documents often turns the ASCII hyphen-minus into a
-    # look-alike Unicode dash (math minus, en/em dash, fullwidth minus) or a
-    # non-ASCII space; normalize those so ast.literal_eval accepts the code.
+def _normalize_dt_text(text):
+    """parse_dt's input normalisation: copy-pasting from documents often turns
+    the ASCII hyphen-minus into a look-alike Unicode dash (math minus, en/em
+    dash, fullwidth minus) or a non-ASCII space; normalize those so
+    ast.literal_eval accepts the code."""
     text = str(text)
     for ch in ("−", "–", "—", "‐", "‑", "－", "―"):
         text = text.replace(ch, "-")
     for ch in (" ", " ", " ", " ", " ", "　"):
         text = text.replace(ch, " ")
+    return text
+
+
+def parse_dt(text):
+    """Parse a string like 'DT: [(-8,-12,16),(-24,...)]'.
+
+    V5.9: the text is first read by `split_dt_flips` and this parser works on
+    the text it RETURNS: a trailing '# comment' is dropped (also when more
+    lines follow it), and text without one comes back unchanged, so a bare
+    code parses exactly as before.  A code followed by a flip vector
+    ('DT: [...], [0,1,...]') is REFUSED here -- this parser returns the
+    components only, and dropping the vector would silently draw another
+    realisation; read such text with `parse_dt_flips`.  Any other text after
+    the code's closing bracket ('... trefoil', a stray ',') is refused too
+    (it used to be ignored), and so are unbalanced brackets with more than
+    one '['.  An old multi-list spelling whose later lists hold the other
+    components ('DT: [-4], [-2]', all labels together 2..2N) is not a vector
+    and is read as before."""
+    text = _normalize_dt_text(text)
+    text, _flips = split_dt_flips(text)
+    if _flips is not None:
+        raise ValueError("this DT code carries a flip vector; read it with "
+                         "parse_dt_flips (parse_dt returns the components "
+                         "only and must not drop the vector)")
     m = re.search(r"\[.*\]", text.strip(), re.DOTALL)
     if not m:
         raise ValueError("Could not find a '[...]' list in the DT input.")
@@ -1456,7 +1948,82 @@ def parse_dt(text):
     return comps
 
 
-def build_model(comps, negative_even="over"):
+def _user_facing(exc):
+    """Mark a ValueError (or make one from a message) as a refusal whose text
+    is the whole explanation: main() prints it as ONE [error] line, exit 1."""
+    if not isinstance(exc, ValueError):
+        exc = ValueError(str(exc))
+    exc.user_facing = True
+    return exc
+
+
+def _respell_singletons(dt_text):
+    """'DT: [(-4), (-2)]' -> 'DT: [(-4,), (-2,)]': a one-crossing component
+    written without its trailing comma is not a tuple, and ast.literal_eval
+    would read the whole code as ONE component (Invariant 11).  Only groups
+    directly inside the code's outer brackets are respelled; used on the
+    flip-vector path only (a bare code is read exactly as before)."""
+    s = str(dt_text)
+    i = s.find("[")
+    if i < 0:
+        return s
+    out, depth, k = [s[:i]], 0, i
+    while k < len(s):
+        ch = s[k]
+        if ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+        elif ch == "(" and depth == 1:
+            close = s.find(")", k)
+            if close > k and re.fullmatch(r"\s*[+-]?\d+\s*", s[k + 1:close]):
+                out.append(s[k:close].rstrip() + ",)")
+                k = close + 1
+                continue
+        out.append(ch)
+        k += 1
+    return "".join(out)
+
+
+def parse_dt_flips(text):
+    """Parse a DT code that may carry a flip vector (V5.9).
+
+    Returns ``(comps, flips)``: the components exactly as `parse_dt` reads
+    them and the vector as a list of bools (bit k <-> odd label 2k+1), or
+    ``(comps, None)`` for a bare code -- then `parse_dt` itself does the work
+    on the text `split_dt_flips` returns (unchanged without a '# comment',
+    the comment dropped with one), so a bare code is read (and refused)
+    exactly as before.  Spellings: see `split_dt_flips` -- ', [0,1,..]',
+    ', 010001', '; 010001', '(0,1,..)', spaces, T/F, True/False, no
+    separator, the tuple wrapper 'DT: ([(..)], [..])', a trailing '# comment'
+    (dropped); the vector must have exactly one bit per entry of the code's
+    list; any other text after the code, or unbalanced brackets with more
+    than one '[', is an error; an old multi-list spelling ('DT: [-4], [-2]',
+    all labels together 2..2N) is a bare code.  A one-crossing component may
+    also be written without its comma, '(-4)', before a vector.  The vector
+    is checked with `check_flips` (one bit per crossing, a diagram on the
+    sphere).  Errors on the vector path, and errors of `split_dt_flips`, are
+    one-line ValueErrors with ``user_facing = True`` (main() prints them as
+    one [error] line)."""
+    norm = _normalize_dt_text(text)
+    try:
+        dt_text, flips = split_dt_flips(norm)
+    except ValueError as exc:
+        raise _user_facing(exc)
+    if flips is None:
+        # the text split_dt_flips returned: the normalised input itself for a
+        # bare code (so it parses exactly as before), the code without its
+        # '# comment' when it has one (parse_dt's own split is then a no-op)
+        return parse_dt(dt_text), None
+    try:
+        comps = parse_dt(_respell_singletons(dt_text))
+        check_flips(comps, flips)
+    except ValueError as exc:
+        raise _user_facing(exc)
+    return comps, [bool(f) for f in flips]
+
+
+def build_model(comps, negative_even="over", flips=None):
     """
     Build the full combinatorial model from signed DT components.
 
@@ -1471,7 +2038,18 @@ def build_model(comps, negative_even="over"):
       over_at        : dict position -> True if that visit is the over-strand
       crossings      : list of {odd, even, even_signed}, ordered by odd labels
       twon           : total number of traversal labels
+      flips          : (V5.9, ONLY when ``flips`` is given) the flip vector
+                       naming the realisation, list of bool, bit k <->
+                       crossings[k] (odd label 2k+1); checked with
+                       `check_flips`.  It describes the shadow, so it does
+                       not depend on ``negative_even``.
     """
+    if flips is not None:
+        flips = [bool(f) for f in flips]
+        try:
+            check_flips(comps, flips)
+        except ValueError as exc:
+            raise _user_facing(exc)
     pos = 1
     odd_partner = {}
     even_sign = {}
@@ -1547,7 +2125,7 @@ def build_model(comps, negative_even="over"):
         over_at[c["even"]] = even_over
         over_at[c["odd"]] = not even_over
 
-    return {
+    model = {
         "comp_positions": comp_positions,
         "comp_of": comp_of,
         "nextpos": nextpos,
@@ -1559,6 +2137,9 @@ def build_model(comps, negative_even="over"):
         "crossings": crossings,
         "twon": twon,
     }
+    if flips is not None:
+        model["flips"] = flips
+    return model
 
 
 # --------------------------------------------------------------------------- #
@@ -1739,6 +2320,80 @@ def build_gadget_graph(model):
             G.add_edge(out_corner, seg)
             G.add_edge(seg, in_corner)
     return G
+
+
+def embedding_from_flips(model, G, flips):
+    """
+    The planar embedding (networkx PlanarEmbedding) of the gadget graph ``G``
+    (or of one connected piece of it) that realises the flip vector ``flips``
+    in the y-up frame (V5.9).
+
+    Every crossing square is a face, as in `crossing_face_embedding`: crossing
+    k's square in_o -> in_e -> out_o -> out_e runs counter-clockwise exactly
+    when flips[k] == (its even label < its odd label) -- the odd strand runs
+    in_o -> out_o, the even strand in_e -> out_e, and bit 0 means that the
+    strand with the larger label crosses the smaller-label one from its right
+    to its left (spherogram's convention).  At a corner the clockwise
+    neighbour order is [next, outside, previous] for a counter-clockwise
+    square and [previous, outside, next] for a clockwise one; a segment node
+    has two neighbours.  The same construction as mdfig.gadget_embedding
+    (which reads it off a sphere map).  The rotation system is planar exactly
+    when the vector is legal (Euler, as `check_flips`); ValueError if not.
+    A drawing that realises this embedding (Tutte: every layout fed an
+    embedding draws it as given, y up) shows ``flips``; its complement is the
+    mirror image.  Pure networkx (safe on the GUI's preview thread).
+    """
+    flips = [bool(f) for f in flips]
+    if len(flips) != len(model["crossings"]):
+        raise ValueError("the flip vector has %d entries but the code has %d crossings"
+                         % (len(flips), len(model["crossings"])))
+    data = {}
+    for k, cyc in _gadget_cycles(G).items():
+        c = model["crossings"][k]
+        ccw = flips[k] == (c["even"] < c["odd"])
+        for i, v in enumerate(cyc):
+            prv, nxt = cyc[i - 1], cyc[(i + 1) % 4]
+            outside = [u for u in G[v] if u != prv and u != nxt]
+            if len(outside) != 1:
+                raise ValueError("corner %r of crossing %d has %d strand neighbours (expected 1)"
+                                 % (v, k, len(outside)))
+            data[v] = [nxt, outside[0], prv] if ccw else [prv, outside[0], nxt]
+    for v in G.nodes():
+        if v not in data:
+            data[v] = list(G[v])
+    emb = nx.PlanarEmbedding()
+    emb.set_data(data)
+    try:
+        emb.check_structure()
+    except nx.NetworkXException as exc:
+        raise ValueError("the flip vector %s is not realisable: its rotation system is not "
+                         "planar (%s)" % ("".join("1" if f else "0" for f in flips), exc))
+    return emb
+
+
+def _restrict_embedding(emb, G):
+    """``emb`` restricted to the nodes of ``G`` (a connected piece of the graph
+    ``emb`` embeds: every neighbour lies in the piece); ``emb`` itself when
+    the node sets agree."""
+    nodes = set(G.nodes())
+    if set(emb.nodes()) == nodes:
+        return emb
+    sub = nx.PlanarEmbedding()
+    sub.set_data({v: [u for u in emb.neighbors_cw_order(v) if u in nodes] for v in G.nodes()})
+    return sub
+
+
+def _planar_layout_of(emb, G):
+    """networkx's planar layout (Chrobak-Payne straight-line drawing) of the
+    given embedding ``emb`` of ``G``, as {node: array} in G's node order.  The
+    nodes are relabelled to integers first: networkx pops nodes from sets, so
+    with tuple nodes the drawing would depend on PYTHONHASHSEED."""
+    order = list(G.nodes())
+    lab = {v: i for i, v in enumerate(order)}
+    E = nx.PlanarEmbedding()
+    E.set_data({lab[v]: [lab[u] for u in emb.neighbors_cw_order(v)] for v in order})
+    pos = nx.planar_layout(E)
+    return {v: np.asarray(pos[lab[v]], float) for v in order}
 
 
 def planar_faces(emb):
@@ -3358,6 +4013,10 @@ def _detect_dt_rotational_symmetry(model):
     with period ``s`` and the components are cyclically permuted.  Returns
     ``(k, snode)`` for the LARGEST order ``k >= 2`` (shift ``s = 2n/k``), where
     ``snode`` maps a gadget node to its image under one rotation step, or ``None``.
+    V5.9: when the model carries a flip vector (model["flips"]), a shift
+    counts only if it also maps that realisation to itself
+    (`_shift_keeps_flips`): a composite's realisation need not share the
+    code's symmetry, and a rotation cannot turn one realisation into another.
     """
     if not model:
         return None
@@ -3385,6 +4044,8 @@ def _detect_dt_rotational_symmetry(model):
         # over/under must be preserved for the rotated diagram to be the same link
         if not all(over_at.get(shifted(p, s)) == v for p, v in over_at.items()):
             continue
+        if model.get("flips") is not None and not _shift_keeps_flips(model, s):
+            continue
 
         def snode(v, _s=s):
             if isinstance(v, tuple) and v[0] == "seg":
@@ -3394,6 +4055,27 @@ def _detect_dt_rotational_symmetry(model):
 
         return k, snode
     return None
+
+
+def _shift_keeps_flips(model, s):
+    """V5.9: True when shifting every DT position by ``s`` (mod 2n) maps the
+    model's flip vector to itself.  The relabelling rule: crossing k with
+    labels a < b goes to the crossing holding a + s and b + s; its bit there
+    must be flips[k], toggled when a + s is no longer the smaller label (the
+    walk then follows the other strand).  No component is reversed by a
+    shift."""
+    N = int(model["twon"])
+    flips = model["flips"]
+    pos_cross = model["pos_cross"]
+    for k, c in enumerate(model["crossings"]):
+        a, b = sorted((c["odd"], c["even"]))
+        a2, b2 = (a - 1 + s) % N + 1, (b - 1 + s) % N + 1
+        k2 = pos_cross.get(a2)
+        if k2 is None or pos_cross.get(b2) != k2:
+            return False
+        if bool(flips[k2]) != (bool(flips[k]) ^ (a2 > b2)):
+            return False
+    return True
 
 
 def symmetrize_positions(P, model, tol_resid=0.22, ang_tol=8.0):
@@ -4147,7 +4829,8 @@ def spread_planar_layout(P, G, rounds=SPREAD_ROUNDS_DEFAULT, stats_out=None):
 
 
 def spread_tutte_layout(G, emb, rounds=SPREAD_ROUNDS_DEFAULT, puncture_face=None,
-                        crossing_ids=None, puncture_report=None, report_out=None):
+                        crossing_ids=None, puncture_report=None, report_out=None,
+                        fixed_embedding=None):
     """
     The 'spread-tutte' layout: a strictly planar start with every crossing
     square a face of the embedding and the chosen puncture face outside, then
@@ -4172,12 +4855,14 @@ def spread_tutte_layout(G, emb, rounds=SPREAD_ROUNDS_DEFAULT, puncture_face=None
        smallest clearance among their candidates).
     4. If no spread succeeds, the first exact grid start is returned unspread.
     ``report_out`` (a list) receives one-line notes for the log.
+    ``fixed_embedding`` (V5.9, a flip vector's embedding, every crossing
+    square a face) is used as it is instead of step 1.
     Returns positions, or None if no valid start could be made at all.
     """
     notes = report_out if report_out is not None else []
     cycles = _gadget_cycles(G)
     bad_before = sum(1 for cyc in cycles.values() if not _is_face_of(emb, cyc))
-    emb_c = crossing_face_embedding(G)
+    emb_c = crossing_face_embedding(G) if fixed_embedding is None else fixed_embedding
     if emb_c is None:
         notes.append("no embedding with every crossing square a face exists; kept networkx's embedding "
                      "(%d of %d crossing squares hold other strands)" % (bad_before, len(cycles)))
@@ -4609,7 +5294,7 @@ def _piece_defects(model, pos, cycles, piece):
 
 def _cylinder_flat_poles(G, emb_c, faces, model, nodes, idx, reference, hole_ratio,
                          swap, puncture_face, crossing_ids, puncture_report, notes,
-                         outer_radius, separation, spread_rounds=0):
+                         outer_radius, separation, spread_rounds=0, frame_flips=None):
     """
     cylinder-tutte with --flatten-orthogonal: Edwards' construction of Venn
     diagrams (Maes & Cerf's Brunnian links AM_n, the BL_Edw series) drawn as
@@ -4661,6 +5346,10 @@ def _cylinder_flat_poles(G, emb_c, faces, model, nodes, idx, reference, hole_rat
     Returns (positions, defects, {"rings": (a, b)}) or None when no pair
     qualifies or none became two D's
     (the caller then draws the plain cylinder layout).
+    V5.9: with ``frame_flips`` (a flip vector, in this layout's frame) only
+    'D' drawings that show it count -- of each solve's two mirror images the
+    one with the requested hand (`drawn_flips` on this piece); None when no
+    'D' drawing shows it.  Without it nothing changes.
     """
     cycles = _gadget_cycles(G)
     comp_of = model["comp_of"]
@@ -4803,11 +5492,23 @@ def _cylinder_flat_poles(G, emb_c, faces, model, nodes, idx, reference, hole_rat
             defects = _piece_defects(model, pos, cycles, piece)
         return pos, drawn, defects, arcs, excl, k_out_drawn
 
+    def shows_flips(pos):
+        # V5.9: does this piece's 'D' drawing show the requested vector?
+        excl = model.get("flatten_exclude") or set()
+        cen = {k: np.mean([pos[(k, r)] for r in _GADGET_ROLES if (k, r) not in excl], axis=0)
+               for k in cycles}
+        got = drawn_flips(model, pos, centers=cen, components=piece)
+        return all(got[k] is not None and got[k] == bool(frame_flips[k]) for k in cycles)
+
     # in that order, the first drawing that audits clean; else the fewest defects
     pick = None
+    wrong_hand = 0
     for cd in cands:
         pos, drawn, defects, arcs, excl, k_od = draw_ds(cd, cd["X"])
         if not drawn:
+            continue
+        if frame_flips is not None and not shows_flips(pos):
+            wrong_hand += 1
             continue
         key = (defects, rank(cd, k_od))
         if pick is None or key < pick[0]:
@@ -4815,6 +5516,11 @@ def _cylinder_flat_poles(G, emb_c, faces, model, nodes, idx, reference, hole_rat
         if not defects and k_od == cd["k_out"] == cd["pref_out"]:
             break
     model["flatten_arcs"], model["flatten_exclude"] = dict(other_arcs), set(other_excl)
+    if pick is None and wrong_hand:
+        notes.append("flatten-orthogonal: no 'D' drawing of the %d straight ring pair(s) shows the "
+                     "requested flip vector; drawn without flattening"
+                     % len({(cd["ca"], cd["cb"]) for cd in cands}))
+        return None
     if pick is None:
         notes.append("flatten-orthogonal: %s straight ring pair(s) found, but the 'D' construction "
                      "did not apply to them (it needs three or more crossings on each ring); "
@@ -4839,6 +5545,8 @@ def _cylinder_flat_poles(G, emb_c, faces, model, nodes, idx, reference, hole_rat
                 spread_note = "; spread skipped: %s" % st["skipped"]
             else:
                 pos_s, drawn_s, defects_s, arcs_s, excl_s, k_od_s = draw_ds(cd, Xs)
+                if frame_flips is not None and drawn_s and not shows_flips(pos_s):
+                    drawn_s = False
                 if drawn_s and k_od_s == k_out and defects_s <= defects:
                     pos, defects, arcs, excl = pos_s, defects_s, arcs_s, excl_s
                     spread_note = ("; spread %d rounds (guarded, mirror-symmetric; largest move "
@@ -4850,15 +5558,28 @@ def _cylinder_flat_poles(G, emb_c, faces, model, nodes, idx, reference, hole_rat
     model["flatten_arcs"].update(arcs)
     model["flatten_exclude"] = set(other_excl) | excl
     choice = ""
-    if len(cands) > 1:
+    if frame_flips is not None:
+        n_sol = len({(c_["ca"], c_["cb"], c_["k_in"]) for c_ in cands})
+        if n_sol > 1:
+            choice = ("; %d pole choices (pair, orientation) qualify, each in the mirror image "
+                      "that shows the requested flip vector, %s" % (
+                          n_sol, "the first that draws cleanly kept" if defects == 0
+                          else "none draws cleanly: the one with the fewest defects (%d) kept"
+                          % defects))
+    elif len(cands) > 1:
         choice = "; %d pole choices (pair, orientation, mirror image) qualify, %s" % (
             len(cands), "the first that draws cleanly kept" if defects == 0
             else "none draws cleanly: the one with the fewest defects (%d) kept" % defects)
-    if cd["mirror"]:
+    if frame_flips is not None:
+        if cd["mirror"]:
+            choice += "; the solve drawn in its in-plane mirror image (the one with the requested flips)"
+    elif cd["mirror"]:
         choice += "; drawn in its in-plane mirror image (the same DT code)"
     if k_out != cd["pref_out"]:
-        choice += ("; %s at infinity did not draw cleanly in either mirror image, so the two "
-                   "poles are exchanged" % lab(cd["pref_out"]))
+        choice += ("; %s at infinity did not draw cleanly in %s, so the two "
+                   "poles are exchanged" % (lab(cd["pref_out"]),
+                                            "either mirror image" if frame_flips is None
+                                            else "the mirror image with the requested flips"))
     notes.append(
         "flatten-orthogonal: rings %d and %d drawn as 'D's -- their crossings %s (centre) and %s "
         "(at infinity) are the poles (rings straight to %.1e); circle map, hole ratio %.2f; %s%s%s"
@@ -4881,7 +5602,9 @@ def _cylinder_flat_poles(G, emb_c, faces, model, nodes, idx, reference, hole_rat
                 why = "flatten-orthogonal puts the far crossing of the two flat rings outside"
         elif rep.get("requested") and swap and cd["asked"]:
             why = ("flatten-orthogonal: --hole-swap not applied -- the requested crossing at the "
-                   "centre did not draw cleanly in either mirror image")
+                   "centre did not draw cleanly in %s"
+                   % ("either mirror image" if frame_flips is None
+                      else "the mirror image with the requested flips"))
         else:
             why = "flatten-orthogonal: the far crossing of the two flat rings is outside"
         rep["note"] = ((rep.get("note") + "; ") if rep.get("note") else "") + why
@@ -4895,7 +5618,7 @@ def cylinder_tutte_layout(G, emb, hole_ratio=0.4, swap=False, puncture_face=None
                           crossing_ids=None, puncture_report=None, report_out=None,
                           meta_out=None, model=None, flatten_orthogonal=False,
                           flatten_outer_radius=1.1, flatten_separation=0.25,
-                          cylinder_spread=0):
+                          cylinder_spread=0, fixed_embedding=None, frame_flips=None):
     """
     The 'cylinder-tutte' layout: holed-tutte's picture -- the punctured face
     on an outer circle, a second face as a central hole on a circle of radius
@@ -4963,6 +5686,10 @@ def cylinder_tutte_layout(G, emb, hole_ratio=0.4, swap=False, puncture_face=None
     the two rim circles and the mid-ring circle for the outline / PCA
     overlays (kind 'holed', as holed-tutte's).  Returns positions, or None if
     there is no usable hole face.
+    V5.9, only with a flip vector: ``fixed_embedding`` (its embedding, every
+    crossing square a face) replaces step 1's crossing_face_embedding, and
+    ``frame_flips`` (the vector this layout's frame must show) makes the
+    flatten path keep only 'D' drawings that show it.
     """
     notes = report_out if report_out is not None else []
     try:
@@ -4973,7 +5700,7 @@ def cylinder_tutte_layout(G, emb, hole_ratio=0.4, swap=False, puncture_face=None
     if _hr_used != _hr_in:
         notes.append("hole ratio %g is outside [0.05, 0.95]: used %.2f" % (_hr_in, _hr_used))
     cycles = _gadget_cycles(G)
-    emb_c = crossing_face_embedding(G)
+    emb_c = crossing_face_embedding(G) if fixed_embedding is None else fixed_embedding
     if emb_c is None:
         notes.append("no embedding with every crossing square a face exists; kept networkx's embedding")
         emb_c = emb
@@ -5149,7 +5876,8 @@ def cylinder_tutte_layout(G, emb, hole_ratio=0.4, swap=False, puncture_face=None
     got = _cylinder_flat_poles(
         G, emb_c, faces, model, nodes, idx, _reference, hole_ratio, swap,
         puncture_face, crossing_ids, puncture_report, flat_notes,
-        flatten_outer_radius, flatten_separation, spread_rounds=cylinder_spread)
+        flatten_outer_radius, flatten_separation, spread_rounds=cylinder_spread,
+        frame_flips=frame_flips)
     if got is not None and not got[1]:
         notes.extend(flat_notes)
         if meta_out is not None:
@@ -5196,11 +5924,26 @@ def cylinder_tutte_layout(G, emb, hole_ratio=0.4, swap=False, puncture_face=None
 
 
 def compute_positions_connected(G, layout, tutte_opts=None, meta_out=None):
-    ok, emb = nx.check_planarity(G)
-    if not ok:
-        raise RuntimeError(
-            "The crossing graph is not planar; the DT code may be non-realizable."
-        )
+    # V5.9: tutte_opts["embedding"] -- set by prepare_diagram ONLY when the DT
+    # code carries a flip vector -- is that vector's embedding of the whole
+    # gadget graph (`embedding_from_flips`, in the layout frame); it is used,
+    # restricted to this piece, instead of networkx's, and it also replaces
+    # crossing_face_embedding (spread-, cylinder-tutte) and every planar_layout
+    # call below.  Without it nothing here changes.
+    _emb_given = (tutte_opts or {}).get("embedding")
+    if _emb_given is None:
+        ok, emb = nx.check_planarity(G)
+        if not ok:
+            raise RuntimeError(
+                "The crossing graph is not planar; the DT code may be non-realizable."
+            )
+    else:
+        emb = _restrict_embedding(_emb_given, G)
+
+    def _planar():
+        if _emb_given is None:
+            return {n: np.asarray(xy, float) for n, xy in nx.planar_layout(G).items()}
+        return _planar_layout_of(emb, G)
 
     opts = tutte_opts or {}
     # Shared 'puncture' (outer-face) selection controls for the Tutte-family
@@ -5244,7 +5987,7 @@ def compute_positions_connected(G, layout, tutte_opts=None, meta_out=None):
                 puncture_report=_prep,
             )
         except np.linalg.LinAlgError:
-            return {n: np.asarray(xy, float) for n, xy in nx.planar_layout(G).items()}
+            return _planar()
     if layout == "shaped-tutte":
         # 'shaped-tutte' pins the boundary to a chosen convex shape and tilts the
         # shape's aspect axis relative to the diagram's intrinsic PCA axis.
@@ -5272,7 +6015,7 @@ def compute_positions_connected(G, layout, tutte_opts=None, meta_out=None):
         except np.linalg.LinAlgError:
             # Some connected planar graphs are singular for this simple
             # barycentric solve. NetworkX planar_layout is a safe fallback.
-            return {n: np.asarray(xy, float) for n, xy in nx.planar_layout(G).items()}
+            return _planar()
     if layout == "cylinder-tutte":
         # holed-tutte's picture (punctured face outside, a hole face on an inner
         # circle) solved as a Tutte embedding of the cylinder, which does not
@@ -5288,6 +6031,8 @@ def compute_positions_connected(G, layout, tutte_opts=None, meta_out=None):
             flatten_outer_radius=float(opts.get("flatten_outer_radius", 1.1)),
             flatten_separation=float(opts.get("flatten_separation", 0.25)),
             cylinder_spread=int(opts.get("cylinder_spread", 0) or 0),
+            fixed_embedding=emb if _emb_given is not None else None,
+            frame_flips=opts.get("frame_flips") if _emb_given is not None else None,
         )
         if P is None:
             if rep is not None:
@@ -5295,7 +6040,7 @@ def compute_positions_connected(G, layout, tutte_opts=None, meta_out=None):
             try:
                 return tutte_layout_connected(G, emb, puncture_face=_pface, crossing_ids=_cids)
             except np.linalg.LinAlgError:
-                return {n: np.asarray(xy, float) for n, xy in nx.planar_layout(G).items()}
+                return _planar()
         return P
     if layout == "spread-tutte":
         # Crossing squares made faces of the embedding, a strictly planar start
@@ -5305,12 +6050,15 @@ def compute_positions_connected(G, layout, tutte_opts=None, meta_out=None):
             G, emb, rounds=int(opts.get("spread_rounds", SPREAD_ROUNDS_DEFAULT)),
             puncture_face=_pface, crossing_ids=_cids, puncture_report=_prep,
             report_out=opts.get("spread_report"),
+            fixed_embedding=emb if _emb_given is not None else None,
         )
         if P is None:
             rep = opts.get("spread_report")
             if rep is not None:
                 rep.append("no valid start; fell back to networkx's planar layout (puncture face not honoured)")
             # integer labels: networkx pops nodes from a set (PYTHONHASHSEED)
+            if _emb_given is not None:
+                return _planar_layout_of(emb, G)
             order = list(G.nodes())
             Gi = nx.relabel_nodes(G, {v: i for i, v in enumerate(order)})
             pos = nx.planar_layout(Gi)
@@ -5333,11 +6081,11 @@ def compute_positions_connected(G, layout, tutte_opts=None, meta_out=None):
                 puncture_report=_prep,
             )
         except np.linalg.LinAlgError:
-            return {n: np.asarray(xy, float) for n, xy in nx.planar_layout(G).items()}
+            return _planar()
     if layout == "planar":
-        return {n: np.asarray(xy, float) for n, xy in nx.planar_layout(G).items()}
+        return _planar()
     if layout == "spring":
-        p0 = nx.planar_layout(G)
+        p0 = nx.planar_layout(G) if _emb_given is None else _planar_layout_of(emb, G)
         return {
             n: np.asarray(xy, float)
             for n, xy in nx.spring_layout(G, pos=p0, seed=1, iterations=200).items()
@@ -5661,6 +6409,52 @@ def component_controls(model, P, centers, ci):
         ctrl.append(P[(k, "out_" + pos_role[p])])
         ctrl.append(P[("seg", p)])
     return ctrl, center_marks
+
+
+def drawn_flips(model, P, centers=None, components=None, samples=26):
+    """The flip vector the 2-D drawing ``P`` shows (V5.9): one bool per
+    crossing, in DT order (bit k <-> odd label 2k+1), or None where a
+    crossing cannot be read.
+
+    Read off the drawn curves themselves (`_component_dense`: the Catmull-Rom
+    strands, flattened 'D' rings and round kinks exactly as rendered and
+    audited): at each crossing centre take the tangent t_s of the visit with
+    the SMALLER label and t_o of the other visit; bit 0 when
+    z = t_s x t_o > 0, i.e. the other strand crosses from right to left
+    (spherogram's convention, y up -- the frame of prepare_diagram's state
+    and of the saved image).  None when the two tangents are (nearly)
+    parallel or a visit is not drawn.  ``components`` restricts the reading
+    to those components (one piece of a split diagram; the other crossings
+    read None).  The drawing must be clean for the reading to be a legal
+    vector: a false crossing or an undrawn crossing makes it meaningless."""
+    if centers is None:
+        centers = crossing_centers(model, P)
+    tangent = {}
+    for ci in (range(len(model["comp_positions"])) if components is None else components):
+        ctrl, marks = component_controls(model, P, centers, ci)
+        dense, starts = _component_dense(model, ctrl, ci, samples)
+        dense = np.asarray(dense, float)
+        m = len(dense)
+        if m < 3:
+            continue
+        for cidx, p, _over in marks:
+            if cidx < len(starts):
+                i = int(starts[cidx])
+                tangent[p] = dense[(i + 1) % m] - dense[(i - 1) % m]
+    out = []
+    for c in model["crossings"]:
+        a, b = c["odd"], c["even"]
+        if a not in tangent or b not in tangent:
+            out.append(None)
+            continue
+        t_s, t_o = (tangent[a], tangent[b]) if a < b else (tangent[b], tangent[a])
+        z = float(t_s[0] * t_o[1] - t_s[1] * t_o[0])
+        scale = float(np.hypot(*t_s) * np.hypot(*t_o))
+        if not scale > 0.0 or abs(z) <= 1.0e-9 * scale:
+            out.append(None)
+        else:
+            out.append(not z > 0.0)
+    return out
 
 
 def over_position_for_crossing(model, k):
@@ -8286,6 +9080,92 @@ def _compact_crossing_gadgets_on_sphere(model, raw_dirs, crossing_angle):
     return P3, centers3
 
 
+# --------------------------------------------------------------------------- #
+#  V5.9: the 3-D layouts and a given flip vector.
+#
+#  A signed DT code does not fix the diagram (reflecting the page keeps the
+#  code, and each connected summand reflects on its own), so with a flip
+#  vector (model["flips"], `parse_dt_flips`) the 3-D build must realise THAT
+#  diagram: a positive crossing offset builds the given realisation, a
+#  negative one its mirror image (the rule every layout already followed for
+#  its own realisation).  Seen from OUTSIDE the base surface with the over
+#  strand nearer (a positive offset), a crossing patch is read exactly like a
+#  2-D drawing with y up (`drawn_flips`): walking along the visit with the
+#  smaller label, bit 0 when the other strand crosses from right to left.  A
+#  negative offset puts the over strand inside, which is the crossing-change
+#  mirror of the same picture, so the comparison below does not depend on
+#  the offset's sign.
+# --------------------------------------------------------------------------- #
+def _model_spherogram_comps(model):
+    """V5.9: the model's DT components in spherogram's convention (an entry is
+    negative exactly when the even visit is OVER, read off model["over_at"]),
+    i.e. the code part of `dt_flips_string_from_model`: the code whose
+    reading with model["flips"] is the link the model draws."""
+    comps = []
+    for cp in model["comp_positions"]:
+        row = []
+        for p in cp:
+            if p % 2 == 1:
+                c = model["crossings"][model["pos_cross"][p]]
+                e = abs(int(c["even_signed"]))
+                row.append(-e if model["over_at"][c["even"]] else e)
+        comps.append(tuple(row))
+    return comps
+
+
+def _flips_writhe(model, flips):
+    """V5.9: the writhe of the link the model draws with the flip vector
+    ``flips`` (spherogram's convention, `flips_crossing_signs`)."""
+    return int(sum(flips_crossing_signs(_model_spherogram_comps(model), flips)))
+
+
+def _sphere_realised_flips(model, P3, centers3):
+    """V5.9: the flip vector the compacted crossing patches on the sphere
+    realise, seen from OUTSIDE (one bool per crossing in DT order, None
+    where the two passes are parallel).  At crossing k the odd pass runs
+    in_o -> out_o and the even pass in_e -> out_e; the square
+    in_o, in_e, out_o, out_e turns counter-clockwise about the outward
+    normal exactly when (t_odd x t_even) . c > 0, and -- as in
+    `embedding_from_flips` -- the bit is that orientation when the even label
+    is the smaller one and its negation otherwise.  The curve built on these
+    patches realises (the model's code, this vector) at a positive crossing
+    offset (measured against the curve's Jones polynomial)."""
+    out = []
+    for k, c in enumerate(model["crossings"]):
+        cen = np.asarray(centers3[k], float)
+        t_o = np.asarray(P3[(k, "out_o")], float) - np.asarray(P3[(k, "in_o")], float)
+        t_e = np.asarray(P3[(k, "out_e")], float) - np.asarray(P3[(k, "in_e")], float)
+        z = float(np.dot(np.cross(t_o, t_e), cen))
+        scale = float(np.linalg.norm(t_o) * np.linalg.norm(t_e))
+        if not scale > 0.0 or abs(z) <= 1.0e-9 * scale:
+            out.append(None)
+            continue
+        ccw = z > 0.0
+        out.append(ccw if c["even"] < c["odd"] else (not ccw))
+    return out
+
+
+def _reflect_unit_dirs(dirs):
+    """V5.9: node -> direction, reflected in the plane x = 0 (x -> -x): every
+    crossing patch then turns the other way, i.e. the mirror realisation."""
+    S = np.array([-1.0, 1.0, 1.0], float)
+    return {v: np.asarray(d, float) * S for v, d in dirs.items()}
+
+
+def _sphere_flips_relation(model, P3, centers3):
+    """V5.9: compare the vector the sphere patches realise with model["flips"]:
+    'equal', 'complement' (the mirror image; a reflection fixes it) or
+    'different' (another realisation, or no legal vector at all: a connected
+    summand reflected, or a folded layout).  Returns (relation, read)."""
+    req = [bool(f) for f in model["flips"]]
+    read = _sphere_realised_flips(model, P3, centers3)
+    if read == req:
+        return "equal", read
+    if read == [not f for f in req]:
+        return "complement", read
+    return "different", read
+
+
 def _spherical_quadratic_bezier(a, b, c, samples):
     """Sample a normalized quadratic Bezier arc on S^2."""
     nsamp = max(2, int(samples))
@@ -8400,10 +9280,25 @@ def _build_spherical_kamada_xyz_components(
     raw_radii=False,
     radii_report=None,
     dirs_override=None,
+    flips_report=None,
 ):
     """Sphere-native method: distribute the diagram directly on S^2.
     ``dirs_override`` (node -> unit direction) replaces the Kamada-Kawai
-    direction step (used by the capped cylinder); radii are then all 1."""
+    direction step (used by the capped cylinder); radii are then all 1.
+
+    V5.9, only when the model carries a flip vector (model["flips"]): the
+    vector the compacted crossing patches realise (`_sphere_realised_flips`)
+    is compared with it.  Equal -> built as laid out; the complement (the
+    mirror image) -> the directions are reflected (x -> -x) before the
+    compaction, so every patch, the skeleton, the shells and the audit see
+    one consistent curve; a different realisation -> a user-facing
+    ValueError -- unless ``flips_report`` ["wire"] is set (cubic-kamada
+    angled / grid): the router then wires the vector's own rotation system
+    over these crossing positions, under a bounded budget, and the caller
+    refuses if that fails.  The outcome is stored in ``flips_report``
+    (``relation``, ``read``, and ``legal`` for a different one);
+    ``flips_report`` ["layout"] names the layout in the messages.  Without a
+    vector nothing here changes."""
     if G is None:
         G = build_gadget_graph(model)
     if dirs_override is not None:
@@ -8453,6 +9348,59 @@ def _build_spherical_kamada_xyz_components(
     P3, centers3 = _compact_crossing_gadgets_on_sphere(
         model, raw_dirs, crossing_angle=crossing_angle
     )
+    if model.get("flips") is not None:
+        # V5.9: build the GIVEN realisation (see the section comment above
+        # _model_spherogram_comps)
+        _frep = flips_report if flips_report is not None else {}
+        _rel, _read = _sphere_flips_relation(model, P3, centers3)
+        _frep.update({"relation": _rel, "read": _read, "reflected": False})
+        if _rel == "complement":
+            raw_dirs = _reflect_unit_dirs(raw_dirs)
+            P3, centers3 = _compact_crossing_gadgets_on_sphere(
+                model, raw_dirs, crossing_angle=crossing_angle
+            )
+            _rel2, _read2 = _sphere_flips_relation(model, P3, centers3)
+            _frep.update({"reflected": True, "relation_after": _rel2, "read_after": _read2})
+            if _rel2 != "equal":          # a degenerate patch; never seen
+                _rel = "different"
+                _frep["relation"] = _rel
+        if _rel == "different":
+            _lay = _frep.get("layout") or "spherical-kamada"
+            _req = [bool(f) for f in model["flips"]]
+            _legal = None not in _read
+            if _legal:
+                try:
+                    check_flips(_model_spherogram_comps(model), _read)
+                except ValueError:
+                    _legal = False
+            _frep["legal"] = _legal
+            # The angled / grid cube (flips_report["wire"]) does not need the
+            # layout's own realisation: it takes every crossing's port order
+            # from the vector (`_cube_crossing_rotations`), and a crossing-free
+            # wiring with those rotations IS the requested diagram.  So it is
+            # routed over these crossing positions under a bounded budget
+            # (CUBE_FLIPS_ROUTE_SIZES grid sizes), and build_spherical_xyz_
+            # components refuses only if that fails.  Every other layout
+            # refuses here.
+            if not (_frep.get("wire") and dirs_override is None):
+                if dirs_override is not None:
+                    _why = ("its directions are lifted from the 2-D drawing, which does not "
+                            "show the requested vector (see the [flips] / [warn] line of the "
+                            "drawing); draw it with a --layout that does (tutte, shaped-tutte, "
+                            "cylinder-tutte, spread-tutte)")
+                else:
+                    _why = ("its Kamada-Kawai sphere layout realises %s, %s, which no "
+                            "reflection turns into the requested one; use a 3-D layout that "
+                            "follows the 2-D drawing, which shows the vector: --sphere-layout "
+                            "stereo-safe, sheet or shaped-kamada --surface-shape capped-cylinder, "
+                            "or cubic-kamada --cube-style angled / grid (which wire the vector's "
+                            "own port order over this layout)"
+                            % (_bits(_read), "a different realisation of the code (a connected "
+                               "summand or a split piece reflected)" if _legal else "no legal "
+                               "vector of the code (the layout folds)"))
+                raise _user_facing(
+                    "--sphere-layout %s cannot build the requested flip vector %s of this DT "
+                    "code: %s." % (_lay, _bits(_req), _why))
 
     # V5.0 'mapped skeleton': the per-crossing anchors and the strand chords
     # between them (through the connector midpoints), as UNIT directions; the
@@ -8694,7 +9642,14 @@ def _surface_frame_and_params(kind, dirs_all, aspect, tube,
     # away from the PCA axis).
     if kind == "cylinder":
         primary, secondary = "z", "x"
-        M0 = np.column_stack([e2, e1, e0]) if have_pca else np.eye(3)
+        # V5.9: a PROPER frame (det +1).  Up to V5.8 this was [e2, e1, e0],
+        # whose determinant is -1 (evecs is proper, and swapping two columns
+        # reflects), so the open cylinder built the MIRROR of what
+        # spherical-kamada, the ellipsoid and the torus build at the same
+        # offset sign (measured on the trefoil, 5_2 and L4a1).  Negating the
+        # middle column keeps the axis (z = the PCA major axis e0) and x = e2;
+        # the curve is the old one reflected in y.
+        M0 = np.column_stack([e2, -e1, e0]) if have_pca else np.eye(3)
     elif kind == "torus":
         primary, secondary = "z", "x"
         M0 = np.column_stack([e0, e1, e2]) if have_pca else np.eye(3)
@@ -9278,6 +10233,14 @@ CUBE_BEND_PENALTY = 4.0      # an in-face 90-degree bend costs this many grid st
 CUBE_EDGE_PENALTY = 2.0      # extra cost of a step along a cube edge or corner
 CUBE_LANE_PENALTY = 1.0      # per occupied neighbour: keeps a free lane between strands
 CUBE_ROUTE_ROUNDS = 40       # negotiation rounds before giving up on a grid
+# V5.9: with a flip vector that the sphere layout realises as ANOTHER diagram
+# of the code, the angled / grid cube wires the vector's own rotation system
+# over that layout's crossing positions; the router negotiates on at most this
+# many grid sizes (instant collisions do not count) before the build is
+# refused.  Measured: every such wiring found routed on the first size; the
+# 4-ring chain's [0,1,1,1,0,0] angled routes on none up to 72 x 72, which took
+# 914 s unbounded and takes ~40 s with 2.
+CUBE_FLIPS_ROUTE_SIZES = 2
 _CUBE_DIRS = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
 
 
@@ -9336,6 +10299,13 @@ def _cube_crossing_rotations(model, G, anchors, ports):
     arrangement.  Returns ``(signs, disagreements)``; ``disagreements`` counts
     the crossings whose 3-D gadget is embedded the other way round -- non-zero
     only for layouts the sphere construction itself gets wrong.
+
+    V5.9: with a flip vector (model["flips"]) the order is the vector's own,
+    with no majority vote: crossing k turns counter-clockwise exactly when
+    flips[k] == (its even label < its odd label) -- `embedding_from_flips`'s
+    rule, seen from outside -- so the wiring realises the given diagram
+    (networkx's embedding can be another realisation of a composite code,
+    and a global flip cannot repair that).
     """
     ncr = len(model["crossings"])
     geo = []
@@ -9349,6 +10319,11 @@ def _cube_crossing_rotations(model, G, anchors, ports):
         t_o = t_o - float(t_o[a]) * n
         t_e = t_e - float(t_e[a]) * n
         geo.append(1 if float(np.dot(np.cross(t_o, t_e), n)) >= 0.0 else -1)
+    if model.get("flips") is not None:
+        # V5.9: the given realisation's rotation system, as given
+        signs = [1 if bool(f) == (c["even"] < c["odd"]) else -1
+                 for f, c in zip(model["flips"], model["crossings"])]
+        return signs, sum(1 for a, b in zip(geo, signs) if a != b)
     comb = None
     try:
         ok, emb = nx.check_planarity(G)
@@ -9582,7 +10557,7 @@ def _cube_route_astar(start, start_dir, goal, goal_dir, goal_port, blocked,
 def _cube_route_nets(model, placement, grid, symmetry=None,
                      bend=CUBE_BEND_PENALTY, edge_penalty=CUBE_EDGE_PENALTY,
                      lane_penalty=CUBE_LANE_PENALTY, rounds=CUBE_ROUTE_ROUNDS,
-                     min_bend_dist=0, restarts=8):
+                     min_bend_dist=0, restarts=8, report=None):
     """Route every connector (position p -> nextpos[p]) as a node-disjoint
     path on the surface grid.
 
@@ -9597,7 +10572,9 @@ def _cube_route_nets(model, placement, grid, symmetry=None,
     exactly symmetric.  Returns ``(routes, nets, report)`` -- ``routes[p]`` the
     node list from the out-port to the in-port -- or None when the placement
     is invalid (two crossings claim one node) or the negotiation does not
-    converge."""
+    converge.  V5.9: ``report`` (a dict, optional) gets ``negotiated`` =
+    True once the placement is valid and the negotiation starts, so a caller
+    can tell an expensive failure from an instant collision."""
     coords, index, nbr, sat, _edist = grid
     pos_cross, pos_role, nextpos = model["pos_cross"], model["pos_role"], model["nextpos"]
     positions = [p for cp in model["comp_positions"] for p in cp]
@@ -9628,6 +10605,8 @@ def _cube_route_nets(model, placement, grid, symmetry=None,
     if any(len(v) > 1 for v in owner.values()):
         return None                                # ports collide: grid too coarse
     reserved = set(owner)
+    if report is not None:
+        report["negotiated"] = True
 
     map_node = None
     if symmetry is not None:
@@ -10046,7 +11025,8 @@ def _cube_assemble_grid_wires(model, placement, routes, grid, N, sphere_radius,
 def _build_cubic_angled_components(xyz_components, model, G, sphere_radius,
                                    sphere_offset, M, xyz_spacing, skeleton=None,
                                    status_messages=None, cube_info=None,
-                                   cube_grid=0, densify=True, style="angled"):
+                                   cube_grid=0, densify=True, style="angled",
+                                   max_sizes=None):
     """Route the diagram as axis-aligned wires on the cube's surface grid --
     see the section comment above -- and lift them as ``style`` 'angled'
     (right-angle bridges at the crossings, _cube_assemble_wires) or 'grid'
@@ -10064,6 +11044,13 @@ def _build_cubic_angled_components(xyz_components, model, G, sphere_radius,
     given, else about CUBE_GRID_SPAN cells between the two closest crossings
     (at least CUBE_GRID_MIN); it is refined by 30% whenever the placement
     collides or the routing does not converge.
+
+    V5.9: ``max_sizes`` (None = no limit) bounds the number of grid sizes on
+    which the negotiation runs (a size skipped for the grid style's lanes, or
+    rejected at once because crossings or ports collide, does not count);
+    ``info["sizes"]`` lists them.  Used with a flip vector the sphere layout
+    does not realise, where a failure is refused rather than replaced by the
+    smooth map.
     """
     smooth, warp_pts = _warp_components_to_cube(
         xyz_components, sphere_radius=sphere_radius, M=M,
@@ -10136,7 +11123,9 @@ def _build_cubic_angled_components(xyz_components, model, G, sphere_radius,
     result = None
     sym_used = False
     skipped = []
-    while result is None and N <= CUBE_GRID_MAX:
+    tried = []
+    info["sizes"] = tried
+    while result is None and N <= CUBE_GRID_MAX and (max_sizes is None or len(tried) < max_sizes):
         pitch = R / float(N)
         if grid_style and abs(off) > 0.0:
             # a fold corner sits |offset| from the edge: never let that be a
@@ -10151,11 +11140,16 @@ def _build_cubic_angled_components(xyz_components, model, G, sphere_radius,
         placement = _cube_place_crossings(anchors, ports, rotations, N, margin=margin,
                                           over_axis=over_axes, over_pass=over_pass)
         kw = {"min_bend_dist": margin} if grid_style else {}
+        if max_sizes is not None:
+            _nrep = {}
+            kw["report"] = _nrep
         if symmetry is not None:
             result = _cube_route_nets(model, placement, grid, symmetry=symmetry, **kw)
             sym_used = result is not None
         if result is None:
             result = _cube_route_nets(model, placement, grid, symmetry=None, **kw)
+        if max_sizes is not None and _nrep.get("negotiated"):
+            tried.append(N)
         if result is None:
             N = int(math.ceil(1.3 * N))
     if result is None:
@@ -10295,6 +11289,24 @@ def _import_chain_layout():
     return mod
 
 
+def _require_flips_aware(mod, layout):
+    """V5.9: grid_diagram.py and chain_layout.py read a flip vector from
+    version 1.1 on (the code with its vector, `dt_flips_string_from_model`,
+    or the model's "flips").  An older copy would build the code's other
+    realisation without a word, so a flips run refuses it instead."""
+    try:
+        ver = tuple(int(x) for x in str(getattr(mod, "VERSION", "0")).split("."))
+    except ValueError:
+        ver = (0,)
+    if ver < (1, 1):
+        raise _user_facing(
+            "--sphere-layout %s with a flip vector needs %s version 1.1 or later "
+            "(this one is %s), which builds the given realisation; an older one would "
+            "ignore the vector" % (layout, os.path.basename(getattr(mod, "__file__", "?")),
+                                    getattr(mod, "VERSION", "unversioned")))
+    return mod
+
+
 def dt_string_from_model(model):
     """The signed DT code the model was built from, in the project spelling
     (a one-crossing component keeps its trailing comma)."""
@@ -10305,14 +11317,47 @@ def dt_string_from_model(model):
     return "DT: [%s]" % ", ".join(repr(tuple(int(v) for v in c)) for c in comps)
 
 
+def dt_flips_string_from_model(model):
+    """V5.9: the DT code of the link the model DRAWS, in spherogram's
+    convention (a negative entry = the even visit is over, read off
+    model["over_at"], so a model built with --negative-even under gives the
+    negated code), followed by the model's flip vector when it has one:
+    'DT: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]' (`format_dt_flips`).
+    Without a vector the bare code.  This is the string to hand to a tool
+    that rebuilds the link (spherogram, grid_diagram, chain_layout, ...): the
+    vector belongs to exactly this DT code."""
+    comps = []
+    for cp in model["comp_positions"]:
+        row = []
+        for p in cp:
+            if p % 2 == 1:
+                c = model["crossings"][model["pos_cross"][p]]
+                e = abs(int(c["even_signed"]))
+                row.append(-e if model["over_at"][c["even"]] else e)
+        comps.append(tuple(row))
+    dt = "DT: [%s]" % ", ".join(repr(c) for c in comps)
+    return format_dt_flips(dt, model.get("flips"))
+
+
 def _build_grid_diagram_xyz_components(model, sphere_radius, sphere_offset, xyz_spacing,
                                        densify=True, steps=GRID_DIAGRAM_STEPS, seed=0,
                                        status_messages=None, same_diagram=True):
     """Minimal grid diagram of the model's link, lifted to 3-D.  Returns
     ``(components, info)``; the grid spans [-R, R] in x and y (pitch
-    2R / (n - 1)), verticals at z = +offset, horizontals at z = -offset."""
+    2R / (n - 1)), verticals at z = +offset, horizontals at z = -offset.
+
+    V5.9: grid_diagram gets `dt_flips_string_from_model`, the code of the
+    link the model DRAWS in spherogram's convention: identical to
+    `dt_string_from_model` for the default --negative-even over, but negated
+    for 'under' -- up to V5.8 the raw typed signs were passed and read in
+    spherogram's convention, so under 'under' the grid was the mirror
+    (through the page) of what stereo-safe and spherical-kamada build -- and
+    followed by the flip vector when the model has one, so the grid is built
+    from the given realisation."""
     gd = _import_grid_diagram()
-    dt = dt_string_from_model(model)
+    if model.get("flips") is not None:
+        _require_flips_aware(gd, "grid-diagram")
+    dt = dt_flips_string_from_model(model)
     msgs = status_messages if status_messages is not None else []
     G, info = gd.minimal_grid_for_dt(dt, steps=int(steps), seed=int(seed),
                                      time_limit=GRID_DIAGRAM_TIME_LIMIT, messages=msgs,
@@ -10337,12 +11382,101 @@ def _build_grid_diagram_xyz_components(model, sphere_radius, sphere_offset, xyz_
         "the %s strand passing the %s one at a right angle."
         % (n, n, pitch, -R, R, n, off, n, -off, 2 * n, corners,
            "upper" if off >= 0 else "lower", "lower" if off >= 0 else "upper"))
-    if off < 0.0:
+    if off < 0.0 and model.get("flips") is not None:
+        msgs.append("[grid] the crossing offset is negative, so the horizontal segments are the "
+                    "upper ones: this is the MIRROR image of the given realisation %s, as for "
+                    "every other layout." % _bits(model["flips"]))
+    elif off < 0.0:
         msgs.append("[grid] the crossing offset is negative, so the horizontal segments are the "
                     "upper ones: this is the MIRROR image, as for every other layout.")
+    if model.get("flips") is not None:
+        # V5.9: the grid lists and orients its components its own way (by
+        # column, X -> O), so a lifted link can come out with components
+        # permuted and reversed against the DT code -- harmless for the
+        # unoriented link, but the flips audit compares ORIENTED Jones
+        # polynomials (the 4-ring chain's grid read as the mirror image).
+        # Put them in the code's order and orientation, matched by signed
+        # linking numbers (equal linking matrices give equal Jones
+        # polynomials, so the remaining freedom cannot matter).
+        _match = _grid_component_match(G, model)
+        if _match is None:
+            msgs.append("[grid] the grid's components could not be matched to the DT code's by "
+                        "their signed linking numbers; they are written in the grid's own order "
+                        "and orientation.")
+        elif any(g != i or rev for i, (g, rev) in enumerate(_match)):
+            _S = []
+            for g, rev in _match:
+                arr = np.asarray(comps[g], float)
+                _S.append(np.roll(arr[::-1], 1, axis=0) if rev else arr)
+            comps = _S
+            _nz = [ci for ci, cp in enumerate(model["comp_positions"]) if cp]  # round 4d
+            msgs.append("[grid] components put in the DT code's order and orientation (grid "
+                        "component -> code component, by signed linking numbers): %s."
+                        % ", ".join("%d%s -> %d" % (g + 1, " reversed" if rev else "", _nz[i] + 1)
+                                    for i, (g, rev) in enumerate(_match)))
     if densify:
         comps = [gd.densify_closed(c, xyz_spacing) for c in comps]
     return comps, info
+
+
+def _grid_component_match(G, model):
+    """V5.9: for every DT component i of ``model`` (which carries a flip
+    vector), (grid component, reversed?) such that the grid's signed linking
+    numbers (`GridDiagram.crossings`, verticals over) equal the realisation's
+    (`flips_crossing_signs` of (DT, flips)); the first match in identity-first
+    order, or None.  Crossing signs and linking numbers are those of the
+    curve at a positive level, compared with the given realisation."""
+    gcomps = G.components()
+    # round 4d (2026-10-20): an EMPTY DT component (no crossings) has no grid
+    # component -- grid_diagram builds the code without it, as spherogram
+    # reads it -- so only the others are matched (all of them, as before,
+    # when no component is empty); i below counts those
+    nz = [ci for ci, cp in enumerate(model["comp_positions"]) if cp]
+    m = len(nz)
+    if len(gcomps) != m:
+        return None
+    where = {}
+    for gi, cyc in enumerate(gcomps):
+        for (r, c, t) in cyc:
+            if t == "X":
+                where[c] = gi                   # the vertical of column c
+    xcol = G.xcol()
+    lkg = [[0.0] * m for _ in range(m)]
+    for (r, c, s) in G.crossings():
+        a, b = where[c], where[xcol[r]]         # vertical's and horizontal's component
+        if a != b:
+            lkg[a][b] += 0.5 * s
+            lkg[b][a] += 0.5 * s
+    comp_of = {}
+    for i, ci in enumerate(nz):
+        for p in model["comp_positions"][ci]:
+            comp_of[p] = i
+    signs = flips_crossing_signs(_model_spherogram_comps(model), model["flips"])
+    lkm = [[0.0] * m for _ in range(m)]
+    for s, c in zip(signs, model["crossings"]):
+        a, b = comp_of[c["odd"]], comp_of[c["even"]]
+        if a != b:
+            lkm[a][b] += 0.5 * s
+            lkm[b][a] += 0.5 * s
+    choice = []
+
+    def assign(i, used):
+        if i == m:
+            return True
+        for g in [i] + [k for k in range(m) if k != i]:
+            if g in used:
+                continue
+            for e in (1, -1):
+                if all(abs(e * ej * lkg[g][gj] - lkm[i][j]) < 1e-9
+                       for j, (gj, ej) in enumerate(choice)):
+                    choice.append((g, e))
+                    if assign(i + 1, used | {g}):
+                        return True
+                    choice.pop()
+        return False
+    if not assign(0, frozenset()):
+        return None
+    return [(g, e < 0) for g, e in choice]
 
 
 # --------------------------------------------------------------------------
@@ -11002,6 +12136,13 @@ def _can_map_components(sphere_comps, R, rad, H, spacing=1.8, even=False):
     last step."""
     out = []
     for c in sphere_comps:
+        if len(c) == 0:
+            # round 4d (2026-10-20): an EMPTY DT component (no crossings) has no
+            # curve in the spherical build -- every other layout leaves it out
+            # -- and np.vstack of nothing ended the capped-cylinder build in a
+            # ValueError traceback; it stays empty here too
+            out.append(np.zeros((0, 3), float))
+            continue
         d = _cc_densify_shell_curve(c)
         r = np.linalg.norm(d, axis=1)
         q = _can_points(d / r[:, None], rad, H, o=r - R)
@@ -11038,6 +12179,9 @@ def _capped_cylinder_dirs_cached(model, P, G, centers, ends, h, report):
     takes tens of seconds; --save-projections rebuilds the curve)."""
     keyP = tuple(sorted((repr(v), round(float(P[v][0]), 9), round(float(P[v][1]), 9)) for v in G.nodes()))
     key = (dt_string_from_model(model), repr(ends), round(float(h), 9), hash(keyP))
+    if model.get("flips") is not None:
+        # V5.9: a flips run never shares an entry with a bare one
+        key = key + (tuple(bool(f) for f in model["flips"]),)
     if key in _CAPPED_CYLINDER_CACHE:
         dirs, rep0 = _CAPPED_CYLINDER_CACHE[key]
         report.update(rep0)
@@ -11060,6 +12204,11 @@ def _capped_cylinder_geometry_report(components, rad, H, offset, order=None):
     rows = []
     for c in components:
         c = np.asarray(c, float)
+        if len(c) == 0:
+            # round 4d (2026-10-20): an empty DT component has no curve (and is
+            # on no chain path); no numpy 'Mean of empty slice' warnings
+            rows.append({"zc": float("nan"), "bottom": 0.0, "top": 0.0, "wall": 0.0})
+            continue
         rho = np.hypot(c[:, 0], c[:, 1])
         az = np.abs(c[:, 2])
         on_cap = (az >= H - o - 0.5) & (rho <= rad + o)
@@ -11291,7 +12440,12 @@ def dt_flips_from_embedding(model, G=None):
     no reference link and reported every such build inconclusive.  Measured on
     those 132: every vector built a planar diagram of the link the diagram was
     made from (72 hyperbolic: isometric; 30 torus knots: Jones equal up to
-    mirror; 30 torus links: simplify back to the original)."""
+    mirror; 30 torus links: simplify back to the original).
+    V5.9: a model built with a flip vector (model["flips"]) returns that
+    vector -- the given realisation, exactly, not up to mirror."""
+    if model.get("flips") is not None:
+        # V5.9: the code came with its realisation: that vector, exactly
+        return [bool(f) for f in model["flips"]]
     if G is None:
         G = build_gadget_graph(model)
     emb = crossing_face_embedding(G)
@@ -11309,15 +12463,70 @@ def dt_flips_from_embedding(model, G=None):
     return flips
 
 
-def audit_xyz_components(xyz_components, dt_string, model=None, G=None):
+def audit_xyz_components(xyz_components, dt_string, model=None, G=None, mirror=False):
     """Deep topology audit via audit_xyz.py (needs spherogram + snappy).
     With ``model`` given, a flip vector of a planar realisation of the code
     (`dt_flips_from_embedding`) is offered for when spherogram cannot read the
-    bare code; it is computed only then."""
+    bare code; it is computed only then.
+
+    V5.9: when the model carries a flip vector (model["flips"]) the reference
+    is THAT realisation, primary (``prefer_flips=True``): the bare code of the
+    link the model draws (spherogram's convention, `_model_spherogram_comps`)
+    plus (components, vector), flips_source 'the given flip vector' -- and
+    with ``mirror`` (a negative crossing offset, whose curve is the mirror
+    image) the complemented vector, i.e. the mirror image of the given
+    realisation.  ``dt_string`` is not read then (it may carry the vector)."""
     try:
         import audit_xyz as _ax
     except Exception as e:
         return {"status": "unavailable", "detail": str(e)[:80]}
+    if model is not None and model.get("flips") is not None:
+        # V5.9: the given realisation (or its mirror image) is the reference
+        _comps = _model_spherogram_comps(model)
+        _fl = [bool(f) for f in model["flips"]]
+        if mirror:
+            _fl = [not f for f in _fl]
+        _bare = "DT: [%s]" % ", ".join(repr(c) for c in _comps)
+        _src = ("the given flip vector" if not mirror else
+                "the given flip vector, complemented (the mirror image: negative crossing offset)")
+        try:
+            import inspect as _inspect
+            _primary = "prefer_flips" in _inspect.signature(
+                _ax.audit_components_against_dt).parameters
+        except (TypeError, ValueError):
+            _primary = False
+        if not _primary:           # an audit_xyz.py older than 1.1
+            res = dict(_ax.audit_components_against_dt(
+                xyz_components, _bare, flips=(_comps, _fl), flips_source=_src))
+            res["detail"] = ("%s [this audit_xyz.py cannot make the given flip vector its "
+                             "primary reference, so the hand is NOT checked]"
+                             % res.get("detail", ""))
+            return res
+
+        def _no_reference(r):
+            return (r.get("status") == "inconclusive"
+                    and "reference DT link failed" in str(r.get("detail", "")))
+        res = _ax.audit_components_against_dt(
+            xyz_components, _bare, flips=(_comps, _fl), flips_source=_src,
+            prefer_flips=True)
+        if _no_reference(res):
+            # spherogram's DT decoder refuses some legal kink vectors and
+            # often builds the complement; the curve's mirror image (x -> -x)
+            # against the complemented vector is exactly the same question
+            _cfl = [not f for f in _fl]
+            _S = np.array([-1.0, 1.0, 1.0])
+            res2 = _ax.audit_components_against_dt(
+                [np.asarray(c, float) * _S for c in xyz_components], _bare,
+                flips=(_comps, _cfl),
+                flips_source="the complemented vector (the curve audited as its mirror image)",
+                prefer_flips=True)
+            if not _no_reference(res2):
+                res = dict(res2)
+                res["detail"] = ("%s [spherogram cannot build the vector %s, so the curve's "
+                                 "MIRROR IMAGE (x -> -x) was audited against the complemented "
+                                 "vector %s: the same question]"
+                                 % (res2.get("detail", ""), _bits(_fl), _bits(_cfl)))
+        return res
     if model is None:
         return _ax.audit_components_against_dt(xyz_components, dt_string)
     def _flips():
@@ -11490,6 +12699,66 @@ def build_spherical_xyz_components(
     _can_dirs = None
     _can_h = None
     _can_ends = None
+    # V5.9: a flip vector (model["flips"]) names the realisation to build: a
+    # positive crossing offset builds it, a negative one its mirror image.
+    # Nothing below changes without one.
+    _flips_req = model.get("flips")
+    _flips_rep = None
+    if _flips_req is not None:
+        _flips_req = [bool(f) for f in _flips_req]
+        if layout == "shaped-kamada":
+            _flips_label = "shaped-kamada --surface-shape %s" % _normalize_surface_shape(surface_shape)
+        elif layout == "cubic-kamada":
+            _flips_label = "cubic-kamada --cube-style %s" % str(cube_style or "smooth").strip().lower()
+        else:
+            _flips_label = layout
+        if sphere_offset == 0.0:
+            # no over/under separation: every crossing collapses, so neither
+            # the given realisation nor its mirror image can be built (the
+            # curve would reduce to an unlink or touch itself)
+            raise _flips_flat_offset_error(_flips_req)
+        _flips_rep = {"layout": _flips_label}
+        if layout == "cubic-kamada" and str(cube_style or "smooth").strip().lower() in ("angled",
+                                                                                     "grid"):
+            # the wired cube takes its port order from the vector, so another
+            # diagram of the code is routed (under a budget), not refused
+            _flips_rep["wire"] = True
+        if layout in ("grid-diagram", "chain"):
+            # built by grid_diagram.py / chain_layout.py from the code with
+            # its vector (each refuses what it cannot build)
+            _flips_rep.update({"source": "module", "relation": "module"})
+        if layout in ("stereographic", "stereo-safe", "sheet") or _can_capped:
+            # these follow the 2-D drawing, which prepare_diagram has checked
+            # against the vector ([flips] line) -- unless it could only warn
+            if P is None:
+                raise ValueError("--sphere-layout %s lifts the 2-D drawing, so it needs the "
+                                 "drawing's node positions (P)." % _flips_label)
+            # A lift carries every false crossing, touch or undrawn crossing
+            # of the drawing into the curve (measured: the square knot's
+            # cylinder-tutte --rotate 30 drawing reads as the vector at every
+            # crossing centre, yet its sheet lift touched itself), so the
+            # given realisation cannot be guaranteed from such a drawing.
+            _daud = audit_false_crossings_detail(model, P, centers)
+            _ndef = len(_daud["false"]) + len(_daud["missing"])
+            if _ndef:
+                raise _user_facing(
+                    "--sphere-layout %s lifts the 2-D drawing, and the drawing has %d false or "
+                    "undrawn crossing(s) (see its [warn] line), which the lift would carry into "
+                    "the curve, so the requested flip vector %s cannot be guaranteed; no XYZ / "
+                    ".glb was written -- draw it without them (--layout spread-tutte, or a "
+                    "--min-sep such as 0.02) and build again"
+                    % (_flips_label, _ndef, _bits(_flips_req)))
+            _dread = drawn_flips(model, P, centers)
+            _flips_rep.update({"source": "drawing", "read": _dread,
+                               "relation": "equal" if _dread == _flips_req else "different"})
+            if _dread != _flips_req:
+                raise _user_facing(
+                    "--sphere-layout %s lifts the 2-D drawing, and the drawing does not show the "
+                    "requested flip vector %s (its crossings read %s; see the drawing's [warn] "
+                    "line), so the curve would be a different diagram; draw it with a --layout "
+                    "that shows the vector: %s (spread-tutte also for kinks and bigons)"
+                    % (_flips_label, _bits(_flips_req), _bits(_dread),
+                       ", ".join(FLIPS_HONOURING_LAYOUTS)))
     if _can_capped:
         if P is None:
             raise ValueError("--surface-shape capped-cylinder places the chain from the 2-D "
@@ -11504,16 +12773,43 @@ def build_spherical_xyz_components(
             _can_ends = _cc_auto_ends(model)
         _t_can = time.time()
         try:
-            _can_dirs = _capped_cylinder_dirs_cached(model, P, G, centers, _can_ends, _can_h, _can_rep)
+            try:
+                _can_dirs = _capped_cylinder_dirs_cached(model, P, G, centers, _can_ends, _can_h,
+                                                         _can_rep)
+            except Exception as _exc:  # noqa: BLE001
+                if _can_ends is None:
+                    raise
+                _sheet_msgs.append("[warn] capped-cylinder: no valid pole placement inside end "
+                                   "rings %s (%s); using the deepest point of the drawing and "
+                                   "infinity instead." % (list(_can_ends), str(_exc)[:120]))
+                _can_ends = None
+                _can_rep = {}
+                _can_dirs = _capped_cylinder_dirs_cached(model, P, G, centers, None, _can_h,
+                                                         _can_rep)
         except Exception as _exc:  # noqa: BLE001
-            if _can_ends is None:
+            # V5.9: with a flip vector the run must end in the given
+            # realisation or ONE [error] line; the direction step raises on
+            # some drawings ('the pole lift is not an embedding' on kinks,
+            # split diagrams, some spread-tutte drawings)
+            if getattr(_exc, "user_facing", False):
                 raise
-            _sheet_msgs.append("[warn] capped-cylinder: no valid pole placement inside end rings %s "
-                               "(%s); using the deepest point of the drawing and infinity instead."
-                               % (list(_can_ends), str(_exc)[:120]))
-            _can_ends = None
-            _can_rep = {}
-            _can_dirs = _capped_cylinder_dirs_cached(model, P, G, centers, None, _can_h, _can_rep)
+            if _flips_req is None:
+                # V5.9 (2026-10-19): a bare code, the same failure, also ONE
+                # [error] line (it was a traceback: kinks, split codes, some
+                # spread-tutte drawings, and any 2-D drawing whose straight-
+                # line skeleton is not planar -- every kamada / spring one)
+                raise _user_facing(
+                    "--sphere-layout shaped-kamada --surface-shape capped-cylinder cannot lift "
+                    "this 2-D drawing: its direction step failed (%s: %s); no XYZ / .glb was "
+                    "written -- use --sphere-layout stereo-safe or sheet, which lift the same "
+                    "drawing, or draw it with another --layout"
+                    % (type(_exc).__name__, " ".join(str(_exc).split())[:160]))
+            raise _user_facing(
+                "--sphere-layout shaped-kamada --surface-shape capped-cylinder cannot build the "
+                "requested flip vector %s from this 2-D drawing: its direction step failed "
+                "(%s: %s); no XYZ / .glb was written -- use --sphere-layout stereo-safe or "
+                "sheet, which lift the same drawing, or draw it with another --layout"
+                % (_bits(_flips_req), type(_exc).__name__, " ".join(str(_exc).split())[:160]))
         _can_rep["seconds"] = time.time() - _t_can
         if sphere_refine:
             _sheet_msgs.append("[info] --sphere-refine is ignored for the capped cylinder: its "
@@ -11576,22 +12872,116 @@ def build_spherical_xyz_components(
             raise _import_chain_layout().ChainLayoutError(
                 "--sphere-layout chain segments the 2-D drawing, so it needs the "
                 "drawing's node positions (P).")
+        _chain_kw = {}
+        if _flips_req is not None:
+            # V5.9: chain_layout 1.1 builds the given realisation; it reads
+            # model["flips"], and a `flips` keyword too where it has one
+            _cl = _require_flips_aware(_import_chain_layout(), "chain")
+            try:
+                import inspect as _inspect
+                if "flips" in _inspect.signature(_cl.build_chain_xyz_components).parameters:
+                    _chain_kw["flips"] = list(_flips_req)
+            except (TypeError, ValueError):
+                pass
         xyz_components = _import_chain_layout().build_chain_xyz_components(
             model, P, centers, sphere_radius=sphere_radius, sphere_offset=sphere_offset,
             xyz_spacing=xyz_spacing, twist=chain_twist, rounds=chain_rounds,
             symmetrize=chain_symmetrize, status_messages=_sheet_msgs, report_out=_chain_rep,
             form=chain_form, fold_preset=chain_fold_preset,
-            fold_band=chain_fold_band, fold_ring=chain_fold_ring)
+            fold_band=chain_fold_band, fold_ring=chain_fold_ring, **_chain_kw)
         if skeleton_out is not None:
             skeleton_out.clear()
             skeleton_out.update({"points": np.zeros((0, 3)), "segments": [], "segment_comps": [],
                                  "surface_wires": [], "unit": False})
     elif layout == "grid-diagram":
-        xyz_components, _grid_info = _build_grid_diagram_xyz_components(
-            model, sphere_radius=sphere_radius, sphere_offset=sphere_offset,
-            xyz_spacing=xyz_spacing, densify=bool(xyz_even_spacing),
-            steps=grid_steps, seed=grid_seed, status_messages=_grid_msgs,
-            same_diagram=bool(grid_same_diagram))
+        try:
+            xyz_components, _grid_info = _build_grid_diagram_xyz_components(
+                model, sphere_radius=sphere_radius, sphere_offset=sphere_offset,
+                xyz_spacing=xyz_spacing, densify=bool(xyz_even_spacing),
+                steps=grid_steps, seed=grid_seed, status_messages=_grid_msgs,
+                same_diagram=bool(grid_same_diagram))
+        except Exception as _exc:  # noqa: BLE001
+            # V5.9: one [error] line on the flips path (grid_diagram.py and
+            # spherogram's braid_word raise on some codes, e.g. a split one
+            # under --grid-any-diagram)
+            if getattr(_exc, "user_facing", False):
+                raise
+            if _flips_req is None and getattr(_exc, "grid_same_diagram_step", None) is not None:
+                # V5.9 (2026-10-19): grid_diagram.py's same-diagram ROUTER
+                # failed (tagged there): say so, not that spherogram did
+                # ('could not route the diagram on a flat grid up to 240
+                # cells', so far on kinked codes whose default tutte drawing
+                # has false crossings)
+                _rtext = getattr(sys.modules.get("grid_diagram") or _import_grid_diagram(),
+                                 "_route_failure_text", None)
+                try:     # THIS drawing's defects (the exact audit, cached per drawing)
+                    _own = audit_false_crossings_detail(model, P, centers)
+                    _own = len(_own["false"]) + len(_own["missing"])
+                except Exception:  # noqa: BLE001
+                    _own = None
+                raise _user_facing(
+                    "--sphere-layout grid-diagram cannot build this code: %s; no XYZ / .glb was "
+                    "written -- the grid is always routed from that drawing, whatever --layout "
+                    "says; --sphere-layout stereo-safe or sheet lift THIS 2-D drawing%s"
+                    % (_rtext(_exc) if _rtext is not None else
+                       "grid_diagram.py's same-diagram router failed (%s: %s)"
+                       % (type(_exc).__name__, " ".join(str(_exc).split())[:160]),
+                       "" if _own is None else
+                       " (it has no false crossings)" if _own == 0 else
+                       ", but it has %d false or undrawn crossing(s) too: draw a kinked code with "
+                       "--layout spread-tutte, the layout made for kinked diagrams" % _own))
+            _ncomp = len(model.get("comp_positions") or ())
+            if _flips_req is None and not model.get("crossings") and _ncomp:
+                # 2026-10-21 (round 4e review): 'DT: [()]', 'DT: [(), ()]' -- no
+                # crossings; the line below blamed kinked or split codes
+                raise _user_facing(
+                    "--sphere-layout grid-diagram%s cannot build this code: it has no crossings "
+                    "(%s), and grid_diagram.py builds its grids from a diagram with crossings "
+                    "(%s: %s); no XYZ / .glb was written"
+                    % ("" if grid_same_diagram else " --grid-any-diagram",
+                       "the unknot" if _ncomp == 1 else "an unlink of %d components" % _ncomp,
+                       type(_exc).__name__, " ".join(str(_exc).split())[:160]))
+            if _flips_req is None and getattr(_exc, "grid_bare_spherogram_step", None) is None:
+                # V5.9 (2026-10-19): any other failure on a bare code: no cause
+                # is named that is not known to be the cause
+                raise _user_facing(
+                    "--sphere-layout grid-diagram%s cannot build this code: grid_diagram.py "
+                    "failed (%s: %s); no XYZ / .glb was written -- %s"
+                    % ("" if grid_same_diagram else " --grid-any-diagram",
+                       type(_exc).__name__, " ".join(str(_exc).split())[:160],
+                       "use --sphere-layout stereo-safe or sheet, which lift the 2-D drawing"
+                       if grid_same_diagram else
+                       "drop --grid-any-diagram (the default same-diagram grid is routed from "
+                       "the 2-D drawing), or use --sphere-layout stereo-safe or sheet, which "
+                       "lift that drawing"))
+            if _flips_req is None:
+                # V5.9 (2026-10-19): a bare code, also ONE [error] line (it was
+                # a traceback -- spherogram cannot decode a kinked code or one
+                # with a kinked split component, nor braid some split ones;
+                # since grid_diagram.py's same-diagram grid no longer needs
+                # spherogram's reading, that is mostly --grid-any-diagram).
+                # Only for a failure grid_diagram.py tagged as spherogram's
+                # (reading or braiding the code); the router and anything
+                # else are worded above.
+                raise _user_facing(
+                    "--sphere-layout grid-diagram%s cannot build this code: grid_diagram.py "
+                    "failed (%s: %s); no XYZ / .glb was written -- spherogram cannot read or "
+                    "braid some kinked or split DT codes; %s"
+                    % ("" if grid_same_diagram else " --grid-any-diagram",
+                       type(_exc).__name__, " ".join(str(_exc).split())[:160],
+                       "use --sphere-layout stereo-safe or sheet, which lift the 2-D drawing, "
+                       "or give the code with its flip vector (dt_converter.py --to dt-flips)"
+                       if grid_same_diagram else
+                       "drop --grid-any-diagram (the default same-diagram grid is routed from "
+                       "the 2-D drawing and does not need spherogram's reading), or use "
+                       "--sphere-layout stereo-safe or sheet, which lift that drawing"))
+            raise _user_facing(
+                "--sphere-layout grid-diagram%s cannot build the requested flip vector %s: "
+                "grid_diagram.py failed (%s: %s); no XYZ / .glb was written -- use "
+                "--sphere-layout stereo-safe or sheet, which lift the 2-D drawing%s"
+                % ("" if grid_same_diagram else " --grid-any-diagram", _bits(_flips_req),
+                   type(_exc).__name__, " ".join(str(_exc).split())[:160],
+                   "" if grid_same_diagram else ", or drop --grid-any-diagram"))
         if skeleton_out is not None:
             skeleton_out.clear()
             skeleton_out.update({"points": _grid_info["crossing_points"], "segments": [],
@@ -11616,6 +13006,7 @@ def build_spherical_xyz_components(
             raw_radii=(layout == "raw-kk"),
             radii_report=_radii_rep,
             dirs_override=_can_dirs,
+            flips_report=_flips_rep,
         )
     else:
         raise ValueError("Unknown --sphere-layout %r." % sphere_layout)
@@ -11623,13 +13014,60 @@ def build_spherical_xyz_components(
     _msgs = status_messages if status_messages is not None else []
     _msgs.extend(_grid_msgs)
     _msgs.extend(_sheet_msgs)
+    if _flips_rep is not None and _flips_rep.get("relation") is not None:
+        # V5.9: how the requested realisation was obtained
+        _fl = _flips_rep["layout"]
+        if _flips_rep.get("source") == "module":
+            _how = ("%s builds it from the code with its flip vector, %s"
+                    % ("grid_diagram.py" if layout == "grid-diagram" else "chain_layout.py",
+                       dt_flips_string_from_model(model)))
+        elif _flips_rep.get("source") == "drawing" and not _flips_rep.get("reflected"):
+            _how = ("lifts the 2-D drawing, which shows the requested flip vector %s"
+                    % _bits(_flips_req))
+        elif _flips_rep["relation"] == "equal":
+            _how = ("the sphere layout realises the requested flip vector %s as laid out"
+                    % _bits(_flips_req))
+        elif _flips_rep["relation"] == "different":
+            # only the angled / grid cube gets here (every other layout
+            # refuses in _build_spherical_kamada_xyz_components); the cube
+            # block below refuses if no wiring is found within the budget
+            _how = ("the sphere layout realises %s, a different diagram of the code, so the "
+                    "cube is wired from the requested vector %s itself (each crossing's port "
+                    "order is the vector's; a crossing-free wiring with that order is the "
+                    "requested diagram), over the layout's crossing positions"
+                    % (_bits(_flips_rep["read"]), _bits(_flips_req)))
+        else:
+            # "complement"
+            _how = ("the sphere layout realised the mirror image %s, so its directions were "
+                    "reflected (x -> -x) before the crossing patches were built: it now realises "
+                    "the requested flip vector %s"
+                    % (_bits(_flips_rep["read"]), _bits(_flips_req)))
+        _w = _flips_writhe(model, _flips_req)
+        _msgs.append(
+            "[flips] %s: %s; the crossing offset is %s, so the curve is %s (writhe %+d)."
+            % (_fl, _how, "%+.3f" % sphere_offset,
+               "the given realisation" if sphere_offset >= 0.0 else
+               "its MIRROR image (negative crossing offset)",
+               _w if sphere_offset >= 0.0 else -_w))
     # A NEGATIVE crossing offset inverts the over/under layering (see below);
     # these two are radial DISTANCES, so they take its magnitude -- otherwise
     # _clr goes negative and silently switches the whole clearance repair off.
     _clr = float(xyz_clearance) if xyz_clearance else 0.8 * abs(float(sphere_offset))
     _excl = max(2.4 * abs(float(sphere_offset)),
                 float(sphere_radius) * math.sin(sphere_crossing_angle))
-    if sphere_offset < 0.0 and layout != "chain":
+    if sphere_offset < 0.0 and layout != "chain" and _flips_req is not None:
+        # V5.9: with a flip vector the realisation is named, so the hand is not
+        # a free choice: the negative offset builds the given diagram's mirror
+        _msgs.append(
+            "[info] crossing offset is NEGATIVE (%.3f): the over-strand runs "
+            "INSIDE the base surface and the under-strand outside, so every "
+            "crossing is inverted and this curve is the MIRROR image of the "
+            "given realisation %s (the +%.3f build is that realisation "
+            "itself).  The topology audit's isometry test is mirror-blind; "
+            "the hand is checked by the Jones polynomial against the mirror "
+            "of (DT, flips)."
+            % (sphere_offset, _bits(_flips_req), abs(sphere_offset)))
+    elif sphere_offset < 0.0 and layout != "chain":
         _msgs.append(
             "[info] crossing offset is NEGATIVE (%.3f): the over-strand runs "
             "INSIDE the base surface and the under-strand outside, so every "
@@ -11879,6 +13317,12 @@ def build_spherical_xyz_components(
             _anch_unit if _anch_unit is not None else np.zeros((0, 3), float))
         M_cube, _cube_info = _cube_orientation_frame(model, _anch_unit, _dirs_all)
         _style = str(cube_style or "smooth").strip().lower()
+        # V5.9: a flip vector the sphere layout realises as ANOTHER diagram of
+        # the code is wired from the vector's rotation system over that
+        # layout's crossing positions -- correct by construction when it
+        # routes, but such a wiring may not exist near the layout's positions,
+        # so the router negotiates on at most CUBE_FLIPS_ROUTE_SIZES grid sizes
+        _wire_other = (_flips_rep is not None and _flips_rep.get("relation") == "different")
         if _style in ("angled", "grid"):
             xyz_components, _warp_pts, _angled_info = _build_cubic_angled_components(
                 xyz_components,
@@ -11894,8 +13338,32 @@ def build_spherical_xyz_components(
                 cube_grid=cube_grid,
                 densify=bool(xyz_even_spacing),
                 style=_style,
+                max_sizes=(CUBE_FLIPS_ROUTE_SIZES if _wire_other else None),
             )
+            if not _angled_info.get("routed") and _wire_other:
+                # V5.9: the smooth fallback would build the sphere layout's
+                # own realisation, which is another diagram: refuse instead
+                _sz = _angled_info.get("sizes") or []
+                raise _user_facing(
+                    "--sphere-layout %s cannot build the requested flip vector %s of this DT "
+                    "code: its Kamada-Kawai sphere layout realises %s, %s, so the cube is wired "
+                    "from the vector's own port order, and no such wiring was found near the "
+                    "layout's crossing positions on the %s tried (a budget of %d grid "
+                    "size%s; --cube-grid N starts at another); no XYZ / .glb was written -- "
+                    "use --sphere-layout stereo-safe, sheet or shaped-kamada --surface-shape "
+                    "capped-cylinder, which lift the 2-D drawing (drawn with the vector)"
+                    % (_flips_rep["layout"], _bits(_flips_req), _bits(_flips_rep["read"]),
+                       "a different realisation of the code (a connected summand or a split "
+                       "piece reflected)" if _flips_rep.get("legal") else
+                       "no legal vector of the code (the layout folds)",
+                       " and ".join("%d x %d" % (n, n) for n in _sz) + " grid" +
+                       ("s" if len(_sz) != 1 else "") if _sz else "grids",
+                       CUBE_FLIPS_ROUTE_SIZES, "" if CUBE_FLIPS_ROUTE_SIZES == 1 else "s"))
             if not _angled_info.get("routed"):
+                # V5.9: with a flip vector the sphere layout realises the
+                # requested vector here (another diagram is wired from the
+                # vector or refused just above), so the smooth fallback builds
+                # it too
                 _style = "smooth"      # fell back to the smooth map: repair and space it as such
         else:
             xyz_components, _warp_pts = _warp_components_to_cube(
@@ -12010,7 +13478,22 @@ def build_spherical_xyz_components(
             % (_style, _angled_info["corners"], xyz_spacing))
 
     if audit_dt:
-        _res = audit_xyz_components(xyz_components, audit_dt, model=model, G=G)
+        if _flips_req is None:
+            _res = audit_xyz_components(xyz_components, audit_dt, model=model, G=G)
+        else:
+            # V5.9: against the given realisation, or its mirror image at a
+            # negative offset (the chain and grid layouts follow the same rule).
+            # An audit that raises proves nothing about the curve: it is
+            # reported as inconclusive (a [WARN] line), never as a refusal.
+            try:
+                _res = audit_xyz_components(xyz_components, audit_dt, model=model, G=G,
+                                            mirror=(sphere_offset < 0.0))
+            except Exception as _exc:  # noqa: BLE001
+                _res = {"status": "inconclusive",
+                        "detail": "the audit raised %s: %s, so the curve was not checked "
+                                  "against the requested realisation %s"
+                                  % (type(_exc).__name__, " ".join(str(_exc).split())[:160],
+                                     _bits(_flips_req))}
         if _res["status"] == "ok":
             _msgs.append("[ok] xyz topology audit: %s" % _res["detail"])
         elif _res["status"] == "unavailable":
@@ -12020,6 +13503,24 @@ def build_spherical_xyz_components(
             _msgs.append("[%s] xyz topology audit: %s"
                          % ("WARN" if _res["status"] == "inconclusive"
                             else "FAIL", _res["detail"]))
+            if _res["status"] == "FAIL" and _flips_req is not None:
+                # V5.9: the realisation was named and the audit PROVES the
+                # curve is another link (or the mirror image: its Jones
+                # polynomial is compared, chirality included), so nothing is
+                # written -- the flips rule is "build it or refuse"
+                raise _user_facing(
+                    "--sphere-layout %s built a curve that is not %s %s of this DT code, "
+                    "so no XYZ / .glb was written -- xyz topology audit: %s.  %s"
+                    % (_flips_rep["layout"] if _flips_rep else layout,
+                       "the requested realisation" if sphere_offset >= 0.0 else
+                       "the mirror image of the requested realisation",
+                       _bits(_flips_req), _res["detail"],
+                       "This layout is exact or certified, so this is unexpected: recheck "
+                       "the DT code and the audit dependencies"
+                       if (_stereo_safe or layout in ("sheet", "chain", "grid-diagram")) else
+                       "This layout is not correct by construction for this diagram; "
+                       "use --sphere-layout stereo-safe or sheet (correct by construction, "
+                       "lifting the 2-D drawing, which shows the vector)"))
             if _res["status"] == "FAIL":
                 if _stereo_safe:
                     _msgs.append(
@@ -12882,6 +14383,35 @@ def _describe_surface_shells(shells):
                 "radially" % (float(sc.min()), float(sc.max()), R, o))
     return ("base sphere of radius %.3f; the inner / outer shells are spheres "
             "of radius %.3f / %.3f" % (R, R - o, R + o))
+
+
+def xyz_glb_extras(dt_text, model=None, sphere_offset=0.0):
+    """The .glb asset extras of a build: {"dt": the typed DT text}, and --
+    V5.9, ONLY when the model carries a flip vector -- "flips" (the bits),
+    "dt_flips" (`dt_flips_string_from_model`: the code of the link drawn in
+    spherogram's convention plus the vector) and "hand" (the given
+    realisation at a positive offset, its mirror image at a negative one)."""
+    ex = {"dt": dt_text}
+    if model is not None and model.get("flips") is not None:
+        ex["flips"] = "".join("1" if f else "0" for f in model["flips"])
+        ex["dt_flips"] = dt_flips_string_from_model(model)
+        ex["hand"] = ("the given realisation" if float(sphere_offset) >= 0.0 else
+                      "the mirror image of the given realisation (negative crossing offset)")
+    return ex
+
+
+def _flips_key(flips):
+    """V5.9: a hashable key of a flip vector (None for a bare code)."""
+    return None if flips is None else tuple(bool(f) for f in flips)
+
+
+def _flips_key_of_text(text):
+    """V5.9: `_flips_key` of the vector a DT text carries (None for a bare or
+    unreadable text -- prepare_diagram reports those)."""
+    try:
+        return _flips_key(split_dt_flips(_normalize_dt_text(text))[1])
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _write_rods_only_glb(path, shells, extras=None, rod_diameter=0.0):
@@ -13878,17 +15408,38 @@ def ensure_parent_dir(path):
 
 
 
+def _no_diagram_text():
+    """dt_converter.NO_DIAGRAM_TEXT -- the toolkit's one wording for a code no
+    flip vector makes planar (V5.9, 2026-10-19, round 4) -- or the same words
+    when dt_converter.py cannot be imported."""
+    try:
+        import dt_converter
+        return str(dt_converter.NO_DIAGRAM_TEXT)
+    except Exception:  # noqa: BLE001
+        return ("no diagram on the sphere has this DT code: no flip vector "
+                "makes it planar")
+
+
 def prepare_diagram(args, status_stream=None):
     """
     Parse, validate, lay out, transform, and audit the DT diagram.
 
     This function does not save files and does not draw on a figure.  It is used
     by both the command-line pipeline and the live GUI preview.
+
+    V5.9: ``args.dt`` may carry a flip vector ('DT: [...], [0,1,...]',
+    `parse_dt_flips`).  Then the layouts get the vector's own embedding, the
+    finished drawing is checked to show it (`_check_drawn_flips`: [flips]
+    line, reflection of a mirrored piece, refusal or [warn]), and the
+    returned state gains "flips" (the requested vector, list of bool) --
+    absent for a bare code, whose path and output are unchanged.
     """
     out = status_stream if status_stream is not None else io.StringIO()
 
-    comps = parse_dt(args.dt)
-    model = build_model(comps, negative_even=args.negative_even)
+    # V5.9: the code may carry a flip vector naming one realisation (None for
+    # a bare code, which then takes exactly the old path)
+    comps, flips = parse_dt_flips(args.dt)
+    model = build_model(comps, negative_even=args.negative_even, flips=flips)
     crossing_ids = resolve_crossing_ids(
         model,
         crossing_order=getattr(args, "crossing_order", None),
@@ -13896,6 +15447,14 @@ def prepare_diagram(args, status_stream=None):
     )
 
     G = build_gadget_graph(model)
+    if flips is None and not nx.check_planarity(G)[0]:
+        # V5.9 (2026-10-19, round 4): no diagram on the sphere has the code
+        # (its crossing graph is planar exactly when some flip vector is
+        # legal); compute_positions would end in a RuntimeError traceback.
+        # One [error] line in main(), grid --same-diagram and chain_layout,
+        # in the toolkit's one wording (dt_converter.NO_DIAGRAM_TEXT).
+        raise _user_facing(ValueError(
+            "%s, so there is nothing to draw; check the code" % _no_diagram_text()))
     tutte_opts = {
         "shape": getattr(args, "tutte_shape", "ellipse"),
         "aspect": getattr(args, "tutte_aspect", 1.8),
@@ -13935,6 +15494,19 @@ def prepare_diagram(args, status_stream=None):
         "puncture_face": parse_puncture_selection(getattr(args, "puncture_face", None)),
         "puncture_report": [],
     }
+    if flips is not None:
+        # V5.9: every layout that takes an embedding gets the vector's own
+        # (`embedding_from_flips`) instead of networkx's / crossing_face_
+        # embedding's.  It is built for the layout frame: the default
+        # --y-direction top-to-bottom reflects the drawing afterwards, so that
+        # frame must show the complement for the final drawing to show flips.
+        _frame = ([not f for f in flips] if args.y_direction == "top-to-bottom"
+                  else list(flips))
+        try:
+            tutte_opts["embedding"] = embedding_from_flips(model, G, _frame)
+        except ValueError as exc:
+            raise _user_facing(exc)
+        tutte_opts["frame_flips"] = _frame
     # Auto-detect a rotational symmetry of the DT.  When present (and symmetry
     # enforcement is on), disable ring-equalize -- it redistributes the crossings
     # around the ring and breaks the symmetric angular arrangement, tangling the
@@ -14045,6 +15617,7 @@ def prepare_diagram(args, status_stream=None):
     guide_center = None
     if P:
         guide_center = np.mean(list(P.values()), axis=0)
+    _P_pre, _guides_pre = P, tutte_guides     # V5.9: the flips check may reflect them
     P = transform_positions(P, args.y_direction, args.rotate)
     if tutte_guides and guide_center is not None:
         tutte_guides = _transform_tutte_guides(
@@ -14056,6 +15629,10 @@ def prepare_diagram(args, status_stream=None):
 
     _audit = audit_false_crossings_detail(model, P, centers)
     false = len(_audit["false"]) + len(_audit["missing"])
+    if flips is not None:
+        P, centers, tutte_guides, _audit, false = _check_drawn_flips(
+            args, model, G, comps, flips, P, centers, tutte_guides, _audit, false,
+            _P_pre, _guides_pre, guide_center, out)
     used_layout = args.layout
     # The chosen layout is kept as-is even when it introduces false crossings
     # (there is no automatic fallback to 'planar').  False crossings are drawn
@@ -14095,7 +15672,7 @@ def prepare_diagram(args, status_stream=None):
         (len(comps), len(model["crossings"]), model["twon"])
     )
 
-    return {
+    state = {
         "comps": comps,
         "model": model,
         "crossing_ids": crossing_ids,
@@ -14108,6 +15685,149 @@ def prepare_diagram(args, status_stream=None):
         "aspect_value": tutte_guides.get("aspect_value") if tutte_guides else None,
         "puncture_report": puncture_report,
     }
+    if flips is not None:
+        state["flips"] = list(flips)          # V5.9: the requested realisation
+    return state
+
+
+# V5.9: the 2-D layouts that draw a given flip vector as given (the vector's
+# embedding is their input); named by the refusal below.
+FLIPS_HONOURING_LAYOUTS = ("tutte", "shaped-tutte", "cylinder-tutte", "spread-tutte")
+
+
+def _bits(v):
+    """A flip vector as '[0,1,...]' (format_dt_flips' spelling); '?' unreadable."""
+    return "[%s]" % ",".join("?" if b is None else ("1" if b else "0") for b in v)
+
+
+def _flips_flat_offset_error(flips, written="no XYZ / .glb was written"):
+    """V5.9: the refusal of a 3-D build with a flip vector at crossing offset
+    0 -- the over and under strands lie on one surface, so no realisation
+    (neither the given one nor its mirror image) can be built.  ``written``
+    says what was not written where it is raised."""
+    return _user_facing(
+        "--crossing-offset 0 gives no over/under separation, so no realisation of the "
+        "flip vector %s can be built (every crossing would collapse); use a positive "
+        "offset for the given realisation or a negative one for its mirror image; %s"
+        % (_bits(flips), written))
+
+
+def _check_drawn_flips(args, model, G, comps, flips, P, centers, guides, audit, false,
+                       P_pre, guides_pre, guide_center, out):
+    """V5.9, prepare_diagram with a flip vector: read the vector the finished
+    drawing shows (`drawn_flips`) and make sure it is the requested one.
+
+    * as requested -> one [flips] line;
+    * the exact complement (the mirror image: sphere-stereo, holed-tutte's
+      kamada wreath and --invert-ring follow their own 3-D layout's hand) ->
+      the pre-transform positions and guides are reflected across a vertical
+      line through their centroid, the drawing transform, centres and the
+      exact audit are redone, and the [flips] line says so.  A split diagram
+      is laid out piece by piece and every piece reflects on its own, so this
+      is decided PER PIECE: a piece drawn as the complement of its part of
+      the vector is reflected across the vertical line through its own
+      bounding box (the side-by-side packing is kept);
+    * a CLEAN drawing of a different legal realisation (a composite code
+      whose summand the layout reflected) -> a user-facing ValueError naming
+      the layouts that honour a vector;
+    * otherwise (false or undrawn crossings, so the reading is not a picture
+      of any realisation: kamada, spring, a crushed kink) -> a [warn] that
+      the vector cannot be confirmed on this drawing.  Deliberately not a
+      refusal even when that reading happens to be a legal vector: a Tutte
+      solve crushes a kink into its crossing, and the crushed kink reads as
+      the opposite bit whatever was requested -- flipping a kink's bit is
+      legal -- while the embedding is honoured (measured on the 30-crossing
+      backtrack knot of Invariant 23: tutte, shaped- and cylinder-tutte read
+      its two kink bits inverted for every requested vector, with the same 4
+      false crossings as the bare drawing; spread-tutte honours them all
+      with 0).
+    Returns (P, centers, guides, audit, false)."""
+    req = [bool(f) for f in flips]
+    read = drawn_flips(model, P, centers)
+    note = ""
+    pieces = [set(nodes) for nodes in nx.connected_components(G)]
+    mirrored = []          # (piece, its crossings) drawn as the complement of the request
+    for nodes in pieces:
+        ks = sorted({v[0] for v in nodes if v[0] != "seg"})
+        if ks and all(read[k] is not None and read[k] == (not req[k]) for k in ks):
+            mirrored.append((nodes, ks))
+    if mirrored:
+        P_ref = {v: np.array(xy, float) for v, xy in P_pre.items()}
+        if len(pieces) == 1:
+            cx = float(guide_center[0])
+            for q in P_ref.values():
+                q[0] = 2.0 * cx - q[0]
+        else:
+            for nodes, _ks in mirrored:
+                xs = [float(P_ref[v][0]) for v in nodes]
+                mid = 0.5 * (min(xs) + max(xs))
+                for v in nodes:
+                    P_ref[v][0] = 2.0 * mid - P_ref[v][0]
+        P = transform_positions(P_ref, args.y_direction, args.rotate)
+        if guides_pre and guide_center is not None and len(pieces) == 1:
+            g_ref = {}
+            for k, v in guides_pre.items():
+                if isinstance(v, np.ndarray) and v.ndim == 2 and v.shape[1] == 2:
+                    v = np.array(v, float)
+                    v[:, 0] = 2.0 * cx - v[:, 0]
+                g_ref[k] = v
+            guides = _transform_tutte_guides(g_ref, guide_center, args.y_direction, args.rotate)
+        centers = crossing_centers(model, P)
+        audit = audit_false_crossings_detail(model, P, centers)
+        false = len(audit["false"]) + len(audit["missing"])
+        read = drawn_flips(model, P, centers)
+        if len(pieces) == 1:
+            note = ("the %s drawing showed the mirror image %s, so it was reflected; "
+                    % (args.layout, _bits([not f for f in req])))
+        else:
+            note = ("the %s drawing showed %d of its %d pieces in their mirror image (the "
+                    "crossings with odd labels %s), so %s reflected; "
+                    % (args.layout, len(mirrored), len(pieces),
+                       "; ".join(", ".join(str(2 * k + 1) for k in ks) for _n, ks in mirrored),
+                       "that piece was" if len(mirrored) == 1 else "those pieces were"))
+    sph = []                                   # the DT of the link drawn, spherogram's convention
+    for cp in model["comp_positions"]:
+        sph.append(tuple(-c["even"] if model["over_at"][c["even"]] else c["even"]
+                         for c in (model["crossings"][model["pos_cross"][p]]
+                                   for p in cp if p % 2 == 1)))
+    writhe = sum(flips_crossing_signs(sph, req))
+    if read == req:
+        out.write("[flips] %sthe drawing shows the requested flip vector %s (bit k: the "
+                  "crossing with odd label 2k+1; writhe %+d as drawn)%s.\n"
+                  % (note, _bits(req), writhe,
+                     "" if not false else
+                     "; read at the crossing centres only -- the drawing has %d false or "
+                     "undrawn crossing(s), see [warn]" % false))
+    else:
+        legal = None not in read
+        if legal:
+            try:
+                check_flips(comps, read)
+            except ValueError:
+                legal = False
+        if legal and not false:
+            raise _user_facing(
+                "layout '%s' drew the realisation %s of this DT code, not the requested %s "
+                "(a different diagram: a connected summand reflected); the layouts that draw a "
+                "given flip vector are %s (and planar when its drawing is clean)"
+                % (args.layout, _bits(read), _bits(req), ", ".join(FLIPS_HONOURING_LAYOUTS)))
+        what = ("a different realisation of the code" if legal else
+                "%d crossing(s) unreadable" % read.count(None) if None in read else
+                "not a legal flip vector")
+        out.write("[warn] the flip vector %s cannot be confirmed on this '%s' drawing: %sits "
+                  "crossings read %s (%s)%s; the layouts that draw a given flip vector are %s "
+                  "(spread-tutte also for kinks and bigons, which the Tutte solves crush).\n"
+                  % (_bits(req), args.layout, note, _bits(read), what,
+                     ", and it has %d false or undrawn crossing(s), so it is not a faithful "
+                     "picture of any realisation" % false if false else "",
+                     ", ".join(FLIPS_HONOURING_LAYOUTS)))
+    if getattr(args, "negative_even", "over") == "under":
+        out.write("[info] --negative-even under with a flip vector: the vector fixes the "
+                  "shadow and is drawn as given, but a negative entry here means the even "
+                  "visit is UNDER, so the link drawn is the crossing-change mirror of "
+                  "spherogram's reading of (DT, flips); in spherogram's convention it is %s.\n"
+                  % dt_flips_string_from_model(model))
+    return P, centers, guides, audit, false
 
 
 def _draw_tutte_guides(ax, guides, show_outline=False, show_pca=False):
@@ -14273,6 +15993,11 @@ def _render_table_coordinates_for_pipeline(data, args):
 def run_pipeline(args, status_stream=None):
     out = status_stream if status_stream is not None else sys.stderr
     data = prepare_diagram(args, status_stream=out)
+    if data.get("flips") is not None \
+            and bool(getattr(args, "write_xyz", True) and args.xyz_output) \
+            and float(args.sphere_offset) == 0.0:
+        # V5.9: refused before anything is written (see _flips_flat_offset_error)
+        raise _flips_flat_offset_error(data["flips"], "nothing was written")
 
     label_coords = None
     crossing_xy = None
@@ -14381,7 +16106,8 @@ def run_pipeline(args, status_stream=None):
         if _shells is not None:
             for _m in write_surface_shells_glb(
                     shells_glb_path(args.shells_glb, args.xyz_output), _shells,
-                    extras={"dt": getattr(args, "dt", None)},
+                    extras=xyz_glb_extras(getattr(args, "dt", None), data["model"],
+                                          args.sphere_offset),
                     rod_diameter=getattr(args, "glb_rod_diameter", 0.0)):
                 out.write(_m + "\n")
 
@@ -14501,7 +16227,19 @@ def build_arg_parser():
         default=None,
         help=(
             "Signed DT code, e.g. "
-            "'DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]'"
+            "'DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]'. "
+            "V5.9: optionally followed by a flip vector naming ONE realisation "
+            "of the code, e.g. 'DT: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]' (the "
+            "square knot; [0,0,1,1,0,1] is the granny knot): bit k belongs to "
+            "the crossing with odd label 2k+1 (spherogram/SnapPy convention: "
+            "walking along the visit with the smaller label, 0 = the other "
+            "strand crosses from right to left); complementing every bit gives "
+            "the mirror image.  The vector needs exactly one bit per crossing; "
+            "an illegal vector is refused; the 2-D drawing is checked to show "
+            "the vector.  A trailing '# comment' is ignored; any other text "
+            "after the code (or a stray ',') is an error, as are unbalanced "
+            "brackets; the old multi-list spelling 'DT: [-4], [-2]' still "
+            "reads as one code."
         ),
     )
     ap.add_argument(
@@ -15055,7 +16793,17 @@ def build_arg_parser():
             "whole into a straight chain of rings in near-perpendicular "
             "planes, every step certified; positive offset = spherogram's "
             "reading of the DT code, negative = its mirror; anything else is "
-            "refused."
+            "refused.  V5.9, --dt with a flip vector: every layout builds the "
+            "given realisation at a positive --crossing-offset and its mirror "
+            "image at a negative one, or refuses with one [error] line "
+            "(stereographic, stereo-safe, sheet and capped-cylinder lift the "
+            "2-D drawing, which shows the vector, and refuse a drawing with "
+            "false crossings -- use spread-tutte or --min-sep; the kamada "
+            "layouts reflect their directions when needed and refuse another "
+            "diagram of the code, except the angled / grid cubes, which wire "
+            "the vector's own port order over it on their first two grid "
+            "sizes and refuse if neither routes; --crossing-offset 0 is "
+            "refused; a curve the audit proves wrong is not written)."
         ),
     )
     ap.add_argument(
@@ -15178,7 +16926,11 @@ def build_arg_parser():
             "link (the arc-index search from the braid closure) instead of keeping "
             "THIS diagram.  By default the grid is built from the DT code's own 2-D "
             "layout and simplified by planar isotopies only, so the drawn grid "
-            "diagram has the same DT code as the input."
+            "diagram has the same DT code as the input.  Hand at a positive "
+            "--crossing-offset: by default that of the code's own 2-D drawing "
+            "(drawn with the default --layout), with this option the hand "
+            "spherogram assigns to the code; with a flip vector in --dt both "
+            "build the given realisation (a negative offset mirrors)."
         ),
     )
     ap.add_argument(
@@ -15219,7 +16971,12 @@ def build_arg_parser():
             "axis run on the outer shell and strands along the other on the "
             "inner shell, changing level with a post where they turn, so every "
             "crossing is outer-over-inner with no bridge (see --cube-grid). "
-            "Default: smooth."
+            "V5.9, --dt with a flip vector: 'angled' and 'grid' take every "
+            "crossing's port order from the vector, so they build the given "
+            "realisation even where the Kamada layout realises another "
+            "diagram of the code (a reflected summand); the router then "
+            "negotiates on at most two grid sizes and the build is refused if "
+            "neither routes.  Default: smooth."
         ),
     )
     ap.add_argument(
@@ -15340,7 +17097,18 @@ def build_arg_parser():
             "A NEGATIVE value inverts every crossing (over runs inside, under "
             "outside), giving the mirror realisation of the same DT code -- "
             "use it when you need the opposite handedness. Only the magnitude "
-            "may reach --sphere-radius."
+            "may reach --sphere-radius.  V5.9: with a flip vector in --dt the "
+            "realisation is named: a positive offset builds THAT realisation, "
+            "a negative one its mirror image, in every 3-D layout, and 0 (no "
+            "over/under separation, so no realisation) is refused; a layout "
+            "that cannot build it refuses (the kamada layouts on a composite "
+            "code whose summand they reflect -- use stereo-safe, sheet or "
+            "shaped-kamada --surface-shape capped-cylinder, which lift a 2-D "
+            "drawing without false crossings, or --cube-style angled / grid, "
+            "which wire the vector's own port order and refuse only if no "
+            "wiring is found on their first two grid sizes), and so does a "
+            "build the topology audit proves to be another link or the wrong "
+            "hand (it compares Jones polynomials)."
         ),
     )
     ap.add_argument("--sphere-offset", dest="sphere_offset", type=float, help=argparse.SUPPRESS)
@@ -15551,7 +17319,7 @@ def run_gui(initial_args):
         return 1
 
     apply_tk_window_icon(root, tk)
-    root.title("draw_dt_original_labelsV5_8")
+    root.title("draw_dt_original_labelsV5_9")
     root.geometry("1320x860")
     root.minsize(1050, 680)
 
@@ -17211,7 +18979,8 @@ def run_gui(initial_args):
                             if os.path.exists(shells_file) else None)
                     shells_log = "".join(
                         m + "\n" for m in write_surface_shells_glb(
-                            shells_file, _shells, extras={"dt": ns.dt},
+                            shells_file, _shells,
+                            extras=xyz_glb_extras(ns.dt, state["model"], ns.sphere_offset),
                             rod_diameter=getattr(ns, "glb_rod_diameter", 0.0)))
                     # A layout without a base surface (the chain) writes
                     # nothing when the rod diameter is 0: do not report a
@@ -17571,6 +19340,7 @@ def run_gui(initial_args):
             comps3, skel = _build_xyz_with_skeleton(ns, state, xyz_messages)
             proj_cache["components"] = comps3
             proj_cache["skeleton"] = skel
+            proj_cache["flips"] = _flips_key(state["model"].get("flips"))
             if not bool(ns.proj_fixed_grid) or proj_cache.get("grid_view") is None:
                 proj_cache["grid_view"] = (
                     ns.proj_elev, ns.proj_azim, ns.proj_roll)
@@ -17587,13 +19357,17 @@ def run_gui(initial_args):
             messagebox.showerror("Error", msg)
 
     def _save_projection_files(ns, base_path):
-        if proj_cache["components"] is None:
+        # V5.9: a cached curve of ANOTHER realisation (the flip vector in the
+        # DT box changed, or was added / removed) is rebuilt, never saved
+        if proj_cache["components"] is None or \
+                _flips_key_of_text(getattr(ns, "dt", "")) != proj_cache.get("flips"):
             buf = io.StringIO()
             xyz_messages = []
             state = _compute_gui_state(ns, status_stream=buf)
             comps3, skel = _build_xyz_with_skeleton(ns, state, xyz_messages)
             proj_cache["components"] = comps3
             proj_cache["skeleton"] = skel
+            proj_cache["flips"] = _flips_key(state["model"].get("flips"))
             proj_cache["grid_view"] = (ns.proj_elev, ns.proj_azim, ns.proj_roll)
             proj_cache["audit_messages"] = xyz_messages
         views = _parse_projection_views(ns.proj_views)
@@ -18084,9 +19858,45 @@ def main(argv=None):
         # ValueError -- a bug, or a layout that has not opted in -- still
         # propagates with its traceback.
         if not getattr(exc, "user_facing", False):
-            raise
+            # round 4d (2026-10-20): a BARE code the parser cannot read
+            # ('DT[daddcab]', '8,6,2,4') is ONE [error] line too -- it was a
+            # traceback, its message with a per-process object address in it.
+            # Only when the code itself does not parse (prepare_diagram reads
+            # it first); every other ValueError keeps its traceback.
+            refusal = _unparseable_refusal(args.dt)
+            if refusal is None:
+                raise
+            print("[error] %s" % refusal, file=sys.stderr)
+            return 1
         print("[error] %s" % exc, file=sys.stderr)
         return 1
+
+
+def _unparseable_refusal(dt_text):
+    """The one-line refusal of a BARE DT code `parse_dt_flips` cannot read, or
+    None when it reads it (or refuses it with its own one-line, user-facing
+    error) -- round 4d, 2026-10-20.  The wording is the scorer's
+    (score_diagram's _unparseable_error): what this script reads, and that
+    dt_converter.py converts other spellings.  Object addresses in the
+    parser's message ('<ast.Name object at 0x...>') are dropped, so the line
+    is the same in every process."""
+    try:
+        parse_dt_flips(dt_text)
+    except ValueError as exc:
+        if getattr(exc, "user_facing", False):
+            return None
+        why = " ".join(re.sub(r" at 0x[0-9A-Fa-f]+", "", str(exc)).split()) or type(exc).__name__
+        try:
+            text = split_dt_flips(_normalize_dt_text(dt_text))[0].strip()
+        except ValueError:
+            text = str(dt_text).strip()
+        return ("the drawing script cannot parse the DT code %s (%s): it reads signed DT codes "
+                "written as lists of nonzero even integers, e.g. 'DT: [(4, 6, 2)]', optionally "
+                "followed by a flip vector.  dt_converter.py -i \"%s\" --to dt converts other "
+                "spellings (alphabetical, packed hex, Gauss, PD, braid words, names) to that one "
+                "(--to dt-flips adds the flip vector) and says what is wrong with a code it cannot "
+                "read" % (text, why[:160], text))
+    return None
 
 
 if __name__ == "__main__":

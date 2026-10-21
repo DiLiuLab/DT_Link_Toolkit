@@ -22,7 +22,7 @@ same component can be followed across a branching exploration.
 - **Continuity fallback:** the scripts still run without Sage/SnapPy, but
   SnapPy-based colour matching is unavailable.  Jones polynomials no longer
   need Sage: `dt_converter.py` computes them headless, and
-  `score_diagramV2_5.py` fills its "Jones polynomial" column that way (and
+  `score_diagramV2_6.py` fills its "Jones polynomial" column that way (and
   uses it, folded with its mirror image, as a second same-link check).
 
 Development notes and version history are in [DEVELOPMENT_LOG.md](DEVELOPMENT_LOG.md).
@@ -31,21 +31,21 @@ Development notes and version history are in [DEVELOPMENT_LOG.md](DEVELOPMENT_LO
 
 ```text
 DT_Link_Toolkit.py               Universal launcher for all tools below
-strand_passage_guiV4_2.py        Strand-passage explorer: GUI, --nongui, --demo
-link_engine_v4_0.py              Diagram engine and SnapPy bridge
-draw_dt_original_labelsV5_8.py   DT parser, layout, renderer, XYZ audit, and GUI
+strand_passage_guiV4_3.py        Strand-passage explorer: GUI, --nongui, --demo
+link_engine_v4_1.py              Diagram engine and SnapPy bridge
+draw_dt_original_labelsV5_9.py   DT parser, layout, renderer, XYZ audit, and GUI
 audit_xyz.py                     Audit a 3D XYZ curve against its signed DT link
 check_two_dt.py                  Standalone SnapPy/Sage DT-comparison utility
 find_link_in_snappy.py           Search SnapPy link databases for DT matches
-score_diagramV2_5.py             Generate, deduplicate, score, and rank diagrams
+score_diagramV2_6.py             Generate, deduplicate, score, and rank diagrams
 enumerate_puncturing_dt.py       Atlas of the plane drawings, one per punctured face
 grid_diagram.py                  Minimal grid diagram (arc presentation) of a link, and its 3-D lift
 chain_layout.py                  3-D layout of a linear chain (--sphere-layout chain): segment and reunite, or --chain-form folded
-canonical_dt_V2_0.py             Canonical DT code (up to mirror) and symmetry
+canonical_dt_V2_1.py             Canonical DT code (up to mirror) and symmetry
 spheremaps.py                    Symmetry-distinct crossings N: the diagram as a map on the sphere, exact groups
 mdfig.py                         The paper's symmetric drawings with class shading (used by spheremaps and the scorer)
 dt_converter.py                  Convert between DT, Gauss, PD, braid and named codes
-figure_to_dt_V3_0.py             Extract a DT code from a diagram image
+figure_to_dt_V3_1.py             Extract a DT code from a diagram image
 assets/dt_link_toolkit_icon.png  Optional icon for the launcher (Borromean rings)
 assets/strand_passage_icon.png   Optional window/task-menu icon
 assets/score_diagram_icon.png    Optional icon for the diagram scoring GUI
@@ -58,17 +58,17 @@ LICENSE                          MIT license
 Import chain:
 
 ```text
-strand_passage_guiV4_2 -> link_engine_v4_0 -> draw_dt_original_labelsV5_8
+strand_passage_guiV4_3 -> link_engine_v4_1 -> draw_dt_original_labelsV5_9
 ```
 
-`score_diagramV2_5.py` names none of its helpers: it loads the newest
+`score_diagramV2_6.py` names none of its helpers: it loads the newest
 `draw_dt_original_labels*.py`, `link_engine*.py` and `canonical_dt*.py` next to it,
 comparing versions numerically, so a bump of any of the three needs no edit there.
 Every tool that looks for "the newest version" (the launcher included) uses one rule:
 only `<tool>.py` or `<tool>` plus a pure version suffix (`V5_7`, `_v4_0`, `_V2_0`)
 counts, versions compare as numbers, so backup, copied or dated files
 (`...V5_7_backup.py`, `...V5_7_20261011.py`) and folders are never picked.
-`link_engine_v4_0.py` (its import of the drawing script) and `strand_passage_guiV4_2.py`
+`link_engine_v4_1.py` (its import of the drawing script) and `strand_passage_guiV4_3.py`
 still name their imports and must be repointed on a bump.
 
 ## Install
@@ -95,7 +95,7 @@ python3 -m pip install -r requirements.txt
 For full functionality, run with **Sage + SnapPy**:
 
 ```bash
-sage -python strand_passage_guiV4_2.py --help
+sage -python strand_passage_guiV4_3.py --help
 ```
 
 SnapPy is intentionally not pinned in `requirements.txt`, because this project
@@ -140,7 +140,7 @@ file each tool resolves to along with the interpreters found.
 
 The launcher does not hard-code version numbers: for each tool it takes `<name>.py`
 or `<name>` plus a pure version suffix in this directory and picks the highest
-version, so a newer script (for example a future `score_diagramV2_6.py`) is used
+version, so a newer script (for example a future `score_diagramV2_7.py`) is used
 automatically once added, with no edit to the launcher. Every spelling of the
 version suffix is understood — `nameV2_1.py`, `name_V2_1.py`, `name_v2_1.py` — and
 the comparison is numeric, so `V10_0` correctly beats `V2_0`. Backup, copied or
@@ -183,20 +183,20 @@ through the launcher.
 Interactive GUI:
 
 ```bash
-sage -python strand_passage_guiV4_2.py
-sage -python strand_passage_guiV4_2.py --dt "DT: [(4,6,2)]"
+sage -python strand_passage_guiV4_3.py
+sage -python strand_passage_guiV4_3.py --dt "DT: [(4,6,2)]"
 ```
 
 If the TkAgg backend is not available:
 
 ```bash
-python3 strand_passage_guiV4_2.py --gui-backend agg
+python3 strand_passage_guiV4_3.py --gui-backend agg
 ```
 
 Batch spreadsheet and overview SVG:
 
 ```bash
-sage -python strand_passage_guiV4_2.py --nongui \
+sage -python strand_passage_guiV4_3.py --nongui \
   --dt "DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]" \
   --out strand_passage_results.xlsx
 ```
@@ -204,6 +204,102 @@ sage -python strand_passage_guiV4_2.py --nongui \
 For one-crossing components, use Python tuple syntax with a trailing comma:
 `DT: [(4,), (2,)]`, not `DT: [(4), (2)]`.  The latter is ambiguous because
 Python reads `(4)` as the integer `4`.
+
+### DT codes with a flip vector (every tool, 2026-10-18)
+
+A bare signed DT code fixes a prime diagram only up to its mirror image, and a
+composite or split diagram not even that: the granny knot and the square knot
+share `DT: [(10, 6, 2, 4, 12, 8)]`.  Every tool therefore also reads the code
+followed by a **flip vector**, the spelling SnapPy and spherogram use:
+
+```text
+DT: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]     # the square knot
+DT: [(10, 6, 2, 4, 12, 8)], [0,0,1,1,0,1]     # the granny knot
+```
+
+* One bit per crossing; bit k belongs to the k-th DT entry (the crossing with
+  odd label 2k+1).  Walk along the visit with the smaller label: bit 0 means
+  the other strand crosses from your right to your left, bit 1 from left to
+  right.  Complementing every bit reflects the page, i.e. gives the mirror
+  image.  A prime diagram has exactly two legal vectors (each other's
+  complement); a code with k independently reflectable pieces has up to 2^k.
+  A legal vector is one that describes a diagram on the sphere; it can be a
+  kinked realisation that spherogram itself cannot build, in which case the
+  steps that need spherogram say so in one line.
+* Also read: `, 010001`, `; 010001`, `(0,1,...)`, spaces instead of commas,
+  T/F or True/False, the tuple `DT: ([...], [0,1,...])` (what spherogram's
+  `DT_code(flips=True)` prints), and a trailing `# comment`.  The vector must
+  have one bit per crossing and describe a diagram on the sphere; an illegal
+  vector is refused with one line.  Any other text after the code is an
+  error (it used to be ignored), except the old spellings that list later
+  components in further brackets (`DT: [(-6,-8)], [(-4,-2)]`).
+* To get a vector: `dt_converter.py -i <any code> --to dt-flips`,
+  `figure_to_dt_V3_1.py` (its `DT + flips:` line), or spherogram's
+  `L.DT_code(flips=True)`.
+* Without a vector every tool behaves as before, apart from the trailing-text
+  and comment rules above, five bug fixes and a few messages on failing
+  paths, all recorded in DEVELOPMENT_LOG.md (2026-10-18) — and apart from bare
+  composite codes (next point).
+* **A BARE composite code (2026-10-19).**  Every time a tool writes a code
+  without its vector and reads it back, spherogram picks a realisation again,
+  and for a composite or split code that can be another link (a granny run
+  used to drift to the square knot).  The tools now ask one gate,
+  `dt_converter.composite_danger`: does the code have two or more
+  independently reflectable parts that are knotted or linked?  A diagram of a
+  prime link is not flagged (0 of 470 prime codes in the test corpus), and its
+  runs are unchanged byte for byte.  A code the gate flags is read ONCE, as
+  spherogram reads it (what
+  `snappy.Link("DT: ...")` builds; for a split code whose spherogram reading is
+  illegal, dt_converter's mended reading), one `[info]` line says so, and that
+  realisation is kept through the whole run.  Flagged codes then appear with
+  their vector in the output (the scorer's checkpoint and classes, the
+  strand-passage workbook's `dt_flip_vector_*` columns); unflagged codes stay
+  bare.  To choose another realisation, give the code with its vector.
+* **Codes spherogram cannot read, or that no diagram has (2026-10-20).**
+  spherogram's DT decoder, which reads a code that has no vector, loops for
+  ever on some kinked codes.  `DT: [(8,6,2,4)]`, a trefoil with a kink, is the
+  smallest; it is a perfectly good diagram (`DT: [(8,6,2,4)], [0,1,0,0]`
+  draws it).  Every tool now stops that loop at once: dt_converter puts a
+  check on spherogram's decoder that recognises the loop exactly and raises
+  "spherogram's DT decoder never returns on this kinked code" instead (it
+  leaves every other code alone; tested on about 32 000 codes).  So
+  nothing hangs any more, in worker threads included.  What each tool then
+  does:
+  - dt_converter and strand passage use a reading of the code that
+    spherogram can build -- dt_converter's (the smallest flip vector
+    spherogram builds), or another legal one -- and say so in one `[info]`
+    line.  For a prime diagram every reading is the same link up to mirror
+    image.  The scorer's harvest scores such a root as given (a `[warn]` per
+    call says the call could not start from it); a root the composite gate
+    flags runs as one legal reading, as before.
+  - Tools that need spherogram's own reading (the legacy chain, the
+    link-level grid, check_two_dt, find_link) stop with one line that gives
+    a flip vector to use instead.
+  - A code that no diagram on the sphere has (`DT: [(4,6,8,10,2)]`) is
+    refused in one line by every tool: "no diagram on the sphere has this DT
+    code: no flip vector makes it planar, ...; check the code".
+  - An empty component (`DT: [(4,6,2), ()]`) no longer crashes anything:
+    find_link used to die inside SnapPy and lose the whole TSV.  A spelling a
+    tool cannot parse (`DT[daddcab]`, `8,6,2,4`) gets one line pointing to
+    `dt_converter.py -i "..." --to dt`.  When spherogram takes the text for a
+    link name (no `DT:` prefix, a Unicode minus, a trailing space), the
+    message says so instead of blaming kinks.
+  Runs that worked before are unchanged.
+
+What each tool does with the vector:
+
+| Tool | With a flip vector |
+|---|---|
+| `draw_dt_original_labelsV5_9.py` | The 2-D drawing shows that realisation (tutte, shaped-tutte, cylinder-tutte, spread-tutte, planar when clean; a finished drawing that comes out as the exact mirror is reflected; a `[flips]` line gives the writhe).  A clean drawing of a different realisation is refused; one with false crossings gets a `[warn]`.  In 3-D a positive crossing offset builds the given realisation and a negative one its mirror, and offset 0 is refused.  The Kamada sphere layouts build it when their layout realises it or its mirror and refuse otherwise; the `angled` / `grid` cube wires it from the vector itself (when the Kamada layout shows another diagram of the code, on at most 2 negotiated grid sizes); the layouts that lift the 2-D drawing (stereographic, stereo-safe, sheet, capped-cylinder) need a drawing of it without false or undrawn crossings.  The audit compares the curve's Jones polynomial with the given realisation's, and a build whose audit fails is refused (no XYZ / `.glb` is written; the 2-D image and table are). |
+| `dt_converter.py` | The hub is (DT, flips) as before.  A vector in the input is checked even with `--no-validate` and without spherogram; a `--flips` that differs from it is an error; a legal kinked vector spherogram cannot build is still converted to the forms that do not need it. |
+| `canonical_dt_V2_1.py` | Adds the canonical flip vector (`--flips-mode faithful`, `strict` or `mirror`) and the symmetry group of that realisation. |
+| `score_diagramV2_6.py` | Harvests, deduplicates and scores that realisation (classes still up to mirror; a checkpoint must hold codes of the same kind); a `Flip vector` column and JSON key appear only then.  A BARE root the composite gate flags is run exactly as if given spherogram's reading as its vector (dt_converter's reading when spherogram has none; an older bare checkpoint of it is refused in one line); the harvest of an unflagged bare root (such as a prime-looking diagram of a composite link) keeps any composite diagram it meets with its vector (mixed classes, one `[info]` line).  When the scored codes carry vectors and the link has two or more components, the same-link checks compare Jones polynomials and linking numbers up to reversing components. |
+| `strand_passage_guiV4_3.py`, `link_engine_v4_1.py` | Follow the realisation through every passage and simplification; workbook columns `dt_flip_vector...`.  A BARE root carries spherogram's reading of itself (the mended one for a flagged split code) through every passage, SnapPy simplification, re-root and second pass; codes the composite gate flags are written with their vectors (the `dt_flip_vector_*` columns appear only in sheets with such a code, `''` on the other rows), and Simplify in the GUI keeps a flagged code's realisation.  Bare cells of unflagged codes can still read as the other hand; the Jones columns are the reference. |
+| `spheremaps.py`, `enumerate_puncturing_dt.py` | N, and the atlas of punctures, of that realisation only (a split code is refused: by spheremaps with or without a vector, by the atlas when it carries one). |
+| `grid_diagram.py`, `chain_layout.py` | The same-diagram grid is the given realisation itself (checked with the components' directions) and the link-level grid is its link (the braid closure of the code with its vector, Jones-checked); the chain's handedness follows the vector. |
+| `audit_xyz.py` | With the vector written after the code, builds the reference from it and compares Jones polynomials (the isometry test cannot see mirror images).  `--flips` given with a bare code that spherogram can read is not used, and a `[note]` says so. |
+| `check_two_dt.py`, `find_link_in_snappy.py` | Build the links from the vector (granny and square are told apart); find_link notes when a match came from a chirality-blind method. |
+| `figure_to_dt_V3_1.py` | Prints the figure's code with its flip vector (a `DT + flips:` line), and `--validate` builds its links from it. |
 
 In `--nongui` mode, `--out` controls both output files. If you set:
 
@@ -224,12 +320,12 @@ If the path does not end in `.xlsx`, the script adds it first. For example,
 directory and basename of the spreadsheet path.
 
 Custom displayed crossing IDs use the same syntax as
-`draw_dt_original_labelsV5_8.py`.  The combined
+`draw_dt_original_labelsV5_9.py`.  The combined
 `--crossing-labels` option detects assignment-style text as a crossing map,
 and a plain list as crossing order.
 
 ```bash
-sage -python strand_passage_guiV4_2.py \
+sage -python strand_passage_guiV4_3.py \
   --dt "DT: [(4,6,2)]" \
   --crossing-labels "c1 c3 c2"
 ```
@@ -238,7 +334,7 @@ For the built-in 14-crossing example, the crossing-order CLI option can be set
 as:
 
 ```bash
-sage -python strand_passage_guiV4_2.py \
+sage -python strand_passage_guiV4_3.py \
   --crossing-labels "c1 c7 c14 c12 c3 c6 c9 c5 c11 c13 c4 c2 c10 c8"
 ```
 
@@ -254,7 +350,7 @@ Drawing settings:
 - Strand-passage drawings default to `shaped-tutte` with `tutte shape =
   ellipse` and `tutte aspect = 1.0`.
 - In the GUI, click `Load drawing session` to load a JSON session saved by
-  `draw_dt_original_labelsV5_8.py`. The saved 2-D drawing settings then apply to
+  `draw_dt_original_labelsV5_9.py`. The saved 2-D drawing settings then apply to
   the root diagram and following strand-passage diagrams.
 - In batch/demo modes, use `--drawing-session path/to/session.json`. If the
   session contains a DT code it is used when `--dt` is not supplied; explicit
@@ -266,7 +362,7 @@ Drawing settings:
 Standalone drawing and audited XYZ export:
 
 ```bash
-sage -python draw_dt_original_labelsV5_8.py --dt "DT: [(4,6,2)]"
+sage -python draw_dt_original_labelsV5_9.py --dt "DT: [(4,6,2)]"
 sage -python audit_xyz.py link_sphere.xyz "DT: [(4,6,2)]"
 ```
 
@@ -288,7 +384,14 @@ hyperbolic is reported as a FAIL against a DT link whose exterior is not (a
 torus link, say), and a curve that reduces to the unlink passes when the DT
 code is a kinked unlink with as many components.  `audit_xyz.py` used on its own takes `--flips 0110...` (one
 bit per crossing in DT-label order) or, by default, asks the newest
-`draw_dt_original_labels*.py` beside it for them.  The `clearance (0=auto)` and
+`draw_dt_original_labels*.py` beside it for them; that vector is only the
+fallback for codes spherogram cannot read, and a `--flips` that is not used
+gets a `[note]` saying so.  A code written WITH its flip vector
+(`"DT: [...], [0,1,...]"`, see "DT codes with a flip vector") is audited
+against exactly that realisation — the mirror of it when the crossing offset
+is negative — and the curve's Jones polynomial is compared with the
+realisation's, so a mirror image or another link is a `[FAIL]`; in the drawing
+script such a FAIL refuses the build and no XYZ / `.glb` is written.  The `clearance (0=auto)` and
 `repair 3D strand clearance` GUI controls correspond to `--xyz-clearance` and
 `--no-xyz-repair`.
 
@@ -347,7 +450,7 @@ V5.7 adds a **negative `--crossing-offset`**, which selects the opposite
 handedness of the exported 3-D curve:
 
 ```bash
-draw_dt_original_labelsV5_8.py --dt "DT: [(-6,-8,-10,-4,-2)]" \
+draw_dt_original_labelsV5_9.py --dt "DT: [(-6,-8,-10,-4,-2)]" \
   --xyz-output link.xyz --crossing-offset=-5
 ```
 
@@ -365,9 +468,13 @@ Spherogram picks one by normalising the first crossing to positive. The
 negative offset asks for the other one without editing the DT code, and the
 2-D drawing is unchanged (it is a valid diagram of both).
 
-Note the **topology audit cannot tell you which one you got**: SnapPy's
-`is_isometric_to` is mirror-blind, so both builds report `[ok] ... isometric to
-DT link`. Judge handedness from the reconstructed writhe instead. Measured on
+Note the **topology audit cannot tell you which one you got** for a bare
+code: SnapPy's `is_isometric_to` is mirror-blind, so both builds report
+`[ok] ... isometric to DT link`. Judge handedness from the reconstructed writhe
+instead — or give the code with its flip vector: then a positive offset builds
+exactly that realisation, a negative one its mirror, and the audit's Jones
+comparison sees the hand wherever the Jones polynomial does (not for an
+amphichiral link such as 4_1 or the square knot). Measured on
 `5_2`, which Spherogram reads as writhe +5: `--crossing-offset 5` exports a
 curve reconstructing to writhe −5, `--crossing-offset=-5` one reconstructing to
 +5. Use the `=` form on the command line so the leading `-` is not parsed as a
@@ -378,7 +485,7 @@ glTF file (`--shells-glb`; GUI `3D XYZ` tab, `'Save XYZ' also writes surface
 shells (.glb)`):
 
 ```bash
-draw_dt_original_labelsV5_8.py --dt "DT: [(4,6,2)]" --xyz-output link.xyz --shells-glb
+draw_dt_original_labelsV5_9.py --dt "DT: [(4,6,2)]" --xyz-output link.xyz --shells-glb
 ```
 
 Every sphere layout lifts the strands off a base surface by the crossing
@@ -433,6 +540,11 @@ them); and on dense diagrams the clearance repair pushes strands into extra
 radial layers. A `[warn]` appears when an offset shell turns inside out
 because the offset exceeds the surface's smallest radius of curvature, e.g. a
 torus tube thinner than the offset.
+
+Since V5.9 the open cylinder (`--surface-shape cylinder`) has the same
+handedness as `spherical-kamada`, the ellipsoid and the torus. Up to V5.8 its
+frame was a reflection, so its curve was the mirror image of theirs; a V5.8
+cylinder XYZ is the V5.9 one reflected in y. Its pole chords are unchanged.
 
 V5.7 also adds a **crossing-preserving final smoothing**,
 `--xyz-smooth-method crossing-pinned` (GUI `3D XYZ` tab, `smoothing method`).
@@ -522,7 +634,7 @@ about the spacing and keep the corners exactly.
   the other layouts.
 
 ```bash
-draw_dt_original_labelsV5_8.py --dt "DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]" \
+draw_dt_original_labelsV5_9.py --dt "DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]" \
   --sphere-layout cubic-kamada --cube-style grid --xyz bl4_cube.xyz --save-projections
 ```
 
@@ -590,12 +702,16 @@ passing the lower one at a right angle, the grid spans the sphere radius in
 x and y, and the usual XYZ export, even spacing, topology audit, `.glb`
 shells (two planes) and projection images apply; smoothing and clearance
 repair are skipped because the lattice is exact. The `top` projection is the
-grid diagram itself. At a positive offset the lift has the chirality
-spherogram and `dt_converter` assign to the DT code (writhe +3 for
-`DT: [(4,6,2)]`); use a negative offset for the mirror.
+grid diagram itself. At a positive offset the default grid (which keeps the
+diagram) has the chirality of the code's own 2-D drawing — writhe −3 for
+`DT: [(4,6,2)]`, as stereo-safe — while the link-level grid
+(`--grid-any-diagram`) has the one spherogram and `dt_converter` assign to the
+code (+3); use a negative offset for the mirror. With a flip vector both build
+exactly the given realisation. Since V5.9 `--negative-even under` reaches the
+grid too (up to V5.8 it then built the mirror of what stereo-safe built).
 
 ```bash
-draw_dt_original_labelsV5_8.py --dt "DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]" \
+draw_dt_original_labelsV5_9.py --dt "DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]" \
   --sphere-layout grid-diagram --xyz bl4_grid3d.xyz --shells-glb --save-projections --proj-views top,current
 ```
 
@@ -630,7 +746,7 @@ The layout takes about two minutes for the 48-crossing chain (it is cached
 within a run, so `--save-projections` reuses it).
 
 ```bash
-draw_dt_original_labelsV5_8.py --dt "DT: [(16,-10), (32,-26,-2,-18,24,4), (8,-14,40,-34,12,-6,-42,48), (28,-20,56,-50,22,-30,-58,64), (44,-36,72,-66,38,-46,-74,80), (60,-52,86,-82,54,-62,-88,92), (76,-68,94,70,-78,-96), (-90,84)]" \
+draw_dt_original_labelsV5_9.py --dt "DT: [(16,-10), (32,-26,-2,-18,24,4), (8,-14,40,-34,12,-6,-42,48), (28,-20,56,-50,22,-30,-58,64), (44,-36,72,-66,38,-46,-74,80), (60,-52,86,-82,54,-62,-88,92), (76,-68,94,70,-78,-96), (-90,84)]" \
   --sphere-layout shaped-kamada --surface-shape capped-cylinder \
   --xyz chain_can.xyz --shells-glb --save-projections --proj-views current,front
 ```
@@ -651,7 +767,7 @@ sheet's arc radius (the inner layer would fold). Shells and the mapped
 skeleton (the sheet's grid lines) are exported as for the other layouts.
 
 ```bash
-draw_dt_original_labelsV5_8.py \
+draw_dt_original_labelsV5_9.py \
   --dt "DT: [(16,-10), (32,-26,-2,-18,24,4), (8,-14,40,-34,12,-6,-42,48), (28,-20,56,-50,22,-30,-58,64), (44,-36,72,-66,38,-46,-74,80), (60,-52,86,-82,54,-62,-88,92), (76,-68,94,70,-78,-96), (-90,84)]" \
   --layout shaped-tutte --tutte-shape ellipse --no-tutte-auto-aspect --tutte-aspect 3.5 \
   --sphere-layout sheet --sheet-bend 120 --sheet-twist 180 --sphere-radius 200 --crossing-offset 6 \
@@ -700,7 +816,8 @@ numbers with the diagram (through `dt_converter`) and refuses to write a
 mismatch. **Handedness** is decided exactly: the drawing's sign at every
 crossing is compared with `dt_converter`'s reading of the DT code, so a
 positive `--crossing-offset` gives spherogram's reading and a negative one its
-mirror (as for `grid-diagram`). The 8-ring chain's elliptical drawing is the
+mirror (as for the link-level `grid-diagram`; with a flip vector, the given
+realisation and its mirror). The 8-ring chain's elliptical drawing is the
 in-plane mirror of that reading at all 48 crossings, so the finished curve is
 reflected; for a connected sum such as the chain of simply linked rings, whose
 drawing agrees at only some crossings, single clasps are mirrored instead. (The
@@ -735,12 +852,12 @@ all linking numbers 0, every 7-ring sublink an unlink; consecutive ring planes
 the axis; D2.
 
 ```bash
-draw_dt_original_labelsV5_8.py \
+draw_dt_original_labelsV5_9.py \
   --dt "DT: [(16,-10), (32,-26,-2,-18,24,4), (8,-14,40,-34,12,-6,-42,48), (28,-20,56,-50,22,-30,-58,64), (44,-36,72,-66,38,-46,-74,80), (60,-52,86,-82,54,-62,-88,92), (76,-68,94,70,-78,-96), (-90,84)]" \
   --layout shaped-tutte --tutte-shape ellipse --no-tutte-auto-aspect --tutte-aspect 3.5 \
   --sphere-layout chain --xyz chain_segments.xyz --shells-glb --glb-rod-diameter 3 \
   --save-projections --proj-views current,front
-python3 chain_layout.py --selftest          # ~30 s; --full adds the 8-ring chain (~2 min)
+python3 chain_layout.py --selftest          # ~1 min; --full adds the 8-ring chain (~3.5 min)
 ```
 
 GUI: `sphere layout: chain`, with `chain twist deg`, `chain relax rounds` and
@@ -807,7 +924,7 @@ same shape up to a rotation).
 The structure of the relax-from-correct picture (`chain8_relaxed_from_sheet_tubes.png`):
 
 ```bash
-python3 draw_dt_original_labelsV5_8.py \
+python3 draw_dt_original_labelsV5_9.py \
   --dt "DT: [(16,-10), (32,-26,-2,-18,24,4), (8,-14,40,-34,12,-6,-42,48), (28,-20,56,-50,22,-30,-58,64), (44,-36,72,-66,38,-46,-74,80), (60,-52,86,-82,54,-62,-88,92), (76,-68,94,70,-78,-96), (-90,84)]" \
   --layout shaped-tutte --tutte-shape ellipse --no-tutte-auto-aspect --tutte-aspect 3.5 \
   --sphere-layout chain --chain-form folded --crossing-offset 5 \
@@ -887,7 +1004,7 @@ wreath, the outer triangle `c8,c16,c24` matching the handedness of the 5- and
 6-ring drawings:
 
 ```bash
-python3 draw_dt_original_labelsV5_8.py \
+python3 draw_dt_original_labelsV5_9.py \
   --dt "[(44,-36,24,-18,38,-46,-26,32), (12,-4,40,-34,6,-14,-42,48), (28,-20,8,-2,22,-30,-10,16)]" \
   --layout cylinder-tutte --puncture-face c8,c16,c24 --hole-ratio 0.25 \
   --hide-labels --no-arrows --line-width 3 --gap-frac 0.01 --min-sep 0.02 --no-xyz
@@ -912,7 +1029,7 @@ rounds`) spreads them after the solve under the same planarity guard as
 (Edw_6: closest crossing pair 0.030 -> 0.057 of the drawing).
 
 ```bash
-python3 draw_dt_original_labelsV5_8.py \
+python3 draw_dt_original_labelsV5_9.py \
   --dt "[(16,10,12,14), (18,28,20,26), (2,24,6), (4,8,-22)]" \
   --layout cylinder-tutte --flatten-orthogonal --hole-ratio 0.1 \
   --flatten-outer-radius 0.6 --flatten-separation 0.05 --min-sep 0.01 \
@@ -1002,7 +1119,7 @@ Spreadsheet columns to know:
 Headless cascade figure:
 
 ```bash
-python3 strand_passage_guiV4_2.py --dt "DT: [(4,6,2)]" --demo 2 1 --out chain.png
+python3 strand_passage_guiV4_3.py --dt "DT: [(4,6,2)]" --demo 2 1 --out chain.png
 ```
 
 Standalone DT comparison utility:
@@ -1019,7 +1136,13 @@ sage -python check_two_dt.py \
 `check_two_dt.py` compares two signed DT codes using simplified crossing and
 component counts, linking/Jones/Alexander invariants when Sage supports them,
 exterior isometry, an explicit mirror check, and optional randomized
-backtrack+simplify diagnostics. Run `--help` for the full CLI.
+backtrack+simplify diagnostics. Run `--help` for the full CLI.  Either code may
+carry a flip vector (`--dt1 "DT: [(10, 6, 2, 4, 12, 8)], [0,0,1,1,0,1]"`): the
+link is then built from it, so the granny and the square knot are told apart,
+and without Sage the Jones polynomial comes from `dt_converter.py`.  Since 1.1
+the explicit mirror really is the mirror image of link 1 (every crossing
+switched; its writhe is printed beside link 1's) — before, it rebuilt link 1
+itself.
 
 SnapPy database search utility:
 
@@ -1036,11 +1159,61 @@ exterior identification for hyperbolic links. Use `--strict` to disable the
 loose numeric fallback. Input files may contain one DT code per line, or
 `label<TAB>DT_code`; output is a TSV table.
 
+A query may carry its flip vector (`--dt "DT: [(4,6,2)], [1,1,0]"`, or any
+spelling from "DT codes with a flip vector").  The vector is checked first: a
+wrong length or a vector that describes no diagram on the sphere is a
+`parse_error` row naming the problem, and a legal kinked vector that
+spherogram cannot build is reported as such (it does not hang).  The link is
+built from the code and its vector, and the same diagram seen from the other
+side of the page is matched too, so `[1,1,0]` finds Rolfsen's `3_1`
+(`cacBCA.001`) by the alphabetical code with flips.  Matches found by a method
+that ignores chirality (numeric DT, loose, exterior identification) say in
+their `message` column "Chirality not compared: ..." — the entry may be the
+mirror image of the input.  Since 1.1 SnapPy's "no match" answer is no longer
+reported as a row `matched False`; such a query reads `not_found`.  Bare codes
+are read exactly as before, apart from the two changes below.
+
+Kinked queries no longer hang (2026-10-19).  `snappy.Manifold` never returns on
+a kinked DT code that spherogram's decoder can read, so find_link no longer
+calls it for one: the exterior comes from the link instead, and when the link
+cannot be built either, the `parse_error` row's message says "Manifold(...): not
+called -- the crossing of labels ... is a kink ...".  A bare kinked code such as
+the split `DT: [(-4,-6,-2),(-8,)]` or the 4-crossing trefoil `DT: [(4,8,2,6)]`
+now answers in about a second (204 corpus queries that used to hang all
+finish) -- the first as a `parse_error`, because spherogram cannot build it,
+the second as `not_found`: a kinked diagram of a non-hyperbolic link is still
+not found, since exterior identification needs a hyperbolic exterior.
+spherogram's own decoder also never finishes on some kinked codes that do
+have a diagram (`DT: [(8,6,2,4)]`, a trefoil with a kink).  Since 2026-10-20
+dt_converter's check on the decoder stops it at once, and such a code is one
+`parse_error` row ("spherogram's DT decoder never returns on this kinked
+code") in about two seconds.  The clock, `--timeout SECONDS` (default 20, `0`
+= no limit), stays as a backstop for anything else; it works only in the main
+thread, which is where find_link always runs.  A code with an empty component
+(`DT: [(4,6,2), ()]`) used to kill the whole run inside SnapPy; it is now one
+`parse_error` row naming the empty component, and the other queries are
+answered as usual.
+
+Loose candidates are verified (2026-10-19).  The loose numeric fallback (same
+unsigned DT code) used to report every table entry that shared the unsigned
+code; on a 1419-query test corpus 731 of its 822 rows were the wrong link.
+Each candidate is now checked: a different number of components refutes it;
+for hyperbolic exteriors, a different volume or no isometry that preserves
+meridians refutes it and one that does confirms it; otherwise the Jones
+polynomials (through `dt_converter.py`, up to mirror image and orientation)
+decide.  Refuted candidates are dropped and named at the end of the
+`not_found` message ("Loose candidates with the same unsigned DT code were
+rejected as different links: NAME (reason); ..."); the 91 right loose rows are
+unchanged.  A candidate that neither test can decide (for example when
+`dt_converter.py` is missing) gets the new status `unconfirmed`, so a row's
+status is one of `matched`, `unconfirmed`, `not_found` or `parse_error`.
+`--strict` still skips the loose fallback altogether.
+
 Diagram scoring utility:
 
 ```bash
-sage -python score_diagramV2_5.py --help
-sage -python score_diagramV2_5.py \
+sage -python score_diagramV2_6.py --help
+sage -python score_diagramV2_6.py \
   --dt "DT: [(4,6,2)]" \
   --rounds 0 \
   --checkpoint results/score_chain.jsonl \
@@ -1049,7 +1222,7 @@ sage -python score_diagramV2_5.py \
   --json results/diagram_scores.json
 ```
 
-With no arguments, `score_diagramV2_5.py` opens a small Tk GUI for configuring a
+With no arguments, `score_diagramV2_6.py` opens a small Tk GUI for configuring a
 run. The tool generates alternative simplified DT diagrams of the same link,
 deduplicates signed diagram isomorphs, scores each representative, and writes an
 Excel workbook plus optional SVG/JSON reports. Long runs can use
@@ -1124,7 +1297,7 @@ other: rotation, mirror image **in** the plane of the paper, component swap,
 strand orientation reversal, and the complete crossing flip — the mirror
 **through** the plane of the paper, which leaves the shadow alone and reverses
 every crossing at once. That last one matches the up-to-mirror convention of
-`canonical_dt_V2_0.py`; `--distinguish-chirality` keeps the two apart instead.
+`canonical_dt_V2_1.py`; `--distinguish-chirality` keeps the two apart instead.
 The test is exact and combinatorial (marked-graph isomorphism, so it does not
 depend on the layout), and `--verify` adds two independent checks: that the
 drawing of every face in a group really is congruent to its representative's,
@@ -1135,7 +1308,7 @@ two different faces can touch the same crossings — the two triangles of the
 standard trefoil do — and a signature cannot tell those apart.
 
 Drawing settings follow the "Write raw-grouping figure" option of
-`score_diagramV2_5.py` (shaped-tutte, ellipse boundary, one colour per
+`score_diagramV2_6.py` (shaped-tutte, ellipse boundary, one colour per
 component), plus a uniform interior decompression (`--decompress`, default
 0.30) applied to every panel so the atlas stays one style. It is what keeps the
 bigon punctures readable: puncturing a bigon leaves a four-node boundary
@@ -1154,9 +1327,9 @@ face order, so the atlas is reproducible.
 Canonical DT code and symmetry:
 
 ```bash
-python3 canonical_dt_V2_0.py --dt "DT: [(4,6,2)]"
-python3 canonical_dt_V2_0.py --dt "DT: [(4,6,2)]" --ops
-python3 canonical_dt_V2_0.py       # no arguments -> graphical interface
+python3 canonical_dt_V2_1.py --dt "DT: [(4,6,2)]"
+python3 canonical_dt_V2_1.py --dt "DT: [(4,6,2)]" --ops
+python3 canonical_dt_V2_1.py       # no arguments -> graphical interface
 ```
 
 ### Symmetry-distinct crossings (`crossings`, spheremaps.py)
@@ -1181,7 +1354,9 @@ With no arguments (or with `--gui`) it opens a window: enter a DT code, pick
 the material whose classes to shade, and it shows the report beside the
 drawing of each diagram the code describes, in the paper's symmetric style
 (`mdfig.py`), with Save JSON, Save figure and Self-test buttons. The window
-stays responsive while a large code is searched.
+stays responsive while a large code is searched. A light-blue `?` beside each
+input (DT code, brute-force limit, the material menu, the drawing switch)
+opens a short explanation with examples.
 
 `spheremaps.py` treats a diagram as a map on the sphere (a rotation system plus
 over/under) and finds its exact symmetry group, the classes of its crossings,
@@ -1223,20 +1398,26 @@ follow the strands of their layout instead of joining crossing centres. The modu
 topo_atlas paper "Minimal Diagrams and Symmetry-Distinct Crossings", whose
 scripts load it from here; its `--selftest` checks the paper's verified
 numbers. It is exact on composite diagrams, where the gadget-graph symmetry of
-`canonical_dt_V2_0.py` cannot tell a granny knot from a square knot.
+`canonical_dt_V2_1.py` cannot tell a granny knot from a square knot unless the
+code carries a flip vector (see "DT codes with a flip vector").
 
-`canonical_dt_V2_0.py` reduces a signed DT code to its canonical
+`canonical_dt_V2_1.py` reduces a signed DT code to its canonical
 representative — the lexicographically smallest legal code over all
 re-encodings (loop order, start point, traversal direction) and the whole-code
 sign inversion — and reports the diagram's symmetry. Because the sign inversion
 is included, the canonical form is taken **up to mirror**: a diagram and its
 mirror share one canonical code, so it identifies the diagram but not its
-chirality. Use SnapPy or the Jones polynomial when chirality matters.
+chirality. Use SnapPy or the Jones polynomial when chirality matters. Given a
+code with a flip vector (`DT: [...], [0,1,...]`), V2.1 also reports the
+canonical flip vector (`--flips-mode faithful` by default: the same diagram
+seen from either side; `strict`; or `mirror`, up to mirror image) and the
+symmetry group of that realisation, so a granny and a square knot get
+different answers.  `--selftest` checks it.
 
 Two symmetries are reported, and they answer different questions. The
 combinatorial symmetry (`symmetry_order` / `element_orders`) counts the DT
 re-encodings that reproduce the canonical code — exact, tolerance-free, always
-available, and what `score_diagramV2_5.py` uses to name a diagram's group. The
+available, and what `score_diagramV2_6.py` uses to name a diagram's group. The
 3-D symmetry (`sym3d`) is the point group of the drawn embedding, found via the
 rotation system and an eigenvalue fit; it is richer (mirrors, inversion,
 rotoreflections) but needs the drawing engine and a numerical tolerance, so it
@@ -1339,12 +1520,21 @@ are rejected with a reason rather than converted into nonsense.
 planarity gate in the newest `draw_dt_original_labels*.py`, confirming that a
 code this tool accepts is one `draw`, `score` and `puncture` accept too.
 
-Input is also protected by a clock. spherogram's DT decoder **does not
-terminate** on some well-formed DT codes — `DT: [(8,6,2,4)]`, four crossings, is
-the smallest case — with no exception and no progress, and neither the DT
-well-formedness checks nor the gadget planarity test rejects them. `--timeout`
-(default 20 s) bounds each embedding attempt; for scale, the slowest realisable
-embedding measured was 3.1 ms, on a 101-crossing torus knot.
+spherogram's DT decoder **does not terminate** on some well-formed kinked
+codes — `DT: [(8,6,2,4)]`, a trefoil with a kink, is the smallest — with no
+exception and no progress.  These codes do have diagrams (the converter gives
+`DT: [(8, 6, 2, 4)], [0,1,0,0]` for it).  Since 2026-10-20 the converter
+checks for that loop before spherogram's decoder runs (`bare_decoder_loops`,
+installed process-wide by `guard_spherogram_decoder`, and by every toolkit
+tool that reads codes with spherogram) and raises `DecoderLoop` instead; the
+converter then uses the smallest flip vector spherogram builds.  The check is
+exact: it re-runs spherogram's own search with every walk bounded, so it
+fires where the decoder would loop and nowhere else (no mismatch on about
+32 000 codes).  `--timeout` (default 20 s) still bounds each embedding attempt
+as a backstop; for scale, the slowest realisable embedding measured was
+3.1 ms, on a 101-crossing torus knot.  A code that no diagram has
+(`DT: [(4,6,8,10,2)]`) is refused with "no diagram on the sphere has this DT
+code: no flip vector makes it planar".
 
 The GUI runs each conversion in a **subprocess**, which is why it has a `Stop`
 button: SnapPy opens its census tables as 24 SQLite connections at import and
@@ -1445,14 +1635,14 @@ crossings), and is reported unavailable, with the reason, beyond both.
 Extract a DT code from an image:
 
 ```bash
-python3 figure_to_dt_V3_0.py                 # no arguments -> graphical interface
-python3 figure_to_dt_V3_0.py diagram.png --expect 4 --validate
-python3 figure_to_dt_V3_0.py diagram.png --annotate out.png --validate
-python3 figure_to_dt_V3_0.py fig.png --colors "A:139,139,131 R:206,100,72"
-python3 figure_to_dt_V3_0.py messy.png --method fill
+python3 figure_to_dt_V3_1.py                 # no arguments -> graphical interface
+python3 figure_to_dt_V3_1.py diagram.png --expect 4 --validate
+python3 figure_to_dt_V3_1.py diagram.png --annotate out.png --validate
+python3 figure_to_dt_V3_1.py fig.png --colors "A:139,139,131 R:206,100,72"
+python3 figure_to_dt_V3_1.py messy.png --method fill
 ```
 
-`figure_to_dt_V3_0.py` reads a raster image of a knot/link diagram and extracts an
+`figure_to_dt_V3_1.py` reads a raster image of a knot/link diagram and extracts an
 extended DT code. Colors are matched in CIE Lab, so a component may be ANY color
 including grey, black, or white, and each pixel is assigned to its nearest
 reference color — two similar colors can never merge into one component. Auto-detect
@@ -1470,9 +1660,31 @@ GUI, which shows the source image and lets you **click each strand to sample its
 color**. Run with no image (or `--gui`) to open it. **Always check the annotated
 figure and the printed crossing table** — ambiguous over/under calls are flagged.
 
+V3.1 also reads the figure's **flip vector** — the chirality the DT code alone
+does not record (see "DT codes with a flip vector") — from the directions of the
+two strands at every crossing, and prints it on one extra line after the DT code:
+
+```text
+DT: [(4, 6, 2)]
+
+DT + flips: DT: [(4, 6, 2)], [1,1,0]
+```
+
+The GUI shows it in a `DT + flips` field with its own `Copy DT + flips` button,
+and the result of `run_extraction` carries it as `dt_flips` (0/1 per crossing)
+and `dt_flips_string` (the existing `flips` key is still the per-component
+orientation).  When a crossing cannot be read reliably, or the vector would
+describe no diagram on the sphere, a `[warn] no DT flip vector ...` line is
+printed and the `DT + flips:` line is left out; check the annotated figure.
+
 `--validate` needs no Sage: it reports the component count, the linking matrix, a
 Brunnian test, and a cross-check of the DT's per-pair crossing counts against the
-traced figure, which is the test that actually catches a mis-read diagram. It needs
+traced figure, which is the test that actually catches a mis-read diagram. Since
+V3.1 it builds every link from the code AND the figure's flip vector, so the
+linking numbers carry the figure's own signs (a mirrored figure gives the
+negated matrix); if spherogram cannot build that realisation (some kinked
+figures), one `[validate]` line says so and spherogram's reading of the bare
+code is used instead. It needs
 `scikit-image`, `scipy`, and `Pillow` (installed in the plain Python 3, not Sage —
 so run it with `python3`, not `sage -python`); `spherogram` is optional.
 
@@ -1509,8 +1721,8 @@ The launcher uses `sage -python` when Sage is available, and falls back to
 To make the Python scripts directly executable on macOS/Linux:
 
 ```bash
-chmod +x strand_passage_guiV4_2.py
-chmod +x draw_dt_original_labelsV5_8.py
+chmod +x strand_passage_guiV4_3.py
+chmod +x draw_dt_original_labelsV5_9.py
 chmod +x audit_xyz.py
 chmod +x check_two_dt.py
 chmod +x find_link_in_snappy.py
@@ -1519,13 +1731,13 @@ chmod +x find_link_in_snappy.py
 Then they can be run as:
 
 ```bash
-./strand_passage_guiV4_2.py --gui-backend agg
+./strand_passage_guiV4_3.py --gui-backend agg
 ```
 
 For SnapPy/Jones functionality, prefer:
 
 ```bash
-sage -python ./strand_passage_guiV4_2.py
+sage -python ./strand_passage_guiV4_3.py
 ```
 
 ## Notes
@@ -1555,7 +1767,7 @@ sage -python ./strand_passage_guiV4_2.py
   byte-identical rasters. The fallback stack also protects machines without
   Arial, which previously substituted silently. Text remains editable — this is
   deliberately not a switch to `svg.fonttype: 'path'` outlines.
-- Standalone SVGs from `draw_dt_original_labelsV5_8.py` use the same Arial
+- Standalone SVGs from `draw_dt_original_labelsV5_9.py` use the same Arial
   editable-text policy and roomier DT-label/crossing-ID boxes. Requested layouts
   are kept even when they create false crossings, with those artifacts
   highlighted and a metadata caption added to saved diagrams. Since

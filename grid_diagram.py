@@ -61,6 +61,11 @@ What this module does, from the project's signed DT code:
     nested commutations -- and ``same_diagram_check`` confirms at the end
     that the canonical DT code is unchanged.  Such a grid is the smallest
     found for THIS diagram; the link's arc index bound does not apply to it.
+    Which hand (measured): for a bare code the same-diagram grid realises
+    whichever realisation the drawing script's 2-D layout shows (the
+    trefoil's drawing has writhe -3 where spherogram reads +3), and the
+    link-level grid spherogram's reading of the code; with a flip vector
+    both are the given realisation (see below).
 
 Verification: ``to_link`` builds the diagram's spherogram Link directly from
 the markers (crossings and their signs read off the grid), so a diagram can be
@@ -68,6 +73,185 @@ checked against the DT link without going through the 3-D curve.  The self
 test (``--selftest``) does that for the trefoil, figure-eight, Hopf link,
 5_2, Borromean rings and 4BL, and checks the known grid numbers of the
 knots (5, 6, 4, 7) and the Borromean rings (8).
+
+DT code + flip vector (version 1.1, 2026-10-18).  A signed DT code does not
+fix the diagram: the in-plane mirror keeps every label and every over/under,
+and a composite code has one realisation per way of reflecting its summands
+(``DT: [(10, 6, 2, 4, 12, 8)]`` is the granny knot, its mirror image, or the
+square knot twice).  Writing the flip vector after the code names ONE
+realisation: ``DT: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]`` (the square knot).
+One bit per crossing, bit k for the crossing whose odd label is 2k+1;
+spherogram's convention -- walk along the visit with the smaller label, 0 when
+the other strand crosses from your right to your left (y up), 1 when from left
+to right; complementing every bit is the mirror image.  ', 010001', '; 010001',
+'(0,1,...)' and T/F are read too, and the vector is checked to describe a
+diagram on the sphere (``check_flips``) before anything else.  With a vector:
+the link-level grid is the braid closure of THAT realisation (its spherogram
+Link is built from (code, vector), never from spherogram's string reader); the
+same-diagram grid is routed from the drawing script's 2-D layout of that
+realisation (``prepare_diagram`` draws the vector), its realisation is read
+back off the grid and, when it is the in-plane mirror, the columns are
+reversed (``reverse_columns`` -- an in-plane reflection keeps every
+over/under and complements every flip; ``transpose`` would switch every
+crossing); ``same_diagram_check`` then compares the canonical (DT code, flip
+vector) of the grid with the input's (canonical_dt's ``canonicalize_flips``,
+'strict': the same diagram on the sphere, not merely the same code) -- and,
+for a link, the DIRECTION of every component, which the strict form ignores
+(``_orientation_relation``: some relabelling of the grid's code onto the
+input's must keep every component's direction, or reverse them all) -- and
+the free search's grids are adopted only if they are that realisation (after a
+column reversal or a transpose, and with components reversed by swapping
+their X and O markers, when needed); the link-level audit adds the
+Jones polynomial (chirality-sensitive) to SnapPy's mirror-blind isometry test.
+spherogram's ``braid_word`` raises on some kinked or split realisations: the
+link-level grid then refuses in one line (the same-diagram grid does not
+need it).  A trailing '# comment' after a code is dropped before it is read.
+The --json output gains "dt" and "flips" only then.  A code without a vector
+takes exactly the old path.
+
+Bare codes (2026-10-19, still 1.1; approved crash fixes, every run that worked
+is unchanged).  The two entry points -- ``minimal_grid_for_dt`` and the
+command line's --dt -- map look-alike Unicode dashes and spaces to ASCII
+first, as the drawing script's ``parse_dt`` does (a bare 'DT: [(−4,−6,−2)]'
+reached spherogram's string reader as typed: "No link by that name known");
+``parse_dt`` itself (and ``parse_dt_flips`` on a bare code) still refuses a
+Unicode minus, as the self test asserts.  The same-diagram grid no longer
+needs ``spherogram.Link`` of a bare code -- only its crossing count came from
+there, and spherogram's decoder refuses kinked and some split codes -- so such
+a code now gets its grid ('DT: [(-2,), (-4,)]': 6 x 6, the same DT code; the
+note on the link-level comparison says why that is unavailable).  The
+link-level grid and --no-simplify do need spherogram's reading and its braid:
+when either fails on a bare code the command line prints ONE [error] line
+naming the failure and --same-diagram (it was a traceback); the library still
+raises spherogram's own exception, the same object, only tagged
+(``_tag_bare_spherogram_failure``), so the drawing script and the same-diagram
+grid's note see exactly what they saw before.
+
+Kinks and the router (2026-10-19, round 3; still 1.1).  ``simplify``'s first
+greedy destabilisation ran outside its own same-diagram crossing-count safety
+net, and a destabilisation can undo a kink (a Reidemeister I move), so the
+same-diagram grid of a kinked code lost the kink and every later move was
+refused: 'DT: [(2,)]' and 'DT: [(-2,)]' (also with ', [0]') came out 2 x 2
+with no crossing (audit [info], its reason cut at 60 characters, mid-word),
+the 4-crossing trefoil diagram 'DT: [(4,8,2,6)]' with 3 crossings (audit
+[FAIL], exit 0 -- it predates 1.1), and the comma-less 'DT: [(-4), (-2)]',
+which the drawing script reads as ONE kinked component (Invariant 11's
+literal_eval ambiguity there), as an unknot with no crossing.  The first pass
+is now under the safety net: when the greedy pass keeps the crossing count it
+is used exactly as before (every grid that was right is unchanged, walk
+included), otherwise the walk destabilises only by ``_destabilize_keeping``
+and a '[grid] the greedy destabilisation would have removed N ...' line says
+so -- 'DT: [(2,)]' 3 x 3 / 1 crossing, '[ok] ... same DT code';
+'DT: [(4,8,2,6)]' 7 x 7 / 4, '[ok]'; the comma-less Hopf spelling 4 x 4 / 2
+crossings in one component, '[FAIL] ... DIFFERENT diagram' (the drawing
+script's reading, which this module cannot change, is a different diagram
+from this module's).  ``same_diagram_check`` gives False -- [FAIL] -- for a
+grid whose crossing count is not the code's even when the grid's own code
+cannot be read (``_unread_grid_verdict``), and every such reason in full.
+The same-diagram ROUTER's failure ('could not route the diagram on a flat
+grid up to 240 cells'; measured: 12 kinked backtrack codes, each of whose
+default tutte drawings has 4-155 false or undrawn crossings -- 34 for the
+12-crossing trefoil code of the self test, whose spread-tutte drawing does
+route) is tagged
+(``_tag_route_failure``: same RuntimeError, same message) and the command
+line prints it as ONE [error] line naming the router, the drawing's defect
+count and the drawing script's stereo-safe / sheet lift (it was a
+traceback); the drawing script words its own line by the same tag.
+
+No hangs, and codes no diagram has (2026-10-19, round 4; still 1.1).
+spherogram's flips-free DT decoder loops for ever on some kinked bare codes
+('DT: [(8,6,2,4)]', a trefoil with a kink, and its family): ``_topology``
+installs dt_converter's guard on it (``_guard_dt_decoder``), which raises
+dt_converter.DecoderLoop (a ValueError) there at once, so the link-level grid
+of such a code is the one-line '[error] spherogram cannot read this DT code
+(DecoderLoop: ...)' -- and --same-diagram builds it (4 crossings, same DT
+code) -- where both modes used to hang.  A bare code that no diagram on the
+sphere has (no flip vector makes it planar: 'DT: [(4,6,8,10,2)]', 'DT:
+[(8,10,12),(2,4,6)]') is refused at ``minimal_grid_for_dt``'s entry, in both
+modes, in the toolkit's one wording: 'no diagram on the sphere has this DT
+code: no flip vector makes it planar, so there is no grid diagram to build;
+check the code' (--same-diagram ended in a traceback, and the link-level
+[error] recommended --same-diagram).  Every grid that was built before is
+unchanged.
+
+Round 4b (2026-10-20; still 1.1): ``_topology`` tries the spherogram / snappy
+import twice (``_import_retrying``): under sage -python with faulthandler on
+(PYTHONFAULTHANDLER=1, -X faulthandler) the first import raises a TypeError
+inside cysignals (--same-diagram ended in that traceback, the link-level grid
+blamed spherogram's reading of the code), and the second succeeds.  Nothing
+changes when the first import succeeds.
+
+Round 4d (2026-10-20; still 1.1): the last crash paths and false causes of
+the command line.  The same-diagram grid of a code with an EMPTY component
+('DT: [(4,6,2), ()]', 'DT: [(-6,-8), (), (-4,-2)]', with or without a flip
+vector) ended in a StopIteration traceback in ``from_planar_diagram`` (the
+router found no step on the empty component), and the drawing script's
+grid-diagram layout printed 'grid_diagram.py failed (StopIteration: )'.  It
+is now the grid of the code without that component, as the drawing script
+draws it and as spherogram reads the bare code (its decoder skips empty
+components; the bare link-level grid was built so already), after one line
+'[grid] component N of the DT code is empty (no crossings); ... so this is
+the grid diagram of DT: [...]' (``_same_diagram_input``; a code whose
+components are all empty, 'DT: [()]', is left as it was).  A bare code the drawing script's parser
+cannot read -- an alphabetical 'DT[daddcab]', a prefix-less '8,6,2,4' --
+ended --same-diagram in a traceback whose message carried a per-process
+object address; it is one [error] line in the scorer's wording ('grid_diagram
+--same-diagram cannot parse the DT code ...: the grid is routed from the
+drawing script's 2-D drawing, whose reader takes signed DT codes written as
+lists of nonzero even integers, ...; dt_converter.py -i "..." --to dt
+converts other spellings ...', ``_unparseable_error``).  When spherogram took the text for a
+link NAME ('[(8,6,2,4)]', '8,6,2,4': 'No link by that name known', or the
+SQLite threading error of that lookup in a thread), the link-level [error]
+said its DT decoder refuses kinked codes -- it never saw the code; it now
+says spherogram did not recognise the text as a DT code (it needs the 'DT:'
+prefix and ASCII minus signs) and gives the prefixed spelling, and names
+--same-diagram only where the drawing script reads the text
+(``_name_lookup_failure``).  --no-simplify now has ``minimal_grid_for_dt``'s
+no-diagram entry check (it printed the spherogram line: "Link isn't planar",
+or DecoderLoop; no code without a diagram braids -- 0 of 2212 random ones).
+Every run that succeeded is unchanged, and so is every other message.
+
+Round 4e (2026-10-20; still 1.1): round 4d's leftovers, all on paths that
+failed.  The same-diagram grid of a code whose empty component is written
+'[]' ('DT: [[4,6,2], []]', 'DT: [(4,6,2), []]', 'DT: [[-6,-8],[],[-4,-2]]',
+also with a flip vector) still ended in StopIteration: this module's reader
+sees parenthesised groups only, the drawing script's reader -- the one
+``from_planar_diagram`` hands the code to -- sees the empty component; it is
+now found with that reader and the code rewritten from its reading, exactly
+as for '()' (``_drawing_reading_with_empties``; the note leaves out the
+clause about spherogram's reading, which does not read '[]' as a DT code at
+all; where '()' and '[]' empties are mixed, 'DT: [(4,6,2), [], ()]', the
+note numbers them as the drawing script reads them -- it named only the '()',
+as component 2).  The link-level name-lookup [error] said spherogram reads a DT code
+'only after a DT: prefix and with ASCII minus signs', which was wrong for
+'DT: [(4,6,2)] ' (a trailing space), 'DT: [[8,6,2,4]]' and
+'DT: [(+8,6,2,4)]'; that wording is kept where the prefix or the minus signs
+are the cause, and every other text gets the exact form spherogram's string
+reader takes and what the text has (``_SPHEROGRAM_DT_FORM``,
+``_spherogram_form_issues``: the scorer's rules).  The code is given in that
+form only where this module's reader and the drawing script's reader
+(dt_converter's where the drawing script cannot read the text) read the same
+non-empty components (``_agreed_spelling``: round 4d's line respelled the
+two-component 'DT: [[-6,-8],[-4,-2]]' as the ONE-component
+'DT: [(-6, -8, -4, -2)]'), and --same-diagram is named wherever the drawing
+script reads the text.  A flip-vector code whose LAST component is empty
+('DT: [(4,6,2), ()], [0,0,1]'; spherogram's DTcodec raises IndexError on
+exactly those, a leading or middle empty component builds) got the
+link-level line 'spherogram's DT decoder refuses it (list index out of
+range)'; it now names the empty component and gives the code without it
+(``_trailing_empty_failure``), also in the drawing script's
+--grid-any-diagram.  Every run that succeeded is unchanged, and so is every
+other message.
+
+Round 4e review (2026-10-21; still 1.1): the name-lookup line's spelling is one
+the link-level grid can use -- the respelled code when spherogram builds it,
+else that code with a legal flip vector ('DT: [(+8,6,2,4)]' -> 'DT: [(8, 6, 2,
+4)], [0,1,0,0]'; the bare respelling looped spherogram's decoder), and only one
+whose link spherogram can also braid (else no spelling; --same-diagram is
+still named) -- and a
+code with no crossings ('DT: [()]', 'DT: [(), ()]', 'DT: [[]]') is named as
+such instead of as a kinked or split code (only when this module's reader sees
+no crossings either: 'DT: ([],[],(4,6,2))' keeps the name-lookup line).
 """
 import argparse
 import ast
@@ -81,9 +265,467 @@ import time
 
 import numpy as np
 
-VERSION = "1.0"
+VERSION = "1.1"     # 1.1 (2026-10-18): DT code + flip vector input; 2026-10-19: bare-code, kink and router fixes; (2026-10-19, round 4): decoder guard, no-diagram refusal; (2026-10-20, round 4b): import retried; (2026-10-20, round 4d): empty components, unparseable spellings, name-lookup wording; (2026-10-20, round 4e): '[]' empties, spherogram's exact form, empty last component (see the docstring)
 
 _SIMPLIFY_CACHE = {}
+
+
+# ---------------------------------------------------------------------------
+#  DT + flip vector input -- shared helper.  Every tool carries a BYTE-IDENTICAL
+#  copy of this block (from the BEGIN to the END marker), like the version
+#  resolver helpers of Invariant 26.  Needs only ``re``.
+#
+#  Spelling: 'DT: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]'.  One bit per
+#  crossing; bit k belongs to the crossing whose odd label is 2k+1 (the k-th
+#  DT entry).  spherogram/SnapPy convention: walk along the visit with the
+#  SMALLER label -- bit 0 when the other strand crosses from your right to
+#  your left, 1 when from left to right.  Complementing every bit reflects the
+#  page (the mirror image).  A prime diagram has exactly two legal vectors
+#  (complements); a code with k independently reflectable pieces has 2**k.
+# ---------------------------------------------------------------------------
+# BEGIN dt-flips helpers (keep identical in every tool)
+_DT_FLIPS_ERROR = ("could not read %r after the DT code as a flip vector "
+                   "(one 0/1 per crossing, e.g. 'DT: [(4, 6, 2)], [0,0,1]')")
+
+
+def split_dt_flips(text):
+    """Split 'DT: [...], [0,1,...]' into ('DT: [...]', [False, True, ...]).
+
+    Text with nothing after the DT code's closing bracket comes back
+    UNCHANGED with None, so a bare code takes exactly its old path; so does
+    an old multi-list spelling whose later lists hold more components
+    ('DT: [(-6,-8)], [(-4,-2)]').  Also read: ', 010001' / '; 010001' / no
+    separator, '(0,1,..)', spaces instead of commas, T/F and True/False, and
+    the tuple wrapper 'DT: ([(..)], [0,1,..])' (str() of spherogram's
+    DT_code(flips=True)).  A vector has one bit per entry of the code's list.
+    A trailing '# comment' is dropped (a bare code with one comes back
+    without it).  Any other text after the code raises ValueError -- it is
+    never ignored."""
+    s = str(text)
+    t = s.rstrip()
+    i = t.find("[")
+    if i < 0:
+        return s, None
+    depth, j = 0, -1
+    for j in range(i, len(t)):
+        if t[j] == "[":
+            depth += 1
+        elif t[j] == "]":
+            depth -= 1
+            if depth == 0:
+                break
+    if depth != 0:
+        if t.count("[") > 1:
+            raise ValueError("unbalanced brackets in %r: the code's list must "
+                             "close before a flip vector, e.g. "
+                             "'DT: [(4, 6, 2)], [0,0,1]'" % s[:80])
+        return s, None            # unbalanced: the caller's parser reports it
+    head, rest = t[:i], t[j + 1:]
+    note = rest.find("#")
+    base = s if note < 0 else t[:j + 1 + note].rstrip()
+    rest = (rest if note < 0 else rest[:note]).strip()
+    wrapped = head.rstrip().endswith("(") and rest.endswith(")")
+    if wrapped:
+        rest = rest[:-1].strip()
+    if not rest:
+        inner = t[i + 1:j]
+        if "(" in inner and re.search(r"\d", re.sub(r"\([^()]*\)", "", inner)):
+            raise ValueError("numbers outside the parenthesised components of "
+                             "%r: a flip vector goes AFTER the code's closing "
+                             "bracket, e.g. 'DT: [(4, 6, 2)], [0,0,1]'" % s[:80])
+        return base, None
+    code = (head.rstrip()[:-1] if wrapped else head) + t[i:j + 1]
+    body = rest[1:].strip() if rest[0] in ",;" else rest
+    if body and body[0] + body[-1] in ("[]", "()"):
+        body = body[1:-1].strip()
+    tokens = [x for x in re.split(r"[\s,;]+", body) if x]
+    bits = None
+    if len(tokens) == 1 and re.fullmatch(r"[01]+|[TFtf]+", tokens[0]):
+        bits = [ch in "1Tt" for ch in tokens[0]]
+    elif tokens and all(x.lower() in ("0", "1", "t", "f", "true", "false")
+                        for x in tokens):
+        bits = [x.lower() in ("1", "t", "true") for x in tokens]
+    labels = [int(v) for v in re.findall(r"\d+", t[i + 1:j])]
+    n = len(labels)
+    if bits is not None and len(bits) == n:
+        return code, bits
+    labels += [int(v) for v in re.findall(r"\d+", rest)]
+    if (len(labels) > n and sorted(labels) == list(range(2, 2 * len(labels) + 1, 2))
+            and not re.search(r"[^\s,;|()\[\]\d\-\u2212\u2012\u2013\u2014\ufe63\uff0d]", rest)):
+        return base, None         # more components: an old multi-list spelling
+    if bits is not None:
+        raise ValueError("the flip vector has %d entries but the code has %d "
+                         "crossings" % (len(bits), n))
+    raise ValueError(_DT_FLIPS_ERROR % rest)
+
+
+def format_dt_flips(dt_text, flips):
+    """'DT: [...]' + flips -> 'DT: [...], [0,1,...]' (dt_converter's spelling);
+    the bare text unchanged when flips is None."""
+    if flips is None:
+        return dt_text
+    return "%s, [%s]" % (str(dt_text).rstrip(),
+                         ",".join("1" if f else "0" for f in flips))
+
+
+def check_flips(comps, flips):
+    """Raise ValueError unless ``flips`` is a legal vector for the signed DT
+    code ``comps`` (a list of tuples of even integers): one bit per crossing,
+    and the diagram it describes lies on the sphere (every connected piece
+    has genus 0: faces == crossings + 2 x pieces).  Pure Python; accepts the
+    kink vectors spherogram's DTcodec cannot build."""
+    entries = [int(e) for c in comps for e in c]
+    n = len(entries)
+    flips = [bool(f) for f in flips]
+    if len(flips) != n:
+        raise ValueError("the flip vector has %d entries but the code has %d "
+                         "crossings" % (len(flips), n))
+    cross, nxt, start = {}, {}, 1
+    for c in comps:
+        labels = list(range(start, start + 2 * len(c)))
+        for a, b in zip(labels, labels[1:] + labels[:1]):
+            nxt[a] = b
+        start += 2 * len(c)
+    for k, e in enumerate(entries):
+        cross[2 * k + 1] = cross[abs(e)] = k
+    if sorted(cross) != list(range(1, 2 * n + 1)):
+        raise ValueError("not a DT code: the even labels are not a "
+                         "permutation of 2..%d" % (2 * n))
+
+    def slots(p):                 # (in slot, out slot) of label p: S0 E1 N2 W3
+        k = cross[p]
+        small = min(2 * k + 1, abs(entries[k]))
+        if p != small:
+            return 1, 3
+        return (2, 0) if flips[k] else (0, 2)
+
+    other = {}
+    for p in range(1, 2 * n + 1):
+        q = nxt[p]
+        a, b = (cross[p], slots(p)[1]), (cross[q], slots(q)[0])
+        other[a], other[b] = b, a
+    seen, faces = set(), 0
+    for d in other:
+        if d in seen:
+            continue
+        faces += 1
+        while d not in seen:
+            seen.add(d)
+            k, sl = other[d]
+            d = (k, (sl + 1) % 4)
+    parent = list(range(n))
+
+    def root(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    for p in range(1, 2 * n + 1):
+        parent[root(cross[p])] = root(cross[nxt[p]])
+    pieces = len({root(k) for k in range(n)})
+    if faces != n + 2 * pieces:
+        raise ValueError(
+            "the flip vector %s is not a legal one for this DT code: it "
+            "describes no diagram on the sphere (%d faces; a planar diagram "
+            "with %d crossing(s) in %d piece(s) has %d)"
+            % ("".join("1" if f else "0" for f in flips), faces, n, pieces,
+               n + 2 * pieces))
+
+
+def flips_crossing_signs(comps, flips):
+    """Crossing signs (+1 / -1, in DT entry order) of the diagram (comps,
+    flips) in spherogram's convention, where a NEGATIVE entry means the even
+    visit is the over-crossing: negative exactly when
+    flip XOR (even visit over) XOR (even label < odd label)."""
+    out = []
+    for k, e in enumerate(int(e) for c in comps for e in c):
+        neg = bool(flips[k]) ^ (e < 0) ^ (abs(e) < 2 * k + 1)
+        out.append(-1 if neg else 1)
+    return out
+# END dt-flips helpers
+
+
+def _normalize_dt_text(text):
+    """Look-alike Unicode dashes -> '-', Unicode spaces -> ' ' (the drawing
+    script's ``parse_dt`` normalisation); used on the flip-vector path, and
+    since 2026-10-19 on every code at the two entry points
+    (``minimal_grid_for_dt`` and the command line's --dt).  ``parse_dt`` (and
+    ``parse_dt_flips`` on a bare code) reads the code itself un-normalised."""
+    text = str(text)
+    for ch in ("−", "–", "—", "‐", "‑", "－", "―"):
+        text = text.replace(ch, "-")
+    for ch in (" ", " ", " ", " ", " ", "　"):
+        text = text.replace(ch, " ")
+    return text
+
+
+def _user_facing(exc):
+    """Mark a ValueError as a refusal whose text is the whole explanation (the
+    command line prints it as ONE [error] line)."""
+    if not isinstance(exc, ValueError):
+        exc = ValueError(str(exc))
+    exc.user_facing = True
+    return exc
+
+
+def _bits(flips):
+    return "".join("1" if f else "0" for f in flips)
+
+
+def parse_dt_flips(text):
+    """(components, flips | None) of a DT code that may carry a flip vector
+    ('DT: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]' and every spelling
+    ``split_dt_flips`` reads; look-alike Unicode minus signs allowed).  A bare
+    code gives exactly ``(parse_dt(text), None)`` -- the old reading and its
+    errors.  A vector is checked with ``check_flips`` (one bit per crossing,
+    a diagram on the sphere) and returned as a list of bools; errors on that
+    path are one-line ValueErrors with ``user_facing = True``."""
+    norm = _normalize_dt_text(text)
+    try:
+        code, flips = split_dt_flips(norm)
+    except ValueError as exc:
+        raise _user_facing(exc)
+    if flips is None:
+        return parse_dt(text), None
+    try:
+        comps = parse_dt(code)
+        check_flips(comps, flips)
+    except ValueError as exc:
+        raise _user_facing(exc)
+    return comps, [bool(f) for f in flips]
+
+
+def _drop_comment(dt_string):
+    """The text the shared helper reads (1.1): a trailing '# comment' after a
+    BARE code dropped -- it used to reach spherogram's string reader ("No link
+    by that name known").  A code without a comment comes back unchanged (the
+    same object), so does anything the helper cannot read (its caller reports
+    that as before), and a code with a vector (every reader here splits it
+    again).  The comment is found in the normalised text, as ``parse_dt``
+    finds it, and cut from the RAW text (normalising maps one character to
+    one), so every reader here agrees on where it starts."""
+    norm = _normalize_dt_text(dt_string)
+    try:
+        code, flips = split_dt_flips(norm)
+    except ValueError:
+        return dt_string
+    if flips is not None or code == norm:
+        return dt_string
+    return str(dt_string)[:len(code)]
+
+
+def _has_flips(dt_string):
+    """True when the DT text carries a flip vector (False for a bare code and
+    for anything that is not DT text at all, e.g. a link name)."""
+    try:
+        return split_dt_flips(_normalize_dt_text(dt_string))[1] is not None
+    except ValueError:
+        return False
+
+
+def _dt_link(dt_string):
+    """spherogram Link of a DT code.  A bare code: ``spherogram.Link(dt_string)``
+    exactly as before (spherogram's own reading, which normalises the first
+    crossing to positive).  A code with a flip vector: the vector is checked
+    (``check_flips``) and the link built from (components, vector) by
+    ``DTcodec(...).link()`` -- never by spherogram's string reader, which
+    rebuilds through a PD code that loses the chirality of kinks.  A legal
+    vector spherogram's decoder cannot build (kinks) is said to be legal."""
+    spherogram = _topology()
+    try:
+        has = split_dt_flips(_normalize_dt_text(dt_string))[1] is not None
+    except ValueError as exc:
+        raise _user_facing(exc)
+    if not has:
+        return spherogram.Link(dt_string)
+    comps, flips = parse_dt_flips(dt_string)
+    from spherogram.codecs.DT import DTcodec
+    try:
+        return DTcodec([tuple(int(e) for e in c) for c in comps], list(flips)).link()
+    except Exception as exc:  # noqa: BLE001
+        empty = _trailing_empty_failure(comps, exc, flips)
+        if empty is not None:
+            # round 4e (2026-10-20): the decoder fails on the EMPTY last
+            # component, not on a kink (the line said it "refuses it")
+            raise _user_facing(ValueError(
+                "spherogram cannot build this realisation (flips %s): the flip vector is legal -- it "
+                "describes a diagram on the sphere -- but %s; the same-diagram grid (--same-diagram "
+                "here, the drawing script's default without --grid-any-diagram) is built from the "
+                "drawing, which leaves the empty component out" % (_bits(flips), empty)))
+        raise _user_facing(ValueError(
+            "spherogram cannot build this %srealisation (flips %s): the flip vector is legal -- it "
+            "describes a diagram on the sphere -- but spherogram's DT decoder refuses it (%s); the "
+            "same-diagram grid (--same-diagram here, the drawing script's default without "
+            "--grid-any-diagram) is built from the drawing and does not need it"
+            % ("kinked " if _kinked(comps) else "",
+               _bits(flips), str(exc)[:60])))
+
+
+def _no_address(text):
+    """``text`` without the per-process object addresses Python puts in some
+    messages ('<ast.Name object at 0x104ba24d0>' -> '<ast.Name object>'), so a
+    refusal reads the same in every process (round 4d, 2026-10-20)."""
+    return re.sub(r" at 0x[0-9A-Fa-f]+", "", str(text))
+
+
+def _unparseable_error(dt_string, why):
+    """The one-line refusal of a BARE DT code the same-diagram grid cannot
+    parse (round 4d, 2026-10-20), in the scorer's wording (score_diagram's
+    _unparseable_error): an alphabetical 'DT[daddcab]' or a prefix-less
+    unbracketed '8,6,2,4' ended --same-diagram in a traceback in the drawing
+    script's parser -- the reader of the 2-D drawing the grid is routed
+    from -- whose message carried a per-process object address.  (The
+    link-level grid hands the text to spherogram, which reads alphabetical
+    codes itself; it is not refused here.)"""
+    text = _drop_comment(str(dt_string)).strip()
+    why = " ".join(_no_address(why).split()) or "it does not parse"
+    return _user_facing(ValueError(
+        "grid_diagram --same-diagram cannot parse the DT code %s (%s): the grid is routed from the "
+        "drawing script's 2-D drawing, whose reader takes signed DT codes written as lists of "
+        "nonzero even integers, e.g. 'DT: [(4, 6, 2)]', optionally followed by a flip vector.  "
+        "dt_converter.py -i \"%s\" --to dt converts other spellings (alphabetical, packed hex, "
+        "Gauss, PD, braid words, names) to that one (--to dt-flips adds the flip vector) and says "
+        "what is wrong with a code it cannot read" % (text, why[:160], text)))
+
+
+def _same_diagram_input(dt_string):
+    """``(text, note)`` for the same-diagram grid (round 4d, 2026-10-20).
+
+    * A BARE code the drawing script's parser cannot read (the reader
+      ``from_planar_diagram`` hands it to: 'DT[daddcab]', '8,6,2,4') raises
+      ``_unparseable_error`` -- one [error] line; it was a traceback.
+    * A code with an EMPTY component ('DT: [(4,6,2), ()]', with or without a
+      flip vector -- an empty component has no entries, so the vector is
+      unchanged) comes back without it, with a '[grid] ...' note: the
+      drawing script's 2-D drawing and its other 3-D layouts leave it out,
+      and spherogram reads the bare code so (its decoder skips empty
+      components: the bare link-level grid was built that way already); the
+      router found no step on the empty component (StopIteration, a
+      traceback here and an empty message in the drawing script's
+      grid-diagram layout).  A code whose components are ALL empty
+      ('DT: [()]') is left alone.  Round 4e (2026-10-20): an empty
+      component written as '[]' ('DT: [[4,6,2], []]', 'DT: [(4,6,2), []]')
+      is found with the drawing script's reader, which ``from_planar_diagram``
+      uses (this module's reader sees parenthesised groups only), and the
+      code is rewritten from that reading (``_drawing_reading_with_empties``);
+      it still ended in StopIteration.
+    * Anything else: ``(dt_string, None)``, the same object."""
+    if not _has_flips(dt_string):
+        try:
+            _draw_module().parse_dt_flips(dt_string)
+        except ValueError as exc:
+            if not getattr(exc, "user_facing", False):
+                raise _unparseable_error(dt_string, exc)
+    try:
+        comps, flips = parse_dt_flips(dt_string)
+    except Exception:  # noqa: BLE001  (the old path reports it)
+        return dt_string, None
+    empties = [i + 1 for i, c in enumerate(comps) if len(c) == 0]
+    drawn = None
+    if not empties:
+        # round 4e (2026-10-20): an empty component written as '[]'
+        # ('DT: [[4,6,2], []]', 'DT: [(4,6,2), []]', 'DT: [[-6,-8],[],[-4,-2]]')
+        # is invisible to this module's reader (it reads parenthesised groups
+        # only) but not to the drawing script's, which ``from_planar_diagram``
+        # hands the code to -- the router then raised StopIteration on the
+        # empty component, as it did for '()'.  Such codes are taken as the
+        # drawing script reads them, exactly as '()' is
+        drawn = _drawing_reading_with_empties(dt_string, flips)
+        if drawn is None:
+            return dt_string, None
+        comps = drawn
+        empties = [i + 1 for i, c in enumerate(comps) if len(c) == 0]
+    elif len(empties) < len(comps):
+        # round 4e: '()' and '[]' empties mixed ('DT: [(4,6,2), [], ()]'): the
+        # drawing script's reading numbers the components as they are written
+        # and sees the '[]' too; taken when it has the same non-empty ones
+        drawn = _drawing_reading_with_empties(dt_string, flips)
+        if (drawn is not None and sum(1 for c in drawn if not c) > len(empties)
+                and [c for c in drawn if c] == [tuple(int(v) for v in c) for c in comps if c]):
+            comps = drawn
+            empties = [i + 1 for i, c in enumerate(comps) if len(c) == 0]
+        else:
+            drawn = None
+    if len(empties) == len(comps):
+        return dt_string, None
+    text = "DT: [%s]" % ", ".join(repr(tuple(int(v) for v in c)) for c in comps if len(c))
+    if flips is not None:
+        text = format_dt_flips(text, flips)
+    many = len(empties) > 1
+    return text, (
+        "[grid] component%s %s of the DT code %s empty (no crossings); the drawing script's "
+        "drawings leave %s out%s, so this is the grid diagram of %s."
+        % ("s" if many else "", ", ".join(str(i) for i in empties),
+           "are" if many else "is", "them" if many else "it",
+           # round 4e: spherogram does not read a '[]' spelling as a DT code
+           # at all (it takes the text for a link name), so the clause about
+           # its reading is said only of the '()' spellings it reads
+           "" if drawn is not None else
+           " and spherogram's reading of the bare code skips %s" % ("them" if many else "it"),
+           text))
+
+
+def _drawing_reading_with_empties(dt_string, flips):
+    """Round 4e (2026-10-20): the components the drawing script's reader
+    (``parse_dt_flips``, the reader ``from_planar_diagram`` hands the code
+    to) finds in ``dt_string`` when they include an EMPTY one that this
+    module's reader does not see -- an empty component written as '[]'
+    ('DT: [[4,6,2], []]', 'DT: [(4,6,2), []]', 'DT: [[-6,-8],[],[-4,-2]]';
+    this module reads parenthesised groups only).  None when the drawing
+    script's reader fails, finds no empty component, finds only empty ones,
+    or reads another flip vector: those codes take their old path."""
+    try:
+        dcomps, dflips = _draw_module().parse_dt_flips(dt_string)
+    except Exception:  # noqa: BLE001
+        return None
+    dcomps = [tuple(int(v) for v in c) for c in dcomps]
+    if not any(len(c) == 0 for c in dcomps) or all(len(c) == 0 for c in dcomps):
+        return None
+    if (dflips is None) != (flips is None):
+        return None
+    if dflips is not None and [bool(f) for f in dflips] != [bool(f) for f in flips]:
+        return None
+    return dcomps
+
+
+def _kinked(comps):
+    """A crossing joining two consecutive visits of one component (a kink)."""
+    pos = 1
+    for c in comps:
+        n = 2 * len(c)
+        for k, e in enumerate(c):
+            odd = pos + 2 * k
+            ev = abs(int(e))
+            if pos <= ev < pos + n and (abs(ev - odd) == 1 or abs(ev - odd) == n - 1):
+                return True
+        pos += n
+    return False
+
+
+def _trailing_empty_failure(comps, exc, flips=None):
+    """Round 4e (2026-10-20): the clause naming an EMPTY LAST component as the
+    cause of spherogram's failure, or None when that is not the failure.
+    ``DTcodec(comps[, flips]).link()`` raises IndexError ('list index out of
+    range') exactly when the code's last component is empty (measured: a
+    leading or middle empty component builds, bare and with a vector), so
+    the old line's "spherogram's DT decoder refuses it" -- the wording for
+    kinked realisations -- named no cause.  The clause ends with the code
+    without its empty component(s) (and the vector, which they do not
+    change)."""
+    comps = [tuple(c) for c in comps]
+    if (not isinstance(exc, IndexError) or not comps or len(comps[-1])
+            or all(len(c) == 0 for c in comps)):
+        return None
+    empties = [i + 1 for i, c in enumerate(comps) if len(c) == 0]
+    kept = "DT: [%s]" % ", ".join(repr(tuple(int(v) for v in c)) for c in comps if len(c))
+    if flips is not None:
+        kept = format_dt_flips(kept, flips)
+    many = len(empties) > 1
+    return ("component%s %s of the DT code %s empty (no crossings), and spherogram's DT decoder "
+            "cannot build a code whose last component is empty (IndexError: %s); without %s the "
+            "code is '%s'"
+            % ("s" if many else "", ", ".join(str(i) for i in empties), "are" if many else "is",
+               " ".join(str(exc).split())[:60], "them" if many else "it", kept))
 
 
 # --------------------------------------------------------------------------
@@ -135,6 +777,29 @@ class GridDiagram:
         """Swap the roles of rows and columns (a reflection in the diagonal;
         it MIRRORS the link, because vertical-over becomes horizontal-over)."""
         return GridDiagram(self.xcol(), self.ocol())
+
+    def reverse_columns(self):
+        """Reflect the grid in a vertical line (1.1).  Verticals stay over, so
+        every crossing keeps its over/under and the DT code is unchanged, but
+        the picture is the IN-PLANE mirror: every flip bit is complemented and
+        the link is mirrored -- the other realisation of a prime diagram."""
+        return GridDiagram(self.X[::-1], self.O[::-1])
+
+    def reverse_components(self, which):
+        """The grid with the components ``which`` (indices into
+        ``components()``) running the other way (1.1): their X and O markers
+        swapped.  Both markers of a row or a column belong to one component,
+        so every row and column keeps one X and one O; the picture and every
+        over/under stay as they are -- the same unoriented diagram, with the
+        signs of the crossings between those components and the rest
+        changed."""
+        X, O = list(self.X), list(self.O)
+        comps = self.components()
+        for gi in which:
+            for (_r, c, t) in comps[gi]:
+                if t == "X":
+                    X[c], O[c] = O[c], X[c]
+        return GridDiagram(X, O)
 
     # -- components and crossings -----------------------------------------
     def components(self):
@@ -468,12 +1133,51 @@ def from_braid(word, strands=None):
 
 def _topology():
     """spherogram with snappy imported (spherogram's Link.exterior needs it)."""
-    import spherogram
+    spherogram = _import_retrying("spherogram")
     try:
-        import snappy  # noqa: F401
+        _import_retrying("snappy")
     except Exception:  # noqa: BLE001
         pass
+    _guard_dt_decoder()
     return spherogram
+
+
+def _import_retrying(name):
+    """``importlib.import_module(name)``, tried a second time when the first
+    attempt raises (round 4b, 2026-10-20): under ``sage -python`` with
+    faulthandler on (PYTHONFAULTHANDLER=1, -X faulthandler) the FIRST import
+    of spherogram / snappy raises a TypeError inside cysignals ("signal
+    handler must be signal.SIG_IGN, ...") and the second succeeds.  Nothing
+    changes when the first attempt succeeds; the second attempt's exception
+    propagates."""
+    import importlib
+    try:
+        return importlib.import_module(name)
+    except Exception:  # noqa: BLE001
+        return importlib.import_module(name)
+
+
+def _no_diagram_reason(dt_string):
+    """dt_converter.no_diagram_reason of a bare DT text: the reason no
+    diagram on the sphere has it, or None (also when the text does not parse
+    or dt_converter.py cannot be imported: the old path decides)."""
+    try:
+        import dt_converter
+        return dt_converter.no_diagram_reason(parse_dt(dt_string))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _guard_dt_decoder():
+    """dt_converter's guard on spherogram's flips-free DT decoder: where the
+    decoder would loop for ever (a kinked bare code such as 'DT: [(8,6,2,4)]')
+    it raises dt_converter.DecoderLoop, a ValueError, instead.  Process-wide,
+    idempotent; a no-op when dt_converter.py cannot be imported."""
+    try:
+        import dt_converter
+        dt_converter.guard_spherogram_decoder()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def to_link(G):
@@ -551,12 +1255,296 @@ def oriented_link(crossings, starts):
 
 
 def dt_to_braid(dt_string):
-    """(braid word, strands, Link) of the DT link via spherogram."""
-    spherogram = _topology()
-    L = spherogram.Link(dt_string)
-    w = list(L.braid_word())
+    """(braid word, strands, Link) of the DT link via spherogram.  1.1: a code
+    with a flip vector is that realisation (``_dt_link``), so the braid
+    closure has its chirality (granny / square / mirror granny).  spherogram's
+    ``braid_word`` raises on some kinked or split diagrams; with a vector
+    that is ONE user-facing line.  A bare code raises exactly what it raised
+    before (2026-10-19): spherogram's own exception, the same object, only
+    tagged by ``_tag_bare_spherogram_failure`` so that the command line can
+    print it as one [error] line -- a library caller (the drawing script's
+    grid-diagram layout, the same-diagram grid's link-level comparison note)
+    sees no difference."""
+    try:
+        L = _dt_link(dt_string)
+    except Exception as exc:  # noqa: BLE001
+        _tag_bare_spherogram_failure(exc, "read", dt_string)
+        raise
+    if _has_flips(dt_string):
+        try:
+            w = list(L.braid_word())
+        except Exception as exc:  # noqa: BLE001
+            raise _user_facing(ValueError(
+                "spherogram cannot turn the given realisation (flips %s) into a braid, which the "
+                "link-level grid is built from (braid_word: %s: %s; it fails on some kinked or split "
+                "diagrams); the same-diagram grid (--same-diagram here, the drawing script's default "
+                "without --grid-any-diagram) is routed from the drawing and does not need it"
+                % (_bits(parse_dt_flips(dt_string)[1]), type(exc).__name__,
+                                      " ".join(str(exc).split())[:60])))
+        m = max(abs(g) for g in w) + 1 if w else 1
+        return w, m, L
+    try:
+        w = list(L.braid_word())
+    except Exception as exc:  # noqa: BLE001
+        _tag_bare_spherogram_failure(exc, "braid", dt_string)
+        raise
     m = max(abs(g) for g in w) + 1 if w else 1
     return w, m, L
+
+
+def _tag_bare_spherogram_failure(exc, step, dt_string):
+    """2026-10-19: mark (never replace) an exception spherogram raised while
+    reading a BARE DT code (``step`` 'read': ``spherogram.Link``; 'braid':
+    ``braid_word``) so ``main`` prints it as ONE [error] line instead of a
+    traceback.  It used to be a traceback: spherogram's DT decoder refuses
+    kinked codes ('DT: [(-2,), (-4,)]': not enough values to unpack) and some
+    split ones, and ``braid_word`` fails on some split diagrams.  The
+    exception keeps its type, message and traceback; a user-facing refusal
+    (the flip-vector path's own one-line errors) and a code with a vector
+    are left alone.  The caller re-raises it with a bare ``raise`` (same
+    traceback)."""
+    if getattr(exc, "user_facing", False) or _has_flips(dt_string):
+        return
+    try:
+        exc.grid_bare_spherogram_step = step
+    except Exception:  # noqa: BLE001  (an exception type without a __dict__)
+        pass
+
+
+def _name_lookup_failure(exc):
+    """True when spherogram's ``Link(text)`` failed because it read the text
+    as a link NAME (round 4d, 2026-10-20): a DT code without the 'DT:'
+    prefix ('[(8,6,2,4)]') or with Unicode minus signs is not recognised as
+    one, and spherogram looks it up in its tables -- 'No link by that name
+    known', or, from a thread other than the one that imported SnapPy, the
+    SQLite threading error of that lookup (its census tables are SQLite
+    connections bound to the importing thread)."""
+    text = str(exc)
+    if "No link by that name known" in text:
+        return True
+    return (type(exc).__name__ == "ProgrammingError"
+            and "SQLite objects created in a thread" in text)
+
+
+# round 4e (2026-10-20): spherogram's own pattern for a numeric DT code
+# (spherogram.links.links_base.is_int_DT_exterior, matched from the first
+# character): ``Link(text)`` reads the text as a DT code only when it matches,
+# else as an alphabetical code ('DT[cacbca]'), else it looks the text up as a
+# link NAME ('No link by that name known').  The scorer (score_diagram's
+# _spherogram_form_issues, round 4e) diagnoses a mismatch the same way.
+_SPHEROGRAM_DT_RE = re.compile(r"DT[:]? *(\[[0-9, \-\(\)]+\](?: *, *\[[01, ]+\])?)$")
+_NON_ASCII_MINUS = "‐‑‒–—―−﹘﹣－"
+_SPHEROGRAM_DT_FORM = (
+    "spherogram reads a DT code only in the exact form 'DT: [(...), ...]' -- 'DT:' at the very "
+    "start, every component in parentheses, nothing but digits, commas, spaces and ASCII minus "
+    "signs between the brackets (no '+'), and nothing after the closing bracket but a flip vector")
+
+
+def _spherogram_form_issues(text):
+    """Round 4e (2026-10-20): what keeps spherogram's ``Link(text)`` from
+    reading ``text`` as a numeric DT code -- a list of (kind, phrase), empty
+    when the text has spherogram's form (``_SPHEROGRAM_DT_RE``).  Kinds:
+    'prefix' (no 'DT' at the start) and 'minus' (a minus sign that is not
+    ASCII '-') -- the two causes round 4d's wording names; 'lead' (white space
+    before 'DT'), 'between' (anything but ':' and spaces between 'DT' and
+    '['), 'plus' (a '+' sign), 'empty' (an empty component written '[]'),
+    'bracket' (a component in square brackets), 'trail' (anything after the
+    closing bracket, white space included), 'char' (any other character
+    spherogram's pattern does not allow) and 'form' when none of these
+    explains the mismatch.  The same rules as the scorer's."""
+    s = str(text)
+    if _SPHEROGRAM_DT_RE.match(s):
+        return []
+    out = []
+    head = s.lstrip()
+    if not head.startswith("DT"):
+        out.append(("prefix", "no 'DT:' prefix"))
+    else:
+        if head != s:
+            out.append(("lead", "white space before 'DT'"))
+        if not re.match(r"DT[:]? *\[", head) and "[" in head:
+            out.append(("between", "something other than ':' and spaces between 'DT' and '['"))
+    if any(ch in _NON_ASCII_MINUS for ch in s):
+        out.append(("minus", "a minus sign that is not ASCII '-'"))
+    if "+" in s:
+        out.append(("plus", "a '+' sign"))
+    i, j = s.find("["), s.rfind("]")
+    inner = s[i + 1:j] if 0 <= i < j else ""
+    if re.search(r"\[\s*\]", inner):
+        out.append(("empty", "an empty component written '[]'"))
+    if re.search(r"\[[^\[\]]*[0-9]", inner):
+        out.append(("bracket", "a component in square brackets"))
+    if j >= 0 and s[j + 1:]:
+        out.append(("trail", "white space after the closing bracket" if not s[j + 1:].strip()
+                    else "text after the closing bracket"))
+    odd = []
+    for ch in inner:
+        if ch not in "0123456789, -()[]+" and ch not in _NON_ASCII_MINUS and ch not in odd:
+            odd.append(ch)
+    for ch in odd[:3]:
+        out.append(("char", "the character %s" % (repr(ch) if " " < ch < "\x7f" else "U+%04X" % ord(ch))))
+    if not out:
+        out.append(("form", "a spelling spherogram's pattern does not allow"))
+    return out
+
+
+def _agreed_spelling(dt_text):
+    """Round 4e (2026-10-20): ``(spelling, dropped)`` -- ``dt_text`` written in
+    the form spherogram's string reader takes ('DT: [(8, 6, 2, 4)]') and
+    whether empty components were left out -- or ``(None, False)``.  Only
+    when this module's reader and the drawing script's reader
+    (``parse_dt_flips``; the toolkit's hub, dt_converter, where the drawing
+    script cannot read the text at all, e.g. the unbracketed '8,6,2,4') read
+    the SAME non-empty components: the two readers disagree on lists of
+    lists -- 'DT: [[-6,-8],[-4,-2]]' is ONE component (-6, -8, -4, -2) here
+    and the two components the other tools read there -- and round 4d's line
+    then suggested a different code.  An empty component is invisible to
+    this module's reader when written '[]', so the comparison is of the
+    non-empty components."""
+    try:
+        comps = [tuple(int(v) for v in c) for c in parse_dt(dt_text)]
+    except Exception:  # noqa: BLE001
+        return None, False
+    try:
+        other = _draw_module().parse_dt_flips(dt_text)[0]
+    except Exception:  # noqa: BLE001
+        try:
+            import dt_converter
+            other = dt_converter.parse_input(dt_text, "dt")[0].comps
+        except Exception:  # noqa: BLE001
+            return None, False
+    other = [tuple(int(v) for v in c) for c in other]
+    kept = [c for c in comps if c]
+    if not kept or kept != [c for c in other if c]:
+        return None, False
+    dropped = len(kept) < len(comps) or len(kept) < len(other)
+    return _working_spelling("DT: [%s]" % ", ".join(repr(c) for c in kept), kept), dropped
+
+
+def _working_spelling(spelling, comps):
+    """``spelling`` when spherogram builds it, else the same code with a
+    legal flip vector spherogram builds (dt_converter's reading), else None
+    (2026-10-21, round 4e review): the name-lookup line suggested
+    'DT: [(8, 6, 2, 4)]' for 'DT: [(+8,6,2,4)]', which the link-level grid then
+    refused (spherogram's decoder never returns on that kinked code); the code
+    with its vector, 'DT: [(8, 6, 2, 4)], [0,1,0,0]', builds."""
+    try:
+        _topology().Link(spelling).braid_word()      # the link-level grid needs the braid too
+        return spelling
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        import dt_converter
+        flips = [bool(f) for f in dt_converter.Diagram(list(comps)).with_flips_resolved().flips]
+        text = format_dt_flips(spelling, flips)
+        _dt_link(text).braid_word()
+        return text
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _crossingless_components(dt_text):
+    """The number of components when every component of ``dt_text`` is empty
+    (a code with no crossings: 'DT: [()]', 'DT: [(), ()]', 'DT: [[]]'), as the
+    drawing script's reader reads it, else None."""
+    try:
+        comps = _draw_module().parse_dt(_drop_comment(str(dt_text)))
+    except Exception:  # noqa: BLE001
+        return None
+    if not comps or any(len(c) for c in comps):
+        return None
+    try:            # and this module's reader must not see crossings either ('DT: ([],[],(4,6,2))')
+        if any(len(c) for c in parse_dt(_drop_comment(str(dt_text)))):
+            return None
+    except Exception:  # noqa: BLE001
+        pass
+    return len(comps)
+
+
+def _bare_spherogram_failure_text(exc, step, same_diagram_hint, dt_text=None):
+    """The [error] line of ``main`` for an exception tagged by
+    ``_tag_bare_spherogram_failure``: what failed, spherogram's own message,
+    and the mode that does not need spherogram's reading.  Round 4d
+    (2026-10-20): ``dt_text`` (the code as the command line read it) words
+    a name-lookup failure (``_name_lookup_failure``).  Round 4e (2026-10-20):
+    round 4d's reason ('after a DT: prefix and with ASCII minus signs') is
+    kept where it is the cause; for a text with both that still is not
+    spherogram's form ('DT: [(4,6,2)] ' with its trailing space,
+    'DT: [[8,6,2,4]]', 'DT: [(+8,6,2,4)]', '[]') the line states the exact
+    form (``_SPHEROGRAM_DT_FORM``) and what the text has
+    (``_spherogram_form_issues``); the code is given in that form only where
+    the readers agree on it (``_agreed_spelling``), and the same-diagram mode
+    is named wherever the drawing script reads the text."""
+    why = "%s: %s" % (type(exc).__name__, " ".join(str(exc).split())[:160])
+    flat = _crossingless_components(dt_text) if dt_text is not None else None
+    if flat:
+        # 2026-10-21 (round 4e review): 'DT: [()]', 'DT: [(), ()]', 'DT: [[]]' --
+        # neither kinked nor split; spherogram builds no link from a code
+        # without crossings (check_two_dt says the same)
+        return ("this DT code has no crossings (%s), and spherogram builds no link from a "
+                "code without crossings (%s), so the link-level grid, which is built from "
+                "spherogram's reading of the code, has nothing to start from"
+                % ("the unknot" if flat == 1 else "an unlink of %d components" % flat, why))
+    if step == "read" and _name_lookup_failure(exc):
+        # round 4d (2026-10-20): spherogram took the text for a link NAME, so
+        # its DT decoder never saw it; the old line blamed the decoder
+        if "No link by that name known" not in str(exc):
+            # the same lookup from another thread: SQLite's message carries
+            # per-process thread ids
+            why = ("%s: SnapPy's link-name lookup (its SQLite census tables) cannot run in this "
+                   "thread" % type(exc).__name__)
+        # round 4e (2026-10-20): the spelling only where the readers agree on
+        # the components (round 4d respelled the two-component list of lists
+        # 'DT: [[-6,-8],[-4,-2]]' as ONE component), and round 4d's reason --
+        # the 'DT:' prefix, the minus signs -- only where it is the cause; for
+        # a text WITH both that still is not spherogram's form (a trailing
+        # space, 'DT: [[8,6,2,4]]', a '+', '[]') the exact form and what this
+        # text has, as the scorer says it
+        spelled, dropped = _agreed_spelling(dt_text) if dt_text is not None else (None, False)
+        issues = _spherogram_form_issues(dt_text) if dt_text is not None else []
+        if set(k for k, _p in issues) <= {"prefix", "minus"}:
+            here = spelled if spelled and not dropped else None
+            head = ("spherogram did not recognise the text as a DT code (%s: it took the text for a "
+                    "link name, so its DT decoder never read it; spherogram reads a DT code only "
+                    "after a 'DT:' prefix and with ASCII minus signs -- %s), and the link-level grid "
+                    "is built from spherogram's reading of the code"
+                    % (why, ("here '%s'" % here) if here else "e.g. 'DT: [(4, 6, 2)]'"))
+        else:
+            what = [p for _k, p in issues]
+            what = what[0] if len(what) == 1 else ", ".join(what[:-1]) + " and " + what[-1]
+            head = ("spherogram did not recognise the text as a DT code (%s: it took the text for a "
+                    "link name, so its DT decoder never read it; %s; this text has %s%s), and the "
+                    "link-level grid is built from spherogram's reading of the code"
+                    % (why, _SPHEROGRAM_DT_FORM, what,
+                       "" if not spelled else
+                       " -- here, without its empty component(s), '%s'" % spelled if dropped else
+                       " -- here '%s'" % spelled))
+        drawable = False
+        if same_diagram_hint and dt_text is not None:
+            # the hint depends on the drawing script's reader alone (round 4e:
+            # it also required a spelling, and 'DT: [[-6,-8],[-4,-2]]', which
+            # --same-diagram builds, lost it with the spelling)
+            try:            # the reader --same-diagram hands the text to
+                _draw_module().parse_dt_flips(dt_text)
+                drawable = True
+            except Exception:  # noqa: BLE001
+                drawable = False
+        if drawable:
+            head += ("; %s builds the grid from the code's own 2-D drawing and does not need "
+                     "spherogram's reading" % same_diagram_hint)
+        return head
+    if step == "braid":
+        head = ("spherogram cannot turn this DT code's diagram into a braid (braid_word: %s; it "
+                "fails on some kinked or split diagrams), and the link-level grid is the closure "
+                "of that braid" % why)
+    else:
+        head = ("spherogram cannot read this DT code (%s; its DT decoder refuses kinked codes and "
+                "some split ones), and the link-level grid is built from spherogram's reading of "
+                "the code" % why)
+    if same_diagram_hint:
+        head += ("; %s builds the grid from the code's own 2-D drawing and does not need it"
+                 % same_diagram_hint)
+    return head
 
 
 def same_link(G, ref_link, attempts=3, dt_string=None):
@@ -569,6 +1557,10 @@ def same_link(G, ref_link, attempts=3, dt_string=None):
         L = to_link(G)
     except Exception as exc:  # noqa: BLE001
         return None, "the grid diagram's link could not be built (%s)" % str(exc)[:60]
+    # 1.1: a code with a flip vector names a realisation, whose chirality the
+    # isometry test cannot see -- the Jones polynomial is compared as well
+    given = dt_string is not None and _has_flips(dt_string)
+    iso_true = False
     try:
         M = L.exterior()
         Mref = ref_link.exterior()
@@ -576,7 +1568,10 @@ def same_link(G, ref_link, attempts=3, dt_string=None):
             try:
                 iso = M.is_isometric_to(Mref)
                 if iso is True:
-                    return True, "its link is isometric to the DT link (mirror-blind, like every SnapPy isometry test)"
+                    if not given:
+                        return True, "its link is isometric to the DT link (mirror-blind, like every SnapPy isometry test)"
+                    iso_true = True
+                    break
                 if iso is False:
                     return False, "its link is NOT isometric to the DT link"
             except Exception:  # noqa: BLE001
@@ -598,7 +1593,23 @@ def same_link(G, ref_link, attempts=3, dt_string=None):
         j_grid = C._poly_jones(d_grid, {})
         j_ref = C._poly_jones(d_ref, {})
     except Exception as exc:  # noqa: BLE001
+        if given:
+            return None, ("%s, but the Jones comparison that checks the given realisation's chirality "
+                          "failed (%s)" % ("its link is isometric to the DT link (mirror-blind)" if iso_true
+                                           else "SnapPy could not decide", str(exc)[:60]))
         return None, "SnapPy could not decide and the Jones comparison failed (%s)" % str(exc)[:60]
+    if given:
+        if j_grid == j_ref and len(L.link_components) == len(ref_link.link_components):
+            return True, ("%s, and its Jones polynomial equals the given realisation's (flips %s; "
+                          "chirality included)"
+                          % ("its link is isometric to the DT link" if iso_true else
+                             "SnapPy's isometry test could not decide", _bits(d_ref.flips)))
+        if j_grid == {-e: c for e, c in j_ref.items()}:
+            return False, ("its Jones polynomial is the MIRROR IMAGE's of the given realisation "
+                           "(flips %s)%s" % (_bits(d_ref.flips), " -- the isometry test, blind to mirror "
+                                             "images, had passed it" if iso_true else ""))
+        return False, ("its Jones polynomial differs from the given realisation's (flips %s)"
+                       % _bits(d_ref.flips))
     if j_grid == j_ref and len(L.link_components) == len(ref_link.link_components):
         return True, ("SnapPy's isometry test could not decide, but the Jones polynomials "
                       "agree (chirality included) and so do the component counts")
@@ -660,6 +1671,47 @@ def _draw_module():
     return mod
 
 
+def _tag_route_failure(exc, step, args, data, layout_given=False):
+    """2026-10-19: mark (never replace) a failure of the same-diagram router
+    in ``from_planar_diagram`` -- ``step`` 'route' (the connectors do not fit
+    on the largest flat grid) or 'compress' -- with the attributes
+    ``grid_same_diagram_step``, ``grid_route_layout`` (the 2-D layout it
+    routed), ``grid_route_layout_given`` (False: the drawing script's
+    default) and ``grid_route_defects`` (that drawing's false + undrawn
+    crossings, the exact audit's count), so ``main`` and the drawing script
+    print ONE [error] line naming the router (it was a traceback, and the
+    drawing script's line blamed spherogram).  Type and message unchanged;
+    returns ``exc`` for ``raise``."""
+    try:
+        exc.grid_same_diagram_step = step
+        exc.grid_route_layout = str(getattr(args, "layout", "") or "")
+        exc.grid_route_layout_given = bool(layout_given)
+        exc.grid_route_defects = int(data.get("false_crossings") or 0)
+    except Exception:  # noqa: BLE001
+        pass
+    return exc
+
+
+def _route_failure_text(exc):
+    """The router failure tagged by ``_tag_route_failure`` in words: what
+    failed, on which drawing, and that drawing's defect count when it has
+    any (every router failure measured on 2026-10-19 was on a drawing with
+    false crossings; that is a correlation, not a diagnosis)."""
+    step = getattr(exc, "grid_same_diagram_step", "route")
+    lay = getattr(exc, "grid_route_layout", "") or "?"
+    bad = int(getattr(exc, "grid_route_defects", 0) or 0)
+    text = ("the same-diagram grid router (grid_diagram.from_planar_diagram) could not %s the "
+            "code's own 2-D drawing (the drawing script's %s layout) %s (%s: %s)"
+            % ("route" if step == "route" else "compress",
+               ("%s" if getattr(exc, "grid_route_layout_given", False) else "default %s") % lay,
+               "on a flat grid" if step == "route" else "into a grid diagram",
+               type(exc).__name__, " ".join(str(exc).split())[:160]))
+    if bad:
+        text += ("; that drawing has %d false or undrawn crossing(s) (the exact 2-D audit's "
+                 "count)" % bad)
+    return text
+
+
 def from_planar_diagram(dt_string, layout=None, max_cells=240):
     """A grid diagram with exactly the DT diagram's crossings.
 
@@ -673,7 +1725,18 @@ def from_planar_diagram(dt_string, layout=None, max_cells=240):
     distinct rows in left-to-right order, which cannot change a crossing
     because no corner lies on another run).  Vertical runs are the over
     strands, so the grid's crossings are the diagram's, one for one.
-    Returns ``(GridDiagram, info)``."""
+    Returns ``(GridDiagram, info)``.
+
+    1.1: a code with a flip vector is handed to the drawing script as it is
+    (its ``prepare_diagram`` draws that realisation, or refuses); the grid
+    realises the drawing's port order exactly, so the realisation is read
+    off the drawing's tangents at the crossings (bit k = 1 when, walking the
+    smaller-label visit, the other strand crosses from left to right, y up)
+    and compared with the vector: equal -> kept; complemented (the in-plane
+    mirror) -> the grid's columns are reversed; anything else -> ValueError.
+    ``info`` then gains "flips" and "realisation" ('given' / 'reversed')."""
+    given = _has_flips(dt_string)
+    flips_in = parse_dt_flips(dt_string)[1] if given else None
     D = _draw_module()
     argv = ["--dt", dt_string, "--no-xyz", "--no-image"]
     if layout:
@@ -738,7 +1801,9 @@ def from_planar_diagram(dt_string, layout=None, max_cells=240):
         if result is None:
             N = int(math.ceil(1.3 * N))
     if result is None:
-        raise RuntimeError("could not route the diagram on a flat grid up to %d cells" % max_cells)
+        raise _tag_route_failure(
+            RuntimeError("could not route the diagram on a flat grid up to %d cells" % max_cells),
+            "route", args, data, layout_given=bool(layout))
     routes, _nets, _rep = result
     pos_cross = model["pos_cross"]
     # compress: maximal straight runs -> rows and columns
@@ -777,7 +1842,9 @@ def from_planar_diagram(dt_string, layout=None, max_cells=240):
     col_of = {rid: i for i, (_k, rid) in enumerate(sorted(col_keys))}
     n = len(col_of)
     if len(row_of) != n:
-        raise RuntimeError("compression produced %d rows and %d columns" % (len(row_of), n))
+        raise _tag_route_failure(
+            RuntimeError("compression produced %d rows and %d columns" % (len(row_of), n)),
+            "compress", args, data, layout_given=bool(layout))
     X = [None] * n
     O = [None] * n
     for ci, runs in enumerate(cycles):
@@ -794,16 +1861,413 @@ def from_planar_diagram(dt_string, layout=None, max_cells=240):
     G = GridDiagram(X, O)
     info = {"lattice": N, "layout": str(getattr(args, "layout", "")), "grid": G.n,
             "crossings_dt": ncr, "crossings_grid": len(G.crossings())}
+    if given:
+        # the realisation the drawing (hence the grid) shows, y up
+        drawn = []
+        for k, c in enumerate(model["crossings"]):
+            t_o, t_e = tang[k]
+            t_s, t_x = (t_o, t_e) if int(c["odd"]) < int(c["even"]) else (t_e, t_o)
+            drawn.append(bool(t_s[0] * t_x[1] - t_s[1] * t_x[0] < 0))
+        want = [bool(f) for f in flips_in]
+        if drawn == want:
+            info["realisation"] = "given"
+        elif drawn == [not f for f in want]:
+            G = G.reverse_columns()
+            info["realisation"] = "reversed"
+        else:
+            raise _user_facing(ValueError(
+                "grid diagram: the 2-D drawing the grid is routed from shows the flip vector %s, not the "
+                "given %s (nor its in-plane mirror), so the grid would be another realisation of the DT "
+                "code -- refused; draw the code with a layout that shows the vector (tutte, "
+                "shaped-tutte, spread-tutte)" % (_bits(drawn), _bits(want))))
+        info["flips"] = _bits(want)
     return G, info
+
+
+_CANON_MOD = []
+
+
+def _converter_and_canonical():
+    """(dt_converter, the newest canonical_dt*.py) -- the latter loaded once
+    by the strict version rule (Invariant 26)."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import dt_converter as C
+    if not _CANON_MOD:
+        import importlib.util
+        cands = _versioned_files(here, "canonical_dt")
+        if not cands:
+            raise FileNotFoundError("no canonical_dt*.py next to grid_diagram.py")
+        spec = importlib.util.spec_from_file_location(
+            "canonical_dt_mod", max(cands, key=lambda p: (_version_key(p), os.path.basename(p))))
+        K = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(K)
+        _CANON_MOD.append(K)
+    return C, _CANON_MOD[0]
+
+
+def grid_realisation(G):
+    """(components, flips) of the grid diagram's own realisation in
+    spherogram's convention: ``dt_converter.link_to_dt`` of ``to_link(G)``
+    (a verified pair -- the vector belongs to exactly that code)."""
+    C, _K = _converter_and_canonical()
+    comps, flips = C.link_to_dt(to_link(G))
+    return [tuple(int(v) for v in c) for c in comps], [bool(f) for f in flips]
+
+
+def _relabelling_cost(comps):
+    cost = math.factorial(len(comps))
+    for c in comps:
+        cost *= 4 * len(c)
+    return cost
+
+
+def _strict_form(K, comps, flips):
+    """canonical_dt's canonical (DT code, flip vector) of a realisation, mode
+    'strict': relabellings only (the same diagram on the sphere)."""
+    cc, cf = K.canonicalize_flips([tuple(int(v) for v in c) for c in comps],
+                                  [bool(f) for f in flips], mode="strict")
+    return tuple(tuple(int(v) for v in c) for c in cc), tuple(bool(f) for f in cf)
+
+
+# How a grid's realisation (DT', f') can relate to the given one (DT, f), and
+# the grid symmetry that turns it into (DT, f): reversing the columns (an
+# in-plane reflection: same over/under, every flip complemented) and the
+# transpose (rows <-> columns: every crossing switched AND the picture
+# reflected in the diagonal, i.e. the diagram seen from the other side).
+_REALISATION_FIXES = (
+    ("same", "the given realisation", ()),
+    ("mirror", "its in-plane MIRROR image (the same DT code, every flip complemented)",
+     ("reverse_columns",)),
+    ("other-side", "the given diagram seen from the other side of the page (every crossing "
+                   "switched and every flip complemented: the same link, another projection)",
+     ("transpose",)),
+    ("switched", "the given diagram with every crossing switched (its mirror through the page)",
+     ("transpose", "reverse_columns")),
+)
+
+
+_TARGETS_CACHE = {}
+
+
+def _realisation_forms(K, comps, flips):
+    """Yield (strict canonical form, (name, text, grid moves)) for the four
+    forms a grid of this code can take (see _REALISATION_FIXES), the given
+    realisation first; each computed once per process."""
+    key = (tuple(tuple(int(v) for v in c) for c in comps), tuple(bool(f) for f in flips))
+    done = _TARGETS_CACHE.setdefault(key, [])
+    neg = [tuple(-int(v) for v in c) for c in comps]
+    cmp_ = [not f for f in flips]
+    forms = ((comps, flips), (comps, cmp_), (neg, cmp_), (neg, flips))
+    for i, ((cc, ff), fix) in enumerate(zip(forms, _REALISATION_FIXES)):
+        if i == len(done):
+            done.append(_strict_form(K, cc, ff))
+        yield done[i], fix
+
+
+def _realisation_hit(K, comps, flips, form):
+    """The (name, text, grid moves) of the first form equal to ``form``, or
+    None; the forms are computed only as far as needed."""
+    for f, fix in _realisation_forms(K, comps, flips):
+        if f == form:
+            return fix
+    return None
+
+
+def _apply_grid_moves(G, moves):
+    for mv in moves:
+        G = getattr(G, mv)()
+    return G
+
+
+# The strict canonical form above is that of the UNORIENTED diagram: canonical_dt
+# re-reads each component in either direction.  A link's realisation also fixes
+# the direction of every component relative to the others (reversing one changes
+# the signs of its crossings with the rest, the linking numbers, the writhe and
+# the Jones polynomial), so a grid of the given realisation must agree with the
+# code there too (verifier's finding, 2026-10-18: the 4-ring chain's adopted
+# grid matched the strict form with two components reversed -- writhe -6
+# against +6 -- and passed).  Reversing EVERY component reads the same diagram
+# backwards and is accepted, as the unoriented check of a knot always did.
+
+_ORIENT_CACHE = {}
+
+
+def _oriented_ops(K, comps, flips):
+    """(canonical DT code, [(perm, reversed flags, carried flips)]) of the
+    realisation (comps, flips): every re-encoding canonical_dt's
+    ``canonicalize`` finds that gives the canonical code, with the flip vector
+    it carries (``transform_flips``) -- cached per process."""
+    cc = [tuple(int(v) for v in c) for c in comps]
+    ff = [bool(f) for f in flips]
+    key = (tuple(cc), tuple(ff))
+    if key not in _ORIENT_CACHE:
+        best, _count, ops = K.canonicalize(cc, allow_flip=False, record_ops=True)
+        out = []
+        for _flip, perm, startdirs, _walk in ops:
+            res = K.transform_flips(cc, ff, list(perm), [tuple(sd) for sd in startdirs])
+            if res is not None:
+                out.append((tuple(perm), tuple(bool(sd[1]) for sd in startdirs),
+                            tuple(bool(f) for f in res[1])))
+        _ORIENT_CACHE[key] = (best, out)
+    return _ORIENT_CACHE[key]
+
+
+def _orientation_relation(K, comps_g, flips_g, comps_in, flips_in):
+    """How a grid's realisation (comps_g, flips_g) relates to the given one
+    (comps_in, flips_in) as ORIENTED diagrams (1.1): None when no relabelling
+    takes one to the other (another diagram or realisation), else the smallest
+    set of the given code's components (0-based) that run the other way in the
+    grid -- [] when every component runs in the code's direction (or every one
+    is reversed: the same diagram read backwards).  Exact: a relabelling exists
+    iff some pair of canonical re-encodings of the two carry the same flips;
+    the pair's reading directions give each component's relative direction."""
+    nc = len(comps_in)
+    best_g, ops_g = _oriented_ops(K, comps_g, flips_g)
+    best_in, ops_in = _oriented_ops(K, comps_in, flips_in)
+    if tuple(best_g) != tuple(best_in) or len(comps_g) != nc:
+        return None
+    by_flips = {}
+    for perm, revs, f in ops_in:
+        by_flips.setdefault(f, []).append((perm, revs))
+    found = None
+    for perm_g, revs_g, f in ops_g:
+        for perm_in, revs_in in by_flips.get(f, ()):
+            rel = [False] * nc
+            for i in range(nc):
+                rel[perm_in[i]] = revs_g[i] != revs_in[i]
+            rset = [i for i in range(nc) if rel[i]]
+            if 2 * len(rset) > nc or (2 * len(rset) == nc and 0 in rset):
+                rset = [i for i in range(nc) if not rel[i]]
+            if not rset:
+                return []
+            if found is None or len(rset) < len(found):
+                found = rset
+    return found
+
+
+def _realisation_lk(comps, flips):
+    """(writhe, sorted sums of the crossing signs between each pair of
+    components -- twice the linking numbers) of the realisation (comps,
+    flips), crossing signs by ``flips_crossing_signs``."""
+    comp_of, start = {}, 1
+    for ci, c in enumerate(comps):
+        for p in range(start, start + 2 * len(c)):
+            comp_of[p] = ci
+        start += 2 * len(c)
+    signs = flips_crossing_signs(comps, flips)
+    lk = {}
+    for k, (e, s) in enumerate(zip((abs(int(e)) for c in comps for e in c), signs)):
+        a, b = comp_of[2 * k + 1], comp_of[e]
+        if a != b:
+            pair = (min(a, b), max(a, b))
+            lk[pair] = lk.get(pair, 0) + s
+    nc = len(comps)
+    return sum(signs), sorted(lk.get((a, b), 0) for a in range(nc) for b in range(a + 1, nc))
+
+
+def _grid_lk(G):
+    """The same as ``_realisation_lk`` for a grid diagram, read off its
+    markers (verticals over)."""
+    gcomps = G.components()
+    where = {}
+    for gi, cyc in enumerate(gcomps):
+        for (_r, c, t) in cyc:
+            if t == "X":
+                where[c] = gi
+    xcol = G.xcol()
+    lk = {}
+    w = 0
+    for (r, c, s) in G.crossings():
+        w += s
+        a, b = where[c], where[xcol[r]]
+        if a != b:
+            pair = (min(a, b), max(a, b))
+            lk[pair] = lk.get(pair, 0) + s
+    nc = len(gcomps)
+    return w, sorted(lk.get((a, b), 0) for a in range(nc) for b in range(a + 1, nc))
+
+
+def _reorient_grid(G, K, comps_in, flips_in, nrev):
+    """(grid, reversed grid components) -- G with ``nrev`` of its components
+    reversed (``_orientation_relation``'s count; reversing the complement
+    instead is the same) so that its ORIENTED realisation is the given one --
+    or None.  Candidates are screened by writhe and the crossing signs
+    between components before the exact check."""
+    from itertools import combinations
+    nc = len(G.components())
+    k = int(nrev)
+    if not 0 < k < nc:
+        return None
+    want = _realisation_lk(comps_in, flips_in)
+    for subset in combinations(range(nc), k):
+        if 2 * k == nc and 0 not in subset:
+            continue                # its complement (with component 0) is the same orientation
+        H = G.reverse_components(subset)
+        if _grid_lk(H) != want:
+            continue
+        try:
+            cg, fg = grid_realisation(H)
+        except Exception:  # noqa: BLE001
+            continue
+        if _orientation_relation(K, cg, fg, comps_in, flips_in) == []:
+            return H, list(subset)
+    return None
+
+
+def _unread_grid_verdict(G, exc, input_components):
+    """``same_diagram_check``'s verdict when the grid's own DT code cannot be
+    read (2026-10-19): False -- a DIFFERENT diagram -- when the grid's
+    crossing count is not the code's (``input_components()`` gives the
+    code's components; if that raises too, the count is not compared), else
+    None; ``exc``'s message in full, whitespace collapsed."""
+    why = " ".join(str(exc).split())
+    try:
+        n_in = sum(len(c) for c in input_components())
+    except Exception:  # noqa: BLE001
+        n_in = None
+    n_grid = len(G.crossings())
+    if n_in is not None and n_grid != n_in:
+        return False, ("DIFFERENT diagram: %d crossing(s) in the grid against the DT code's %d (the "
+                       "grid's own DT code could not be read: %s)" % (n_grid, n_in, why))
+    return None, "the grid's DT code could not be read (%s)" % why
+
+
+def _same_realisation_check(G, dt_string, cost_limit=5000000):
+    """same_diagram_check for a DT code WITH a flip vector (1.1): is the grid
+    the given REALISATION -- the same canonical (DT code, flip vector) under
+    relabelling ('strict': the same diagram on the sphere)?  The bare check
+    compares the DT code only, which cannot tell the granny from the square
+    knot or a diagram from its in-plane mirror.  Above ``cost_limit``
+    relabellings the Jones polynomials (chirality-sensitive) are compared
+    instead: a difference is a False, agreement only a None."""
+    try:
+        C, K = _converter_and_canonical()
+    except Exception as exc:  # noqa: BLE001
+        return None, "dt_converter / canonical_dt not importable (%s)" % str(exc)[:50]
+    comps_in, flips_in = parse_dt_flips(dt_string)
+    comps_in = [tuple(int(v) for v in c) for c in comps_in]
+    try:
+        comps_grid, flips_grid = grid_realisation(G)
+    except Exception as exc:  # noqa: BLE001
+        return _unread_grid_verdict(G, exc, lambda: comps_in)     # 2026-10-19: count first
+    n_in = sum(len(c) for c in comps_in)
+    n_grid = sum(len(c) for c in comps_grid)
+    if n_in != n_grid or sorted(len(c) for c in comps_in) != sorted(len(c) for c in comps_grid):
+        return False, ("DIFFERENT diagram: %d crossings in %s components against the DT code's %d"
+                       % (n_grid, sorted(len(c) for c in comps_grid), n_in))
+    cost = _relabelling_cost(comps_in)
+    if cost > cost_limit:
+        try:
+            j_in = C._poly_jones(C.Diagram(comps_in, flips_in), {})
+            j_grid = C._poly_jones(C.Diagram(comps_grid, flips_grid), {})
+        except Exception as exc:  # noqa: BLE001
+            return None, ("same crossing count (%d) and component sizes; the exact canonical comparison "
+                          "of the realisation would take %.1e relabellings, above the limit, and the "
+                          "Jones polynomials could not be compared (%s)" % (n_in, cost, str(exc)[:50]))
+        if j_in != j_grid:
+            return False, ("a DIFFERENT realisation: its Jones polynomial is not the given one's (flips "
+                           "%s)%s" % (_bits(flips_in), ", it is the mirror image's"
+                                      if j_grid == {-e: c for e, c in j_in.items()} else ""))
+        return None, ("same crossing count (%d), component sizes and Jones polynomial as the given "
+                      "realisation (flips %s, chirality included); the exact canonical comparison would "
+                      "take %.1e relabellings, above the limit" % (n_in, _bits(flips_in), cost))
+    form_grid = _strict_form(K, comps_grid, flips_grid)
+    hit = _realisation_hit(K, comps_in, flips_in, form_grid)
+    if hit is not None and hit[0] == "same" and len(comps_in) > 1:
+        # the strict form is the unoriented diagram's: the components'
+        # directions are compared too
+        try:
+            rel = _orientation_relation(K, comps_grid, flips_grid, comps_in, flips_in)
+        except Exception as exc:  # noqa: BLE001
+            return None, ("the given realisation's diagram (canonical (DT, flips) agree), but the "
+                          "directions of its components could not be compared (%s)" % str(exc)[:60])
+        if rel is None:
+            return None, ("the canonical (DT, flips) agree, but no relabelling taking the grid's code "
+                          "to the input's was found, so the directions of the components are not "
+                          "compared")
+        if rel:
+            return False, ("the given realisation's diagram, but with component(s) %s of the DT code "
+                           "running the other way: another ORIENTED link (the signs of their crossings "
+                           "with the rest, the linking numbers, the writhe and the Jones polynomial "
+                           "change), not the given realisation (flips %s)"
+                           % (", ".join(str(i + 1) for i in rel), _bits(flips_in)))
+        return True, ("the given realisation: same DT code and flip vector as the input (canonical "
+                      "(DT, flips) agree, %d crossings, flips %s), every component running in the DT "
+                      "code's direction" % (n_in, _bits(flips_in)))
+    if hit is not None and hit[0] == "same":
+        return True, ("the given realisation: same DT code and flip vector as the input (canonical "
+                      "(DT, flips) agree, %d crossings, flips %s)" % (n_in, _bits(flips_in)))
+    if hit is not None:
+        return False, "%s, not the given realisation (flips %s)" % (hit[1], _bits(flips_in))
+    form_in = next(_realisation_forms(K, comps_in, flips_in))[0]    # = canonicalize(comps_in) + flips
+    canon_in = form_in[0]
+    if form_grid[0] == canon_in:
+        return False, ("a DIFFERENT realisation of the same DT code, not the given one (flips %s): in "
+                       "the canonical labelling the grid has flips %s, the given realisation %s"
+                       % (_bits(flips_in), _bits(form_grid[1]), _bits(form_in[1])))
+    return False, "DIFFERENT diagram: canonical %s against %s" % (
+        K.fmt_dt(form_grid[0]), K.fmt_dt(canon_in))
+
+
+def realisation_fix(G, dt_string, cost_limit=5000000):
+    """The grid symmetry that turns G into the realisation the code names
+    (1.1): returns (grid, name) with name 'same' / 'mirror' / 'other-side' /
+    'switched' (G itself, its column reversal, its transpose, or both), or
+    (None, reason) when no symmetry of the square gives it (or the check
+    cannot be made).  For a link the components' DIRECTIONS must agree too:
+    when the grid has some of them running against the code's, they are
+    reversed (``reverse_components``) and the name gains '+reversed:i,j'
+    (the grid's components, 1-based); when that cannot be done, (None,
+    reason) -- a grid of another ORIENTED link is never returned."""
+    try:
+        C, K = _converter_and_canonical()
+        comps_in, flips_in = parse_dt_flips(dt_string)
+        if _relabelling_cost(comps_in) > cost_limit:
+            return None, "above the relabelling limit"
+        comps_grid, flips_grid = grid_realisation(G)
+        if sorted(len(c) for c in comps_grid) != sorted(len(c) for c in comps_in):
+            return None, "different component sizes"
+        hit = _realisation_hit(K, comps_in, flips_in, _strict_form(K, comps_grid, flips_grid))
+    except Exception as exc:  # noqa: BLE001
+        return None, str(exc)[:60]
+    if hit is None:
+        return None, "another diagram or realisation"
+    H = _apply_grid_moves(G, hit[2])
+    if len(comps_in) == 1:
+        return H, hit[0]
+    try:
+        cg, fg = grid_realisation(H)
+        rel = _orientation_relation(K, cg, fg, comps_in, flips_in)
+        if rel is None:
+            return None, "the components' directions could not be compared"
+        if not rel:
+            return H, hit[0]
+        fixed = _reorient_grid(H, K, comps_in, flips_in, len(rel))
+    except Exception as exc:  # noqa: BLE001
+        return None, str(exc)[:60]
+    if fixed is None:
+        return None, ("the given realisation's diagram with %d component(s) running the other way, "
+                      "and reversing grid components did not give the given orientation" % len(rel))
+    return fixed[0], "%s+reversed:%s" % (hit[0], ",".join(str(g + 1) for g in fixed[1]))
 
 
 def same_diagram_check(G, dt_string, cost_limit=5000000):
     """Is the grid diagram the SAME diagram as the DT code (same canonical
-    signed DT code, which also fixes the in-plane mirror)?  Returns (verdict,
-    how): True / False / None.  Uses dt_converter.link_to_dt on the grid's
-    link and canonical_dt_V2_0.canonicalize on both codes; above
+    signed DT code)?  Returns (verdict, how): True / False / None.  Uses
+    dt_converter.link_to_dt on the grid's link and the newest canonical_dt's
+    canonicalize (canonical_dt_V2_1.py) on both codes; above
     ``cost_limit`` relabellings (Invariant 8) only crossing count and
-    component sizes are compared."""
+    component sizes are compared.  The DT code alone does not fix the in-plane
+    mirror (nor, for a composite code, the realisation): 1.1, a code with a
+    flip vector is checked as a REALISATION (``_same_realisation_check``).
+    2026-10-19: a grid whose own DT code cannot be read is still False when
+    its crossing count is not the code's (``_unread_grid_verdict``; a grid
+    without crossings, which spherogram cannot build, was None), and the
+    reason is given in full."""
+    if _has_flips(dt_string):
+        return _same_realisation_check(G, dt_string, cost_limit)
     try:
         here = os.path.dirname(os.path.abspath(__file__))
         if here not in sys.path:
@@ -824,7 +2288,12 @@ def same_diagram_check(G, dt_string, cost_limit=5000000):
         comps_grid, _flips = C.link_to_dt(L)
         comps_grid = [tuple(int(v) for v in c) for c in comps_grid]
     except Exception as exc:  # noqa: BLE001
-        return None, "the grid's DT code could not be read (%s)" % str(exc)[:60]
+        # 2026-10-19: a grid with another crossing count is a DIFFERENT
+        # diagram whether or not its code can be read (a grid that lost a
+        # kink -- or all its crossings, which spherogram cannot build -- was
+        # only an [info]); the reason is given in full (it was cut at 60
+        # characters, mid-word)
+        return _unread_grid_verdict(G, exc, lambda: K.parse_dt(dt_string))
     n_in = sum(len(c) for c in comps_in)
     n_grid = sum(len(c) for c in comps_grid)
     if n_in != n_grid or sorted(len(c) for c in comps_in) != sorted(len(c) for c in comps_grid):
@@ -858,6 +2327,36 @@ def _destabilize_all(G):
         G = G.destabilize(*ds[0])
 
 
+def _crossing_count(G):
+    """``len(G.crossings())`` without building the list (2026-10-19): the
+    same test -- the vertical of column c strictly spans row r and the
+    horizontal of row r strictly spans column c -- on all n x n cells at
+    once, for ``_destabilize_keeping``, which counts at every step."""
+    n = G.n
+    X, O = np.asarray(G.X), np.asarray(G.O)
+    xc, oc = np.asarray(G.xcol()), np.asarray(G.ocol())
+    r = np.arange(n)[:, None]
+    c = np.arange(n)[None, :]
+    M = ((np.minimum(X, O)[None, :] < r) & (r < np.maximum(X, O)[None, :])
+         & (np.minimum(xc, oc)[:, None] < c) & (c < np.maximum(xc, oc)[:, None]))
+    return int(M.sum())
+
+
+def _destabilize_keeping(G, n_cross):
+    """``_destabilize_all`` that keeps the crossing count ``n_cross``
+    (2026-10-19): destabilise greedily, but skip a destabilisation that
+    changes the count -- one that removes a kink of the diagram, a
+    Reidemeister I move, not a planar isotopy -- and take the next one."""
+    while True:
+        for d in G.destabilizations():
+            H = G.destabilize(*d)
+            if _crossing_count(H) == n_cross:
+                G = H
+                break
+        else:
+            return G
+
+
 def simplify(G, steps=20000, seed=0, time_limit=None, lower_bound=None, report=None,
              same_diagram=False):
     """Random walk through grid moves, destabilising greedily; returns the
@@ -867,14 +2366,38 @@ def simplify(G, steps=20000, seed=0, time_limit=None, lower_bound=None, report=N
     cyclic shifts, only commutations of non-overlapping segments, only
     stabilisations that add no kink -- and the crossing count is checked
     after every move as a safety net, so the result is a grid diagram of the
-    SAME diagram (verify with ``same_diagram_check``)."""
+    SAME diagram (verify with ``same_diagram_check``).
+
+    2026-10-19: the FIRST greedy destabilisation is under that safety net
+    too.  It used to run unchecked, and a destabilisation can remove a kink
+    of the diagram ('DT: [(2,)]': 3 x 3 with 1 crossing -> 2 x 2 with none;
+    the 4-crossing trefoil diagram 'DT: [(4,8,2,6)]' -> 3 crossings), after
+    which every later move was refused, so the walk ended on the wrong
+    diagram.  When the greedy pass keeps the crossing count -- every diagram
+    it did not damage -- it is used exactly as before (same grid, same
+    walk); when it does not, the walk destabilises only by
+    ``_destabilize_keeping`` and counts crossings with ``_crossing_count``
+    (the same numbers, 1.4-7x faster measured), and ``report`` gains "kinks_kept"
+    (the crossings the greedy pass would have removed)."""
     rng = random.Random(seed)
     t0 = time.time()
+    n_cross = len(G.crossings()) if same_diagram else None
     cur = _destabilize_all(G)
+    destab = _destabilize_all
+
+    def ncount(H):
+        return len(H.crossings())
+    kinks_kept = 0
+    if same_diagram and len(cur.crossings()) != n_cross:
+        kinks_kept = n_cross - len(cur.crossings())
+
+        def destab(H):
+            return _destabilize_keeping(H, n_cross)
+        ncount = _crossing_count         # the same numbers, without the list
+        cur = destab(G)
     best = cur
     since_best = 0
     n_stab = 0
-    n_cross = len(G.crossings()) if same_diagram else None
     for step in range(int(steps)):
         if lower_bound is not None and best.n <= lower_bound:
             break
@@ -905,11 +2428,11 @@ def simplify(G, steps=20000, seed=0, time_limit=None, lower_bound=None, report=N
                 c = rng.randrange(n - 1)
                 if cur.can_commute_cols(c) and (not same_diagram or cur.cols_open_disjoint(c)):
                     cur = cur.commute_cols(c)
-        cur = _destabilize_all(cur)
-        if same_diagram and cur is not prev and len(cur.crossings()) != n_cross:
+        cur = destab(cur)
+        if same_diagram and cur is not prev and ncount(cur) != n_cross:
             cur = prev                   # safety net: never accept a move that changes the diagram
             continue
-        if cur.n < best.n or (cur.n == best.n and len(cur.crossings()) < len(best.crossings())):
+        if cur.n < best.n or (cur.n == best.n and ncount(cur) < ncount(best)):
             if cur.n < best.n:
                 since_best = 0
             best = cur
@@ -920,12 +2443,16 @@ def simplify(G, steps=20000, seed=0, time_limit=None, lower_bound=None, report=N
     if report is not None:
         report.update({"steps": step + 1 if steps else 0, "stabilizations": n_stab,
                        "seconds": time.time() - t0})
+        if kinks_kept:
+            report["kinks_kept"] = kinks_kept
     return best
 
 
 def is_alternating(dt_string):
-    """Over and under alternate along every component of the DT diagram."""
-    comps = parse_dt(dt_string)
+    """Over and under alternate along every component of the DT diagram (a
+    flip vector after the code is allowed and irrelevant: it describes the
+    shadow, not the over/under)."""
+    comps = parse_dt_flips(dt_string)[0]
     # even label negative <=> the even visit is over (the project convention);
     # the diagram alternates iff over/under alternate along each component
     over = {}
@@ -949,7 +2476,29 @@ def is_alternating(dt_string):
 
 def parse_dt(text):
     """'DT: [(4,6,2), (8,)]' -> tuple of tuples (parenthesised groups read
-    textually, so a one-crossing component needs no trailing comma)."""
+    textually, so a one-crossing component needs no trailing comma).
+
+    A BARE code only (1.1): a code carrying a flip vector raises ValueError
+    -- read it with ``parse_dt_flips``, which returns the vector too; this
+    reader would have dropped it ('[0,1,...]' is not in parentheses) or, for
+    '(0,1,...)', read it as a component.  Other text after the code's closing
+    bracket raises as well, apart from a trailing '# comment', which is
+    dropped: the code is then read exactly as it is read without it."""
+    norm = _normalize_dt_text(text)
+    try:
+        code, fl = split_dt_flips(norm)
+    except ValueError as exc:
+        raise _user_facing(exc)
+    if fl is not None:
+        raise _user_facing(ValueError(
+            "this DT code carries a flip vector; read it with parse_dt_flips, which returns "
+            "(components, flips)"))
+    if code != norm:
+        # a trailing '# comment' was dropped: read the RAW text up to it, so the
+        # reading is exactly the comment-free text's (a Unicode minus is refused
+        # either way, as before 1.1).  _normalize_dt_text maps one character to
+        # one, so the cut falls at the same place in the raw text.
+        text = str(text)[:len(code)]
     body = text.strip()
     body = re.sub(r"^\s*DT\s*:\s*", "", body, flags=re.I)
     groups = re.findall(r"\(([^()]*)\)", body)
@@ -969,7 +2518,7 @@ def lower_bound(dt_string):
     dt_converter (its (v, z) and the usual (a, z) convention have the same
     breadth)."""
     try:
-        comps = parse_dt(dt_string)
+        comps = parse_dt_flips(dt_string)[0]
         ncross = sum(len(c) for c in comps)
         if is_alternating(dt_string):
             return ncross + 2, ("alternating diagram: arc index = crossings + 2 "
@@ -1163,7 +2712,18 @@ def minimal_grid_for_dt(dt_string, steps=20000, seed=0, time_limit=60.0, message
     With ``same_diagram`` and ``adopt`` the search over all diagrams of the
     link is also run, and if one of its seeds gives THIS diagram (or its
     mirror image, undone by transposing) in a smaller grid, that grid is
-    taken -- the Offset clasp of 4BL gets its 12 x 12 that way."""
+    taken -- the Offset clasp of 4BL gets its 12 x 12 that way.
+
+    1.1: ``dt_string`` may carry a flip vector ('DT: [(10, 6, 2, 4, 12, 8)],
+    [0,1,0,0,0,1]').  The vector is checked first; the link-level grid is
+    then the braid closure of that realisation, the same-diagram grid is
+    routed from a drawing of it (``from_planar_diagram``), a free-search grid
+    is adopted only if it is that realisation (``realisation_fix``: the grid
+    itself, its column reversal, its transpose or both), the audit compares
+    the realisation (``same_diagram_check``) or adds the Jones polynomial to
+    the isometry test (``same_link``), and ``info`` gains "dt" (the dt-flips
+    spelling) and "flips"."""
+    dt_string = _normalize_dt_text(_drop_comment(dt_string))   # look-alike Unicode dashes / spaces -> ASCII
     key = (dt_string.strip(), int(steps), int(seed), int(seeds), bool(same_diagram), bool(adopt))
     if key in _SIMPLIFY_CACHE:
         G, info = _SIMPLIFY_CACHE[key]
@@ -1171,21 +2731,61 @@ def minimal_grid_for_dt(dt_string, steps=20000, seed=0, time_limit=60.0, message
             messages.extend(info["messages"])
         return G, info
     msgs = []
+    # 1.1: a flip vector after the code names the realisation (checked here)
+    given = _has_flips(dt_string)
+    comps_in, flips_in = parse_dt_flips(dt_string) if given else (None, None)
+    if not given:
+        # a code no diagram on the sphere has: both modes used to fail late
+        # (a traceback in --same-diagram; the link-level [error] recommended
+        # --same-diagram); refused here, in one line, whatever the mode
+        why = _no_diagram_reason(dt_string)
+        if why:
+            raise _user_facing(ValueError("%s, so there is no grid diagram to build; "
+                                          "check the code" % why))
     if same_diagram:
+        # round 4d (2026-10-20): the same-diagram grid of a code the drawing
+        # script cannot read ('DT[daddcab]', '8,6,2,4') is one line, and so
+        # is a code with an EMPTY component built without it (both ended in
+        # a traceback in from_planar_diagram); see _same_diagram_input
+        dt_string, _note = _same_diagram_input(dt_string)
+        if _note:
+            msgs.append(_note)
+            if given:
+                comps_in, flips_in = parse_dt_flips(dt_string)
         G0, pinfo = from_planar_diagram(dt_string)
         msgs.append("[grid] grid diagram of THIS diagram: the %s layout routed rectilinearly on a "
                     "%d x %d lattice with the over strand vertical at every crossing, then "
                     "compressed to %d x %d (%d crossings, as in the DT code)."
                     % (pinfo["layout"], pinfo["lattice"], pinfo["lattice"], G0.n, G0.n,
                        pinfo["crossings_grid"]))
-        spherogram = _topology()
-        L = spherogram.Link(dt_string)
+        if given:
+            msgs.append("[grid] realisation: the given flip vector %s -- %s."
+                        % (_bits(flips_in),
+                           "the drawing shows it, and the grid realises the drawing's port order"
+                           if pinfo.get("realisation") == "given" else
+                           "the drawing showed its in-plane mirror image, so the grid's columns were "
+                           "reversed (an in-plane reflection: same over/under, every flip complemented)"))
+            L = None
+            n_dt = sum(len(c) for c in comps_in)
+        else:
+            spherogram = _topology()
+            try:
+                L = spherogram.Link(dt_string)
+            except ValueError:
+                # spherogram's decoder refuses kinked and some split codes; L only
+                # supplies the DT diagram's crossing count below
+                L = None
+                n_dt = sum(len(c) for c in parse_dt(dt_string))
         bound, detail = (None, "a fixed diagram has no arc-index bound; the link's bound does not apply")
     else:
         word, m, L = dt_to_braid(dt_string)
         G0 = from_braid(word, m)
         msgs.append("[grid] grid diagram from the %d-strand braid closure (%d letters): "
                     "%d x %d before simplification." % (m, len(word), G0.n, G0.n))
+        if given:
+            msgs.append("[grid] the link of the given realisation (flips %s), built from the DT code and "
+                        "the vector, so the braid closure has its chirality."
+                        % _bits(flips_in))
         bound, detail = (None, "not requested")
         if want_bound:
             bound, detail = lower_bound(dt_string)
@@ -1203,6 +2803,8 @@ def minimal_grid_for_dt(dt_string, steps=20000, seed=0, time_limit=60.0, message
         for k in ("steps", "stabilizations"):
             rep[k] += r_i.get(k, 0)
         rep["seconds"] += r_i.get("seconds", 0.0)
+        if r_i.get("kinks_kept"):
+            rep["kinks_kept"] = r_i["kinks_kept"]       # 2026-10-19: depends on G0 only
         if G is None or G_i.n < G.n or (G_i.n == G.n and len(G_i.crossings()) < len(G.crossings())):
             G, best_seed = G_i, s_i
         if bound is not None and G.n <= bound:
@@ -1214,6 +2816,13 @@ def minimal_grid_for_dt(dt_string, steps=20000, seed=0, time_limit=60.0, message
                     "(destabilisations, commutations of non-overlapping segments, kink-free "
                     "stabilisations; no cyclic shifts): the smallest found for this diagram."
                     % (G.n, G.n, rep.get("steps", 0), rep.get("seconds", 0.0)))
+        if rep.get("kinks_kept"):
+            # 2026-10-19: printed only when the greedy pass would have damaged
+            # the diagram (it used to, silently: see ``simplify``)
+            msgs.append("[grid] the greedy destabilisation would have removed %d of the diagram's "
+                        "crossing(s), kink(s) a destabilisation can undo (a Reidemeister I move, not "
+                        "a planar isotopy); destabilisations that change the crossing count were "
+                        "skipped, so the grid keeps all %d." % (rep["kinks_kept"], len(G0.crossings())))
         try:
             G_any, info_any = minimal_grid_for_dt(dt_string, steps=steps, seed=seed, time_limit=time_limit,
                                                   messages=None, want_bound=want_bound, verify=False,
@@ -1230,18 +2839,43 @@ def minimal_grid_for_dt(dt_string, steps=20000, seed=0, time_limit=60.0, message
                 G0_any = from_braid(word_a, m_a)
                 n_target = len(cr) if same_diagram else None
                 seen = set()
+                adopted_fix = None
                 for s_i in range(int(seed), int(seed) + max(1, int(seeds)) * 2):
                     cand = simplify(G0_any, steps=steps, seed=s_i, time_limit=None, lower_bound=None)
                     if cand.n >= G.n or len(cand.crossings()) != len(G0.crossings()) or cand.key() in seen:
                         continue
                     seen.add(cand.key())
-                    for H in (cand, cand.transpose()):
-                        if same_diagram_check(H, dt_string)[0] is True:
-                            adopted = H
-                            break
+                    if given:
+                        # 1.1: only THIS realisation -- after the grid symmetry that
+                        # gives it (column reversal, transpose), confirmed by the check
+                        H, fix = realisation_fix(cand, dt_string)
+                        if H is not None and same_diagram_check(H, dt_string)[0] is True:
+                            adopted, adopted_fix = H, fix
+                    else:
+                        for H in (cand, cand.transpose()):
+                            if same_diagram_check(H, dt_string)[0] is True:
+                                adopted = H
+                                break
                     if adopted is not None:
                         break
-            if adopted is not None:
+            if adopted is not None and given:
+                _fix, _sep, _rev = str(adopted_fix).partition("+reversed:")
+                msgs.append("[grid] the search over all diagrams of the link found a %d x %d grid that "
+                            "is THIS realisation (same canonical DT code and flip vector%s%s%s), smaller "
+                            "than the %d x %d reached by isotopies alone -- using it."
+                            % (adopted.n, adopted.n,
+                               {"same": "", "mirror": ", after reversing its columns",
+                                "other-side": ", after transposing it",
+                                "switched": ", after transposing it and reversing its columns"}.get(
+                                    _fix, ""),
+                               "" if not _rev else
+                               "%s the direction of its component(s) %s reversed (X and O swapped)"
+                               % (" and with" if _fix != "same" else ", with", _rev),
+                               ", every component running in the DT code's direction"
+                               if len(comps_in) > 1 else "", G.n, G.n))
+                G = adopted
+                cr = G.crossings()
+            elif adopted is not None:
                 msgs.append("[grid] the search over all diagrams of the link found a %d x %d grid that "
                             "is THIS diagram (same canonical DT code), smaller than the %d x %d reached "
                             "by isotopies alone -- using it." % (adopted.n, adopted.n, G.n, G.n))
@@ -1256,7 +2890,8 @@ def minimal_grid_for_dt(dt_string, steps=20000, seed=0, time_limit=60.0, message
                 msgs.append("[grid] this is also the smallest grid found over all diagrams of the link "
                             "(%d x %d, %s)." % (G_any.n, G_any.n, info_any["status"]))
         except Exception as exc:  # noqa: BLE001
-            msgs.append("[grid] (link-level comparison unavailable: %s)" % str(exc)[:60])
+            msgs.append("[grid] (link-level comparison unavailable: %s)"
+                        % (" ".join(str(exc).split()) if given else str(exc)[:60]))
     elif bound is not None:
         msgs.append("[grid] simplified to %d x %d in %d steps (%.1f s): %s -- arc index lower "
                     "bound %d (%s)%s." % (G.n, G.n, rep.get("steps", 0), rep.get("seconds", 0.0),
@@ -1269,7 +2904,7 @@ def minimal_grid_for_dt(dt_string, steps=20000, seed=0, time_limit=60.0, message
                     "(no HOMFLY-PT bound: %s)." % (G.n, G.n, rep.get("steps", 0), rep.get("seconds", 0.0), detail))
     msgs.append("[grid] %d crossings in the grid diagram (the DT diagram has %d), writhe %+d, "
                 "%d component(s); best of %d seed(s), seed %d."
-                % (len(cr), len(L.crossings), G.writhe(), len(G.components()),
+                % (len(cr), n_dt if L is None else len(L.crossings), G.writhe(), len(G.components()),
                    max(1, int(seeds)), best_seed))
     msgs.append("[grid] notation (rows from the top, 1-based): %s" % G.notation())
     msgs.append("[grid] KnotInfo notation: %s" % G.knotinfo_notation())
@@ -1293,6 +2928,11 @@ def minimal_grid_for_dt(dt_string, steps=20000, seed=0, time_limit=60.0, message
             "bound": bound, "bound_detail": detail, "status": status, "crossings": len(cr),
             "writhe": G.writhe(), "check": check, "messages": msgs, "steps": rep.get("steps", 0),
             "seconds": rep.get("seconds", 0.0)}
+    if given:
+        # 1.1, only with a flip vector: the realisation the grid was built for
+        info.update(dt=format_dt_flips(split_dt_flips(_normalize_dt_text(dt_string))[0].strip(),
+                                       flips_in),
+                    flips=_bits(flips_in))
     _SIMPLIFY_CACHE[key] = (G, info)
     if messages is not None:
         messages.extend(msgs)
@@ -1377,15 +3017,276 @@ def run_selftest(quiet=False):
     fails += 0 if ok else 1
     if not quiet:
         print("%-6s 40 random moves on the figure-eight keep its link (grid now %d)" % ("ok" if ok else "FAIL", G.n))
+    fails += _selftest_flips(quiet)
+    fails += _selftest_bare(quiet)
+    fails += _selftest_kinks(quiet)
     # the verdict is printed even with --quiet, so a caller can grep for it
     print("all checks passed" if fails == 0 else "%d check(s) FAILED" % fails)
     return fails
 
 
+GRANNY_CODE = "DT: [(10, 6, 2, 4, 12, 8)]"     # the granny knot, its mirror, or the square knot
+
+
+def _selftest_flips(quiet=False):
+    """1.1: DT code + flip vector.  Returns the number of failed checks."""
+    fails = [0]
+
+    def chk(ok, what):
+        fails[0] += 0 if ok else 1
+        if not quiet:
+            print("%-6s %s" % ("ok" if ok else "FAIL", what))
+    # reading: every spelling, the bare reader refusing a vector, illegal vectors refused
+    want = (((4, 6, 2),), [False, False, True])
+    for text in ("DT: [(4,6,2)], [0,0,1]", "DT: [(4,6,2)], 001", " DT: [(4,6,2)]; 0 0 1",
+                 "DT: [(\u22124,\u22126,\u22122)], (1,1,0)"):
+        got = parse_dt_flips(text)
+        exp = want if "\u2212" not in text else (((-4, -6, -2),), [True, True, False])
+        chk(got == exp, "flip vector read from %r: %s" % (text, _bits(got[1])))
+    for bad, needle in (("DT: [(4,6,2)], [0,0,1]", "parse_dt_flips"),
+                        (GRANNY_CODE + ", [0,0,0,0,0,0]", "not a legal one"),
+                        (GRANNY_CODE + ", [0,1]", "2 entries"),
+                        ("DT: [(4,6,2)], [0,0,2]", "could not read")):
+        try:
+            (parse_dt if needle == "parse_dt_flips" else parse_dt_flips)(bad)
+            chk(False, "%r refused" % bad)
+        except ValueError as exc:
+            chk(needle in str(exc) and getattr(exc, "user_facing", False),
+                "%r refused: %s" % (bad, str(exc)[:70]))
+    # the link of a realisation: built from (code, vector), its chirality kept
+    for vec, w in (("[0,0,1,1,0,1]", 6), ("[0,1,0,0,0,1]", 0), ("[1,1,0,0,1,0]", -6)):
+        L = _dt_link(GRANNY_CODE + ", " + vec)
+        chk(L.writhe() == w, "granny code with flips %s: link writhe %+d (want %+d)" % (vec, L.writhe(), w))
+    try:
+        _dt_link("DT: [(-2,), (-4,)], [1,1]")
+        chk(False, "kinked legal vector: refused by spherogram")
+    except ValueError as exc:
+        chk("legal" in str(exc), "kinked legal vector [1,1]: %s" % str(exc)[:80])
+    # link-level grids: the braid closure of each realisation, audited with Jones
+    grids = {}
+    for vec in ("[0,0,1,1,0,1]", "[0,1,0,0,0,1]", "[1,1,0,0,1,0]"):
+        G, info = minimal_grid_for_dt(GRANNY_CODE + ", " + vec, steps=1500, seed=1, time_limit=30.0,
+                                      seeds=1)
+        grids[vec] = G
+        chk(info["check"] is True and info["flips"] == vec.strip("[]").replace(",", ""),
+            "link-level grid of the granny code with flips %s: %d x %d, audit %s"
+            % (vec, G.n, G.n, info["check"]))
+    v_g, v_m = "[0,0,1,1,0,1]", "[1,1,0,0,1,0]"
+    ref = _dt_link(GRANNY_CODE + ", " + v_m)
+    chk(same_link(grids[v_g], ref, dt_string=GRANNY_CODE + ", " + v_m)[0] is False,
+        "the granny grid is NOT the mirror granny (Jones, chirality-sensitive)")
+    # same-diagram grids: the given realisation, its hand visible in the writhe
+    for vec, w in (("[0,0,1]", 3), ("[1,1,0]", -3)):
+        G, info = minimal_grid_for_dt("DT: [(4,6,2)], " + vec, steps=1500, seed=1, time_limit=30.0,
+                                      seeds=1, same_diagram=True, adopt=False)
+        chk(info["check"] is True and G.writhe() == w and len(G.crossings()) == 3,
+            "same-diagram grid of the trefoil with flips %s: writhe %+d (want %+d), audit %s"
+            % (vec, G.writhe(), w, info["check"]))
+    G, info = minimal_grid_for_dt(GRANNY_CODE + ", " + v_g, steps=1500, seed=1, time_limit=30.0,
+                                  seeds=1, same_diagram=True, adopt=False)
+    chk(info["check"] is True and G.writhe() == 6,
+        "same-diagram grid of the granny realisation: writhe %+d, audit %s" % (G.writhe(), info["check"]))
+    v1, how1 = same_diagram_check(G, GRANNY_CODE + ", [0,1,0,0,0,1]")
+    chk(v1 is False and "DIFFERENT realisation" in how1,
+        "realisation-aware check: the granny grid is not the square knot (%s)" % how1[:60])
+    chk(same_diagram_check(G, GRANNY_CODE)[0] is True,
+        "the bare check (DT code only) cannot tell them apart, as before")
+    v2, how2 = same_diagram_check(G, GRANNY_CODE + ", " + v_m)
+    v3 = same_diagram_check(G.reverse_columns(), GRANNY_CODE + ", " + v_m)[0]
+    chk(v2 is False and "MIRROR" in how2 and v3 is True,
+        "the granny grid is the in-plane mirror of the mirror granny, and its column reversal IS it")
+    # a link's realisation includes the DIRECTION of every component (review fix,
+    # 2026-10-18: an adopted grid of the 4-ring chain had two components reversed,
+    # writhe -6 against +6, and passed the unoriented check)
+    chain = "DT: [(6, -10), (2,), (12, -4), (8,)], [0,1,1,0,0,1]"
+    G, info = minimal_grid_for_dt(chain, steps=1500, seed=1, time_limit=30.0, seeds=1,
+                                  same_diagram=True, adopt=False)
+    chk(info["check"] is True and G.writhe() == 6,
+        "same-diagram grid of the 4-ring chain with flips 011001: writhe %+d (want +6), audit %s"
+        % (G.writhe(), info["check"]))
+    H = G.reverse_components([0])
+    v4, how4 = same_diagram_check(H, chain)
+    chk(v4 is False and "running the other way" in how4,
+        "the same grid with one component reversed (writhe %+d) is refused: %s" % (H.writhe(), how4[:70]))
+    F, name = realisation_fix(H, chain)
+    chk(F is not None and "+reversed:" in name and F.writhe() == 6 and same_diagram_check(F, chain)[0] is True,
+        "realisation_fix reverses it back (%s, writhe %+d)" % (name, F.writhe() if F is not None else 0))
+    chk(same_diagram_check(G.reverse_components(range(len(G.components()))), chain)[0] is True,
+        "every component reversed: the same diagram read backwards, accepted")
+    old = parse_notation("X: [3, 5, 2, 4, 8, 1, 6, 7]  O: [1, 8, 7, 6, 5, 3, 4, 2]")
+    chk(same_diagram_check(old, chain)[0] is False and old.writhe() == -6,
+        "the grid adopted before the fix (writhe -6) is refused")
+    # spherogram's braid_word fails on some kinked / split realisations: one line
+    try:
+        minimal_grid_for_dt("DT: [(-2,), (-4,)], [0,0]", steps=200, seed=1, time_limit=10.0, seeds=1)
+        chk(False, "link-level grid of the kinks 00 refused")
+    except ValueError as exc:
+        chk(getattr(exc, "user_facing", False) and "into a braid" in str(exc),
+            "link-level grid of the kinks 00 refused in one line: %s" % str(exc)[:70])
+    # a trailing '# comment' is dropped (the shared helper's rule)
+    Gc, infoc = minimal_grid_for_dt("DT: [(4,6,2)] # trefoil", steps=6000, seed=1, time_limit=30.0,
+                                    seeds=2)
+    chk(Gc.n == 5 and "flips" not in infoc, "'DT: [(4,6,2)] # trefoil' reads as the bare trefoil (grid %d)"
+        % Gc.n)
+    # ... and cut from the RAW text, so a commented code reads exactly as the
+    # comment-free one: a Unicode minus is refused by the bare reader with or
+    # without a comment (it used to be accepted only with one)
+    um = "DT: [(−4, −6, −2)]"
+    reads = []
+    for text in (um, um + "  # note", um + " # see [1]\nright-handed [Rolfsen]"):
+        for reader in (parse_dt, lambda x: parse_dt_flips(x)[0]):
+            try:
+                reads.append(("read", reader(text)))
+            except ValueError as exc:
+                reads.append(("refused", type(exc).__name__))
+    chk(reads == [("refused", "ValueError")] * 6,
+        "a bare Unicode-minus code is refused alike with and without a '# comment': %s" % reads[::2])
+    chk(_drop_comment(um + " # c") == um and _drop_comment(um) is um
+        and parse_dt("DT: [(4,6,2)] # see [1]\nright-handed [Rolfsen]") == ((4, 6, 2),),
+        "the comment is cut from the raw text (the code before it unchanged)")
+    return fails[0]
+
+
+def _selftest_bare(quiet=False):
+    """2026-10-19: bare codes spherogram cannot read or braid, and look-alike
+    Unicode dashes at the entry points.  Returns the number of failed checks
+    (an exception counts as one)."""
+    import contextlib
+    import io
+    fails = [0]
+
+    def chk(ok, what):
+        fails[0] += 0 if ok else 1
+        if not quiet:
+            print("%-6s %s" % ("ok" if ok else "FAIL", what))
+
+    def cli(argv):
+        err = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            try:
+                rc = main(argv + ["--quiet"])
+            except Exception as exc:  # noqa: BLE001
+                rc = "raised %s: %s" % (type(exc).__name__, str(exc)[:60])
+        return rc, err.getvalue().splitlines()
+    # entry points normalise look-alike dashes / spaces (the drawing script's parse_dt rule):
+    # the same cache entry as the ASCII code (the KNOWN run above), and the CLI reads it
+    try:
+        G_a, _i = minimal_grid_for_dt("DT: [(-6,-8,-10,-4,-2)]", steps=6000, seed=1, time_limit=30.0,
+                                      seeds=2)
+        G_u, _i = minimal_grid_for_dt("DT:\u00a0[(\u22126,\u20138,\u221210,\u22124,\u22122)]",
+                                      steps=6000, seed=1, time_limit=30.0, seeds=2)
+        chk(G_u is G_a, "5_2 with Unicode minus, en dash and no-break space: the ASCII code's grid (%d)"
+            % G_u.n)
+    except Exception as exc:  # noqa: BLE001
+        chk(False, "5_2 with Unicode minus, en dash and no-break space: raised %s: %s"
+            % (type(exc).__name__, str(exc)[:60]))
+    rc, lines = cli(["--dt", "DT: [(\u22124,\u22126,\u22122)]", "--no-simplify"])
+    chk(rc == 0 and not lines, "CLI --no-simplify reads 'DT: [(\u22124,\u22126,\u22122)]' (rc %s)" % rc)
+    # the library raises spherogram's own exception, unchanged (only tagged) ...
+    try:
+        dt_to_braid("DT: [(-2,), (-4,)]")
+        chk(False, "dt_to_braid of the bare kinks raises")
+    except Exception as exc:  # noqa: BLE001
+        chk(type(exc) is ValueError and not getattr(exc, "user_facing", False)
+            and getattr(exc, "grid_bare_spherogram_step", None) == "read"
+            and str(exc) == "not enough values to unpack (expected 2, got 1)",
+            "dt_to_braid of the bare kinks: spherogram's own ValueError (%s), tagged 'read'" % exc)
+    # ... and the command line prints it as ONE [error] line (link-level and --no-simplify)
+    for argv, needle in ((["--dt", "DT: [(-2,), (-4,)]"], "cannot read this DT code"),
+                         (["--dt", "DT: [(-2,), (-4,)]", "--no-simplify"], "cannot read this DT code"),
+                         (["--dt", "DT: [(4,6,2),(-8,)]", "--steps", "200", "--seeds", "1"],
+                          "into a braid")):
+        rc, lines = cli(argv)
+        chk(rc == 1 and len(lines) == 1 and lines[0].startswith("[error] spherogram ")
+            and needle in lines[0] and "--same-diagram" in lines[0],
+            "CLI %s: one [error] line (%s)" % (" ".join(argv[1:]), lines[0][:60] if lines else rc))
+    # the same-diagram grid of a bare code spherogram cannot read: built from the drawing
+    try:
+        G_k, info_k = minimal_grid_for_dt("DT: [(-2,), (-4,)]", steps=2000, seed=1, time_limit=30.0,
+                                          seeds=1, same_diagram=True)
+        chk(info_k["check"] is True and info_k["crossings"] == 2
+            and any("link-level comparison unavailable" in m for m in info_k["messages"]),
+            "same-diagram grid of the bare kinks: %d x %d, 2 crossings, same DT code" % (G_k.n, G_k.n))
+    except Exception as exc:  # noqa: BLE001
+        chk(False, "same-diagram grid of the bare kinks: raised %s: %s" % (type(exc).__name__, str(exc)[:60]))
+    return fails[0]
+
+
+KINKED_TREFOIL_12 = "DT: [(12, 4, -2, 8, 22, 24, -20, 18, 16, 14, 6, -10)]"   # a backtrack intermediate
+
+
+def _selftest_kinks(quiet=False):
+    """2026-10-19: the same-diagram grid keeps the diagram's kinks (the first
+    greedy destabilisation used to remove them), the audit FAILs a grid with
+    another crossing count (it was an [info], its reason cut at 60
+    characters), and the router's failure is ONE [error] line on the command
+    line (a traceback).  Returns the number of failed checks."""
+    import contextlib
+    import io
+    fails = [0]
+
+    def chk(ok, what):
+        fails[0] += 0 if ok else 1
+        if not quiet:
+            print("%-6s %s" % ("ok" if ok else "FAIL", what))
+    try:
+        G0, _p = from_planar_diagram("DT: [(2,)]")
+        greedy = _destabilize_all(G0)
+        rep = {}
+        G1 = simplify(G0, steps=500, seed=1, report=rep, same_diagram=True)
+        chk(len(G0.crossings()) == 1 and len(greedy.crossings()) == 0 and len(G1.crossings()) == 1
+            and rep.get("kinks_kept") == 1,
+            "same-diagram simplify keeps the kink of 'DT: [(2,)]': %d x %d, %d crossing (the greedy "
+            "pass alone: %d x %d, %d)" % (G1.n, G1.n, len(G1.crossings()), greedy.n, greedy.n,
+                                          len(greedy.crossings())))
+        v, how = same_diagram_check(greedy, "DT: [(2,)]")
+        chk(v is False and "0 crossing(s) in the grid against the DT code's 1" in how
+            and how.endswith("cannot be built as a spherogram Link)"),
+            "audit of a grid without the kink: FAIL, reason in full (%s)" % how[:70])
+        v, how = same_diagram_check(greedy, "DT: [(2,)], [0]")
+        chk(v is False and "0 crossing(s) in the grid against the DT code's 1" in how,
+            "the same with the flip vector: FAIL (%s)" % how[:60])
+    except Exception as exc:  # noqa: BLE001
+        chk(False, "the kink of 'DT: [(2,)]': raised %s: %s" % (type(exc).__name__, str(exc)[:60]))
+    try:
+        G, info = minimal_grid_for_dt("DT: [(4,8,2,6)]", steps=2000, seed=1, time_limit=30.0, seeds=1,
+                                      same_diagram=True)
+        chk(info["crossings"] == 4 and info["check"] is True
+            and any("would have removed 1 of the diagram's crossing(s)" in m for m in info["messages"]),
+            "same-diagram grid of the 4-crossing trefoil diagram 'DT: [(4,8,2,6)]': %d x %d, %d "
+            "crossings, same DT code" % (G.n, G.n, info["crossings"]))
+        # a diagram the greedy pass never damaged takes the old path: no note (the KNOWN run's cache)
+        G, info = minimal_grid_for_dt("DT: [(4,6,2)]", steps=4000, seed=1, time_limit=60.0, seeds=2,
+                                      same_diagram=True, adopt=False)
+        chk(not any("would have removed" in m for m in info["messages"]),
+            "the trefoil's same-diagram grid takes the old path (no kink note)")
+    except Exception as exc:  # noqa: BLE001
+        chk(False, "same-diagram grid with a kink: raised %s: %s" % (type(exc).__name__, str(exc)[:60]))
+    err = io.StringIO()
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+        try:
+            rc = main(["--dt", KINKED_TREFOIL_12, "--same-diagram", "--steps", "200", "--seeds", "1",
+                       "--quiet"])
+        except Exception as exc:  # noqa: BLE001
+            rc = "raised %s: %s" % (type(exc).__name__, str(exc)[:60])
+    lines = err.getvalue().splitlines()
+    chk(rc == 1 and len(lines) == 1
+        and lines[0].startswith("[error] the same-diagram grid router (grid_diagram.from_planar_diagram) "
+                                "could not route")
+        and "false or undrawn crossing(s)" in lines[0] and "spherogram" not in lines[0],
+        "CLI --same-diagram on a kinked code whose tutte drawing has false crossings: one [error] "
+        "line naming the router (%s)" % (lines[0][:50] if lines else rc))
+    return fails[0]
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--dt", help='signed DT code, e.g. "DT: [(4,6,2)]"')
+    ap.add_argument("--dt", help='signed DT code, e.g. "DT: [(4,6,2)]", optionally followed by a flip '
+                                 'vector naming ONE realisation, e.g. "DT: [(10, 6, 2, 4, 12, 8)], '
+                                 '[0,1,0,0,0,1]" (the square knot; bit k for the crossing with odd '
+                                 "label 2k+1, spherogram's convention, complementing every bit = the "
+                                 "mirror image); the grid is then of that realisation")
     ap.add_argument("--braid", help="braid word instead of a DT code, e.g. '1,1,1'")
     ap.add_argument("--grid", help="a grid notation to draw instead of searching (X:/O: or KnotInfo form)")
     ap.add_argument("--steps", type=int, default=20000, help="simplification steps (default 20000)")
@@ -1409,6 +3310,44 @@ def main(argv=None):
     args = ap.parse_args(argv)
     if args.selftest:
         return 1 if run_selftest(quiet=args.quiet) else 0
+    try:
+        return _main(args, ap)
+    except Exception as exc:  # noqa: BLE001
+        # 2026-10-19: spherogram failing on a BARE code in the link-level
+        # grid (default) or --no-simplify -- a kinked code its decoder
+        # refuses, a split one it cannot braid -- is ONE [error] line too
+        # (it was a traceback); the same-diagram grid does not need it
+        step = getattr(exc, "grid_bare_spherogram_step", None)
+        if step is not None:
+            hint = None
+            if args.no_simplify:
+                hint = "--same-diagram without --no-simplify"
+            elif not args.same_diagram:
+                hint = "--same-diagram"
+            print("[error] %s" % _bare_spherogram_failure_text(exc, step, hint, dt_text=args.dt),
+                  file=sys.stderr)
+            return 1
+        # 2026-10-19: the same-diagram router failing ('could not route the
+        # diagram on a flat grid up to 240 cells', so far on kinked codes whose
+        # default tutte drawing has false crossings) is ONE [error] line too
+        # (it was a traceback)
+        if getattr(exc, "grid_same_diagram_step", None) is not None:
+            print("[error] %s; the drawing script lifts this diagram without the router: "
+                  "draw_dt_original_labels with --sphere-layout stereo-safe or sheet%s"
+                  % (_route_failure_text(exc),
+                     " and --layout spread-tutte, the layout made for kinked diagrams"
+                     if getattr(exc, "grid_route_defects", 0) else ""), file=sys.stderr)
+            return 1
+        # 1.1: a refusal whose message is the whole story (an illegal flip
+        # vector, a drawing of another realisation) is ONE [error] line;
+        # anything else keeps its traceback
+        if not isinstance(exc, ValueError) or not getattr(exc, "user_facing", False):
+            raise
+        print("[error] %s" % exc, file=sys.stderr)
+        return 1
+
+
+def _main(args, ap):
     msgs = []
     info = {}
     if args.grid:
@@ -1423,11 +3362,27 @@ def main(argv=None):
             G = simplify(G, steps=args.steps, seed=args.seed, time_limit=args.time_limit, report=rep)
             msgs.append("[grid] simplified to %d x %d in %d steps." % (G.n, G.n, rep.get("steps", 0)))
     elif args.dt:
+        args.dt = _normalize_dt_text(_drop_comment(args.dt))      # look-alike Unicode dashes / spaces -> ASCII
         if args.no_simplify:
+            if not _has_flips(args.dt):
+                # round 4d (2026-10-20): --no-simplify skipped the entry check
+                # of minimal_grid_for_dt, so a code no diagram has got the
+                # spherogram line ('Link isn't planar', or DecoderLoop where
+                # the decoder would loop on it); the one wording instead
+                why = _no_diagram_reason(args.dt)
+                if why:
+                    raise _user_facing(ValueError("%s, so there is no grid diagram to build; "
+                                                  "check the code" % why))
             word, m, _L = dt_to_braid(args.dt)
             G = from_braid(word, m)
             msgs.append("[grid] grid diagram from the %d-strand braid closure (%d letters): %d x %d."
                         % (m, len(word), G.n, G.n))
+            if _has_flips(args.dt):
+                _fl = parse_dt_flips(args.dt)[1]
+                msgs.append("[grid] the link of the given realisation (flips %s), built from the DT code "
+                            "and the vector, so the braid closure has its chirality." % _bits(_fl))
+                info = {"dt": format_dt_flips(split_dt_flips(_normalize_dt_text(args.dt))[0].strip(), _fl),
+                        "flips": _bits(_fl)}
         else:
             G, info = minimal_grid_for_dt(args.dt, steps=args.steps, seed=args.seed,
                                           time_limit=args.time_limit, messages=msgs,

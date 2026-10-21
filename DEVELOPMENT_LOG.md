@@ -4,6 +4,383 @@ DT Link Toolkit Development Log
 This file records version-specific development notes and implementation history.
 For installation and everyday usage, see README.md.
 
+Decoder guard, one no-diagram wording and the last bare crash paths (2026-10-19/21)
+-----------------------------------------------------------------------------------
+* No version bumps (the same uncommitted versions); each touched file's changelog
+  has a "(2026-10-20, round 4...)" or "(2026-10-21, round 4e review)" entry.
+* The user's decisions: (1) put one exact check on spherogram's DT decoder,
+  process-wide, rather than a clock or a guard per call site; (2) strand passage
+  follows a legal reading of a root spherogram cannot read; (3) one wording for
+  codes no diagram has; (4) correct the claim that DT: [(8,6,2,4)] is
+  unrealisable; then (5) fix empty components, unparseable spellings and the
+  false "kinked code" cause for text spherogram took as a link name.  Runs that
+  worked before are unchanged.
+* Why.  spherogram's flips-free DT decoder loops for ever on some kinked codes:
+  FatEdge.slot handles a kink's self-loop edge wrongly, and a component walk
+  never ends.  DT: [(8,6,2,4)], a trefoil with a kink, is the smallest; it is a
+  realisable diagram (DT: [(8,6,2,4)], [0,1,0,0]).  It hung the scorer, the
+  engine, grid_diagram, the drawing script's 3-D audit, check_two_dt and
+  audit_xyz; the converter and find_link waited out a 20-s clock.
+* The guard (dt_converter): bare_decoder_loops re-runs spherogram's own search
+  with every walk capped at the edge count, so it fires exactly where the decoder
+  would loop; guard_spherogram_decoder wraps DTcodec.embed and raises DecoderLoop
+  there (a ValueError, at once, in worker threads too).  Installed atomically by
+  every tool that reads codes with spherogram, retrying the spherogram import
+  (under sage with faulthandler on, the first import fails inside cysignals and
+  the guard used to stay off: 2.7-h hangs).  Measured against the real decoder on
+  21 779 + 10 694 codes: 0 mismatches; the 313 + 311 hanging codes, and only
+  those, raise DecoderLoop.
+* The clocks are backstops: they pass their timeouts through the guard, cancel
+  their timer before restoring the old handler, never kill the process with a
+  late SIGALRM or leave a timer behind, and cancel an outer timer as before
+  (restoring it gave false 20-s timeouts).  Clock storm: 11 700 calls per run,
+  converter / engine / find_link, python3 and sage: clean.
+* Readings: the engine's buildable_legal_flips and mended_reading; --nongui on a
+  root spherogram cannot build follows dt_converter's reading (the smallest flip
+  vector spherogram builds) with one [info] line; flagged decoder-failure roots
+  are followed in the GUI and --demo too.
+* One no-diagram wording: "no diagram on the sphere has this DT code: no flip
+  vector makes it planar" plus the tool's consequence, before any decode, in the
+  scorer, the drawing script, grid_diagram, chain_layout, --nongui / --demo / the
+  GUI load, check_two_dt, find_link and dt_converter.
+* Empty components: find_link no longer dies of SIGSEGV inside SnapPy on
+  'DT: [(4,6,2), ()]' (the whole TSV was lost; now one parse_error row); the guard
+  sees through them; every tool gives one line where it failed; the scorer
+  refuses only where canonical_dt really refuses (with --canonical-limit -1, or a
+  '[]' next to parenthesised components, such codes score as before).
+* Spellings: alphabetical / prefix-less codes get one line pointing to
+  dt_converter.py in every tool; no object addresses or SQLite thread ids in
+  one-line errors; where spherogram took the text for a link name (no prefix, a
+  Unicode minus, a trailing space, '[[...]]', a '+'), the messages say so and give
+  a spelling that works (with a flip vector where the bare code loops).
+* spheremaps GUI (2026-10-20, at the user's request): a light-blue "?" beside each
+  input opens a plain-language explanation with examples.
+* Measured: 165 must-finish runs (65 hangs and 22 tracebacks now end); the
+  scorer's 72 hanging corpus codes finish; 441 paired runs + a 549-code API sweep
+  and the later identity batteries (2422 jobs in the last one): no successful
+  run changed.  Self-tests: dt_converter 1961 passed / 0 failed / 13 skipped (136
+  masked), canonical_dt 71, grid_diagram 63, chain_layout 41, spheremaps 145.
+  The project's self-verification block: 307 checks, all pass (671 s).
+
+Bare composite codes keep their realisation; bare crash and hang fixes (2026-10-19)
+-----------------------------------------------------------------------------------
+* No version bumps: the same uncommitted V5.9 (drawing), V2.6 (scorer), v4.1
+  (engine), V4.3 (strand-passage GUI), dt_converter 1.2, grid_diagram 1.1 and
+  find_link_in_snappy 1.1; each file's changelog has a 2026-10-19 entry.
+* The user's decisions: (1) at every place that writes a BARE code and reads it
+  back, a code the new composite gate flags keeps its realisation through the
+  flip-vector machinery of 2026-10-18; prime and unflagged runs stay
+  byte-identical, flagged composite runs change on purpose; (2) crash and hang
+  fixes on failing paths only; (3) find_link verifies its loose candidates;
+  (4) canonical cache keys: the hybrid.
+* Why.  A bare code records a connected sum or split union only up to
+  reflecting its parts independently, and spherogram picks a realisation each
+  time it reads one.  Measured before: the scorer re-read 43 of 89 harvested
+  granny codes as the square knot, so a bare granny run and a bare square run
+  gave the same two classes (tied at 0.702408) with a Jones MISMATCH in 15/15
+  runs; a 10-crossing prime diagram of the square knot (e10x) re-rooted 10 of
+  20 harvest calls on granny readings; the GUI's Simplify showed the square
+  knot for the bare granny 10 times in 10; `--nongui` gave all six passages of
+  the square knot the right-handed trefoil's Jones polynomial.
+* The gate: `dt_converter.composite_danger(comps, flips=None)` -> (dangerous,
+  reason).  It splits the crossing graph at every minimal 2-edge cut into
+  "atoms" and calls the code dangerous when two or more atoms close up to
+  knotted or linked pieces (by the Jones polynomial of each atom's closure);
+  analysis failures count as dangerous.  On 1121 codes of known realisation:
+  0 of 470 prime codes flagged, 0 of 651 composites missed, including 72
+  drifts that a whole-diagram Jones test cannot see; about 0.1-0.3 ms on a
+  minimal prime diagram and 1-3% of a harvest's CPU.  Also new in dt_converter:
+  `legal_flips`, and bare SPLIT codes whose spherogram reading is an illegal
+  vector (`DT: [(4,6,2),(10,12,8)]` -> 001000) are mended piece by piece
+  (001001) instead of failing with a message that blamed the reading.
+  Self-test 1807 -> 1906 passed (13 skipped).
+* Scorer V2.6.  A bare root the gate flags is run as spherogram's reading of it
+  (one `[info]` line), or as dt_converter's reading when spherogram has none;
+  every other bare root harvests with `archive_flips="auto"`, so a composite
+  diagram it meets is archived, re-rooted, de-duplicated (mixed pools of bare
+  and flips codes) and scored with its vector.  Multi-component runs that carry
+  vectors compare their same-link checks up to component reversal (Morton's
+  formula).  An old bare checkpoint of a flagged root is refused in one line.
+  Results: granny / square 0.704423 / 0.702408 (were tied), no MISMATCH; e10x
+  141/141 codes the square knot (was 46/93 granny readings); 4-ring chain
+  0.668198 / 0.668198 / 0.543198 (was 0.715073 / 0.715073 / 0.636948 on the
+  wrong oriented link), no MISMATCH; 3_1#4_1 5-6 classes (was 4).
+* link_engine v4.1.  `backtrack_simplify(..., archive_flips="auto")` archives a
+  flagged state with its vector and keeps a flagged best state as a link copy
+  (the bare rebuild gave the wrong knot in 18/40 level-mode calls on one code);
+  `snappy_global_simplification` follows a flagged input's realisation, and
+  gives an unflagged input's flagged simplified code its own verified vector
+  (a deliberate extension).  Every bare root now CARRIES its realisation
+  (`root_realisation`, `Diagram.carry_signs`), written out only on codes the
+  gate flags.
+* strand_passage_gui V4.3.  The GUI root, `--demo` and `--nongui` follow a
+  bare root's realisation; `--nongui` gates every row (source re-root,
+  passages, SnapPy's code, chosen code, second pass) and writes the
+  `dt_flip_vector_*` columns only in sheets with a flagged code.  Results:
+  Simplify keeps the granny 10/10; e10x passages 3 right- + 3 left-handed
+  trefoils (were 6 right-handed); 8_19's passage at -2 is the granny in 6 of 6
+  runs (was the square knot in 5 of 6); 4BL second-pass orientation errors
+  17-19 rows -> 0.
+* Prime runs unchanged: the gate flagged 0 of 622 prime-control codes; 21
+  prime checkpoint replays, the deterministic scorer paths (`score_diagram`
+  on 18 codes, dedup / verify / check on 65 fixed lists) and the
+  `--nongui --no-backtrack` workbooks of the deterministic primes are
+  byte-identical.  Invariant 4: 0.902151 / 0.751228 / 0.741334 / 0.592892;
+  Invariant 9: K10a3 12, K10a1 6, K10a17 8, 4BL 4, Borromean 1.  Changed on
+  purpose besides the flagged runs: a prime multi-component run GIVEN with a
+  vector prints the same-link lines in the new up-to-reversal wording (same
+  counts).
+* Crash and hang fixes (failing paths; successful runs byte-identical):
+  - scorer: a bare run reaching `DT: [()]` (unknot / unlink) stops with one
+    `[error]` line, exit 2 (was a traceback); a `[warn]` when the harvested
+    codes lost a split component; the legacy chain on a bare root
+    spherogram's decoder cannot read ends in one `[error]` naming a flip
+    vector for it, or, when no vector makes the code a diagram on the sphere,
+    saying there is no diagram to simplify and to check it with dt_converter;
+  - drawing script: a bare capped-cylinder or grid-diagram build failure is
+    one `[error]` line (69 capped-cylinder and 13 `--grid-any-diagram`
+    tracebacks in the sweeps), the grid one worded by its cause (router,
+    spherogram, other);
+  - grid_diagram: Unicode-minus codes read like their ASCII twins (15/15);
+    the CLI's bare kinked / split failures and router failures are one line;
+    the bare same-diagram grid no longer needs spherogram's reading (17
+    formerly crashing drawing-script grid-diagram runs build); the
+    same-diagram simplification no longer destabilises kinks away
+    (`DT: [(4,8,2,6)]` 3 crossings and `[FAIL]` -> 4 crossings and `[ok]`;
+    `DT: [(2,)]` 0 -> 1); self-test 50 -> 63;
+  - find_link: `snappy.Manifold` is never called on a kinked code
+    spherogram's decoder reads (it never returns there): 14 CLI cases and 204
+    corpus queries that hung now finish; a 20 s decoder clock (`--timeout`)
+    turns the unrealisable-code hang (`DT: [(8,6,2,4)]`) into one parse_error
+    row; loose candidates are verified (component count, isometry with
+    meridians, else Jones): 731 of 822 reported loose rows were wrong, now 0,
+    the 91 right ones unchanged; refuted ones are named in the not_found
+    message, undecided ones get the new status `unconfirmed` (0 in the corpus).
+* Canonical cache keys (the hybrid): every original key is kept and the
+  re-spelled `N:` key added beside it; a compact-spelled 4BL lookup that
+  recomputed (~19 s) in every process now hits.
+* Left as they are (pre-existing; recorded for the user): the scorer can hang
+  scoring some unflagged unreadable kinked roots; `DT: [(8,6,2,4)]` still hangs
+  the scorer, engine, grid_diagram and the drawing script with `--xyz`;
+  `--nongui` tracebacks on roots spherogram's decoder cannot read; the
+  comma-less Hopf spelling is a knot to the drawing script's parser; the xyz
+  audit FAILs on `DT: [(4,6,2),(-8,)]`; some flagged 4BL second-pass cells can
+  name the mirror image; some unflagged split cells of 4-ring-chain workbooks
+  are written bare and cannot be read back; the same-diagram grid is always
+  routed from the default 2-D layout; a code no diagram on the sphere has
+  still ends in a traceback in the scorer's harvest, the drawing script and
+  grid_diagram `--same-diagram`.
+
+Scorer V2.6: sphere energy by the Riesz energy alone (2026-10-18)
+-----------------------------------------------------------------
+* The user's decision, after asking whether the old formula had a precedent (it
+  had none): "I decided to only use Riesz energy for the evenness measuring",
+  "use the raw Riesz energy", and for the composite "you can use your
+  normalization ... which I don't care".
+* The fourth quality is now E_min(n) / E.  E is the crossing centres' Riesz
+  (Thomson) energy on the unit sphere, the workbook's "Thomson energy" column:
+  raw, lower = more even, comparable between diagrams with the same number of
+  crossings.  E_min(n) is the Thomson-problem minimum for n points, the new
+  "Thomson minimum" column (`thomson_minimum`).
+* It replaces the mean of two terms: a spread ratio against a Fibonacci-spiral
+  arrangement, capped at 1 because small diagrams beat the spiral, and
+  1/(1 + 3-D strand-length CV).  Both are gone, together with the "Sphere spread
+  quality" column and the JSON keys thomson_reference, sphere_spread_quality and
+  sphere_spread_raw.  The 3-D strand-length CV is kept as a descriptive column.
+* E_min(n) for n = 2..64 is a built-in table (`_THOMSON_MINIMA`):
+  - computed by multi-start L-BFGS with an exact gradient; two independent seeds
+    agree to 1e-9;
+  - equal to the published best-known values (Wales & Ulker, Phys. Rev. B 74,
+    212101 (2006)) within 1.8e-9, i.e. to the 9 printed decimals;
+  - matching the closed forms for 2, 3, 4, 6 and 12.
+* Larger n are searched on demand by the same procedure and cached per process.
+  It reproduced the published values for 65, 72, 80 and 100 exactly, in 2-6 s
+  each.  A layout below the search result is taken as the minimum, so the
+  quality never exceeds 1.
+* 4BL composites: 0.9022 / 0.7512 / 0.7413 / 0.5929, against 0.8976 / 0.7478 /
+  0.7209 / 0.5573 before; the ranking is unchanged.  The Borromean rings' six
+  centres form an exact octahedron (sphere energy 1, composite 0.9896).
+* An independent rescoring of the V3 notes' recorded runs
+  (results_score_10X_V3/process/scripts/27_riesz_evenness.py) agrees with the
+  scorer to 4e-11.  The full self-verification block passes.
+
+Every tool: DT codes with a flip vector; V5.9, V2.6, V2.1, v4.1, V4.3, V3.1 (2026-10-18)
+----------------------------------------------------------------------------------------
+* User: "go through all the scripts in the repo to update the DT codes
+  compatibility with the form `DT: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]`.
+  bump the versions for updated scripts."  A signed DT code fixes a prime
+  diagram only up to its mirror image, and a composite or split one not even
+  that: the granny and the square knot share `DT: [(10, 6, 2, 4, 12, 8)]`.
+  The flip vector after the code (spherogram's own spelling) fixes the
+  realisation, and every tool now reads it.  User decisions: bare codes stay
+  byte-identical; in 3-D a positive crossing offset builds the given
+  realisation and a negative one its mirror, and what cannot be built is
+  refused in one `[error]` line; five pre-existing bugs fixed (below).
+* Convention: one bit per DT entry (bit k = the crossing with odd label 2k+1);
+  walking along the visit with the smaller label, bit 0 means the other
+  strand crosses from right to left, 1 from left to right (y up).
+  Complementing every bit gives the mirror image.  The crossing sign is
+  negative exactly when flip XOR (even visit over) XOR (even label < odd
+  label), as in spherogram.
+* One shared helper block (`split_dt_flips`, `format_dt_flips`,
+  `check_flips`, `flips_crossing_signs`), byte-identical in 14 files.  Read as
+  a vector: `, [0,1,..]`, `, 010001`, `; 010001`, `(0,1,..)`, spaces, T/F,
+  True/False, no separator, and the tuple `DT: ([..], [..])` that
+  `DT_code(flips=True)` prints.  A vector must have exactly one bit per entry,
+  which keeps the old multi-list spellings (`DT: [(-6,-8)], [(-4,-2)]`,
+  `DT: [-4], [-2]`, `DT: [6,8],[2,4]`) reading as before; a trailing
+  `# comment` is dropped; any other text after the code, and unbalanced
+  brackets, are now an error.  Before, the converter dropped eight of these
+  spellings silently (the square knot came back as the granny), and several
+  tools ignored a vector or read it as a component.  `check_flips` (pure
+  Python: faces == crossings + 2 x pieces) is the one realisability test; it
+  accepts legal kink vectors that spherogram's DTcodec cannot build, so those
+  are never called illegal.  A flips string is never passed to
+  `spherogram.Link` / `snappy.Link`; links are built with
+  `DTcodec(comps, flips).link()`.
+* draw_dt_original_labels V5.9.  2-D: the vector's own planar embedding
+  (`embedding_from_flips`) drives every Tutte-family layout, spread-tutte,
+  cylinder-tutte and planar; the finished drawing is read back
+  (`drawn_flips`): a piece drawn as the exact mirror is reflected, a clean
+  drawing of another realisation is refused, a drawing with false crossings
+  gets a `[warn]`, and a `[flips]` line gives the writhe.  tutte,
+  shaped-tutte and spread-tutte showed all 34 legal corpus vectors cleanly in
+  every variant.  3-D: positive offset = the given realisation, negative =
+  its mirror; offset 0 is refused; the Kamada layouts keep a sphere layout
+  that realises the vector, reflect one that realises its mirror and refuse
+  another diagram -- except the angled / grid cube, which wires the vector
+  itself (at most 2 grid sizes negotiated, `CUBE_FLIPS_ROUTE_SIZES`; the two
+  pathological 4-ring-chain vectors refuse in ~35-40 s, not 466-914 s); the
+  layouts that lift the 2-D drawing need a clean drawing of the vector; the
+  audit compares the curve's Jones polynomial with the given realisation's
+  and a definite FAIL refuses the build.  Final sweep: 1088 3-D runs, 788
+  curves, every one the given realisation at +5 and its mirror at -5 (two
+  independent Jones computations, signed linking numbers in DT order), 300
+  one-line refusals.
+* dt_converter 1.2: a typed vector is checked even under `--no-validate` and
+  without spherogram; a legal kink vector is converted as far as it can be;
+  `--flips` that contradicts a typed vector is an error (it silently replaced
+  it); headerless codes with a vector are detected; labels before the code
+  and the multi-list spellings read as before.  Self-test 1484 -> 1807
+  passed (13 skipped).
+* canonical_dt V2.1: `parse_dt_flips`, `transform_flips` (carries the vector
+  through a re-encoding; 0 errors against spherogram's signs on 53 800
+  re-encodings), `canonicalize_flips` (`faithful` / `strict` / `mirror`),
+  `realisation_symmetry` (exact group of the realisation; equals spheremaps'
+  sphere group on 80/80); granny C2, square Ci.  New `--selftest` (71).
+  `parse_dt`, `canonicalize` and `fmt_dt` are unchanged for bare codes and
+  `parse_dt` refuses a vector instead of dropping it.
+* score_diagram V2.6: harvest (`archive_flips`), checkpoint, dedup (an exact
+  map key per realisation, classes up to mirror), scoring (faces, plane
+  drawings and 2-D numbers on the realisation's own embedding; symmetry from
+  the realisation; the KK 3-D group when KK draws an isomorphic map, else
+  the exact sphere group, labelled), cache keys `F:...`, a `Flip vector`
+  column only in flips runs.  Square knot 0.722801 (Ci, N 3) vs granny
+  0.720786 (C2, N 2); prime codes score identically with and without their
+  vector; the 4BL flips harvest gives the bare run's four classes and
+  composites.
+* link_engine v4.1 / strand_passage_gui V4.3: crossing signs survive
+  passages, R1/R2 and renumbering (136-case stress test, 0 mismatches); SnapPy
+  is fed (code, vector); workbook columns `dt_flip_vector_*`.  The square
+  knot's passages now give left- and right-handed trefoils (V4.2 read the
+  bare code as the granny: right-handed for all six).
+* spheremaps 1.1 (one realisation, no brute force; self-test 105 -> 145),
+  enumerate_puncturing_dt 1.1 (pinned embedding, exact orbits, spread-tutte
+  fallback for a defective panel; square knot 3 drawings), grid_diagram 1.1
+  (the same-diagram grid IS the given realisation, checked with component
+  orientations: an adopted 4-ring-chain grid had come back with two
+  components reversed for 6 of 8 vectors; self-test 19 -> 50), chain_layout
+  1.1 (handedness from the given vector; 33 -> 41 checks, `--full` 50),
+  audit_xyz 1.1 (the given realisation is the primary reference; oriented
+  Jones comparison, Morton's formula for reversed components, SnapPy
+  failures guarded), check_two_dt 1.1, find_link_in_snappy 1.1 (vector input,
+  chirality note on chirality-blind matches), figure_to_dt V3.1 (prints a
+  `DT + flips:` line; `--validate` builds from it; 31/31 synthetic figures
+  read correctly).
+* Approved bug fixes:
+  1. Open cylinder (shaped-kamada `--surface-shape cylinder`): its frame had
+     determinant -1, so the curve was the MIRROR of the sphere curve it warps
+     (writhe at +5, spherical-kamada / cylinder: trefoil -3 / +3, 5_2 -5 / +5,
+     L4a1 -4 / +4, granny +6 / -6); now the same hand.  A bare cylinder XYZ is the old
+     one reflected in y, exactly.  Its pole chords remain (the bare Hopf link
+     at +5 now comes out as its mirror; it matched before only because the
+     two errors cancelled).
+  2. `--sphere-layout grid-diagram` ignored `--negative-even`: under 'under'
+     the grid was the mirror of stereo-safe (trefoil -3 vs +3, 5_2 +5 vs -5,
+     L4a1 +4 vs -4); now they agree.  'over' output is byte-identical.
+  3. `negative_even='under'`: the engine read SnapPy's simplified code, and
+     the GUI rebuilt the after-passage diagram, in 'under', switching every
+     crossing (trefoil: SnapPy `DT: [(4, 6, 2)]`, diagram `DT: [(-4, -6,
+     -2)]`); now read in 'over'.  Same root cause: an 'under' code was handed
+     to SnapPy, which reads 'over'.  For bare codes the link was already right
+     (spherogram reads X and -X as one oriented link, 59/59 codes); `--nongui`
+     now rewrites an 'under' code into 'over' with an `[info]` line and a
+     `negative_even_note` run_info row, so every code, label and overview card
+     is the code SnapPy read (cards 0/8 -> 8/8).  With a vector the engine
+     analysed the mirror before (4/4).
+  4. find_link_in_snappy: `identify()` returning False was reported as a
+     match ('matched False' rows); now no row (granny/square code -> not_found,
+     Hopf 4 rows -> its 2 real ones, 4BL -> not_found).
+  5. check_two_dt: the "explicit mirror" was link 1 again (`snappy.Link`
+     re-normalised the negated code); mirror writhes now negate (trefoil +3 ->
+     -3, granny +6 -> -6, Hopf +2 -> -2, ...), and under Sage the built-in
+     pair reads "mirror(link1) Jones == link 2 Jones exactly? True".
+* Bare runs changed only on failing paths or by the helper's rules: other text
+  after a code is an error (a `# comment` is fine, and now works in
+  audit_xyz, grid_diagram and the scorer too, which used to fail on one); the
+  converter no longer reads a list inside a comment and refuses a misplaced
+  bracket; the scorer warns when spherogram cannot build a bare root and
+  prints '?' crossings instead of crashing on a root it cannot parse; one
+  audit_xyz inconclusive message is worded more precisely; `--version` was
+  added to check_two_dt, spheremaps and enumerate_puncturing_dt.
+* Unchanged, verified against the pristine e3412d7 tree after a machine
+  reboot: 1227 bare cases, 958 byte-identical after normalising names,
+  versions, timestamps, paths and SVG ids, and all others classified as
+  above or as display-only (traceback line numbers, captions, SnapPy volume
+  noise) -- no unexpected change in any 2-D drawing, XYZ, .glb, canonical
+  code, converter or scorer API output (the XYZ / .glb that changed are the
+  open cylinder's, fix 1; the grid under `--negative-even under`, fix 2; and
+  commented inputs, which now read like the same code without the comment).  Flips
+  sweep with an independent oracle: all 34 legal corpus vectors and every
+  illegal input through every tool, no correctness defect.  Outside the repo:
+  the 13 V3 report figures regenerate byte-identically, all 275 topo_atlas
+  paper diagrams match on the bare and the flips path, the 27 BL_series_2D
+  sessions are identical, and 4BL_grid_diagrams' offset_clasp XYZ is
+  byte-identical.  Self-tests all pass; the self-verification block all -ok.
+* Versions (renames by `git mv`; the old files are in git history):
+  draw_dt_original_labelsV5_8 -> V5_9, score_diagramV2_5 -> V2_6,
+  canonical_dt_V2_0 -> V2_1, link_engine_v4_0 -> v4_1,
+  strand_passage_guiV4_2 -> V4_3, figure_to_dt_V3_0 -> V3_1; internal VERSION
+  dt_converter 1.1 -> 1.2, grid_diagram 1.0 -> 1.1, chain_layout 1.0 -> 1.1,
+  and a new VERSION 1.1 in audit_xyz, spheremaps, enumerate_puncturing_dt,
+  check_two_dt and find_link_in_snappy.  The literal importers
+  (link_engine_v4_1, strand_passage_guiV4_3), bin/strand-passage,
+  requirements.txt, the launcher's comments, README and the window titles are
+  repointed.
+* Repointed outside the repo (functional references only; provenance lines
+  and report prose keep the names the reports were made with):
+  four_BL/4BL_grid_diagrams/make_all.sh (lines 44, 58) and its README (line
+  89) -- they named draw_dt_original_labelsV5_7, already broken -- now V5_9;
+  four_BL/BL_series_2D/README.md (lines 104, 119, 124);
+  four_BL/BL_series_2D/BL_scripts/compute_jones.py (line 73, a docstring
+  pointer); project.topo results_score_10X_V3
+  process/ (screen_census.py, exhaustive_ground_truth.py, scripts/12-15_*.py,
+  common.py, build_all.sh, 10_score_examples.sh) and results_score_10X_V2's
+  scripts (screen_census x3: the folder's own and the two under process/;
+  process/exhaustive_ground_truth and process/scripts/ trace, trace2,
+  sweep25, xfig2, shadowcheck, archive_trace, k10a3, k10a3b, efig, calib25,
+  sfig2, and the two loads of the pre_isosplit copy).
+* Left as they are (known limitations): spherogram cannot build some legal
+  kink realisations (the tools that need it refuse in one line; the audit
+  compares Jones only); Jones cannot show the hand of an amphichiral link
+  (4_1, the square knot), nor of 4BL, whose two realisations have equal Jones
+  and HOMFLY-PT; strand-passage overview cards still merge up to mirror image;
+  spheremaps refuses split codes with or without a vector, the atlas when they
+  carry one;
+  the Kamada layouts refuse a composite whose pieces they reflect;
+  cylinder-tutte draws the square-knot realisations with 10 false crossings
+  (warned, as bare); the scorer's classes are up to component reversal.
+
 dt_converter: link names from the exterior WITH its meridians (2026-10-17)
 ------------------------------------------------------------------------
 * The `name` output used SnapPy's plain `identify()`, which matches the
