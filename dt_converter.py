@@ -144,11 +144,16 @@ Emitted only:
 
     isosig        the exterior's isometry signature (needs SnapPy)
     invariants    crossings, components, writhe, linking numbers, alternating?
+    snappy-match  the entries of SnapPy's Rolfsen and Hoste-Thistlethwaite
+                  tables that match, one row each: find_link_in_snappy.py's
+                  result (its lookup lives here since 1.3)
 
-``--to all`` (the default) prints every one of these.  Note that ``name`` in the
-other direction -- a DT code OUT to a name -- is found from the exterior, so it
-needs SnapPy, it only sees hyperbolic links, and it identifies the link only up
-to mirror image.
+``--to all`` (the default) prints every one of these but snappy-match, which is
+given only when asked for by name (scanning a table can take minutes).  Note
+that ``name`` in the other direction -- a DT code OUT to a name -- is found from
+the exterior, so it needs SnapPy, and it identifies the link only up to mirror
+image; a link whose exterior is not hyperbolic is named by the table entries
+that store its very DT code (snappy-match's exact methods), if any.
 
 Conway notation is NOT supported.  Computing it from a diagram means finding an
 algebraic (arborescent) decomposition, which no library here provides; a table
@@ -213,7 +218,7 @@ Needs spherogram:  PD codes, braid words, names, the compact spelling,
 RESOLVING the chirality when the input did not supply it, and the planarity
 check that tells a realisable DT code from a merely well-formed one.
 
-Needs SnapPy as well:  ``isosig`` and ``identify``.
+Needs SnapPy as well:  ``isosig``, ``identify`` and ``snappy-match``.
 
 The polynomials need the chirality resolved -- spherogram, or ``--flips`` --
 and nothing else, except that HOMFLY-PT's braid route borrows spherogram's
@@ -301,8 +306,9 @@ import json
 import os
 import re
 import sys
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
-VERSION = "1.2"
+VERSION = "1.3"
 # 1.1: --polynomials; --mirror mirrors bare DT codes.
 # 1.2 (2026-10-18): the DT + flip vector form 'DT: [(10, 6, 2, 4, 12, 8)],
 #      [0,1,0,0,0,1]' is read by the toolkit's shared split_dt_flips -- every
@@ -403,6 +409,29 @@ VERSION = "1.2"
 #      decoder).  The converter itself still refuses an empty component
 #      ("empty component '()' in the DT code"), so no conversion changes.
 #      Self-test: 4 more no_diagram_reason checks (no spherogram needed).
+# (2026-10-21) 1.3: SnapPy-table lookup merged from find_link
+#      (the user's decision: "find_link is also a dt_converter" -- it converts
+#      a DT code to entries of SnapPy's Rolfsen and Hoste-Thistlethwaite
+#      tables).  find_link_in_snappy.py's whole matching core is section 5d
+#      here, moved unchanged (process_query and its rows, the hang and crash
+#      gates, the verified loose fallback); that file is now a thin command
+#      line around it (its 2.0), with the same options, TSV and output.  Its
+#      --timeout clock is this module's _AlarmClock (refire=1.0) instead of
+#      a second copy of it.  New output 'snappy-match': those rows for the
+#      diagram being converted (the bare code when the vector is
+#      spherogram's own reading of it, else the code with its flip vector),
+#      one line per row in the report and all columns in --json ('rows');
+#      NOT part of --to all.  The 'name' output of a link whose exterior is
+#      NOT hyperbolic now gives the table entries that store this very DT
+#      code (the lookup's exact methods): DT: [(4,6,2)] is '3_1, K3a1', where
+#      it printed '(no name: the exterior is not hyperbolic ...)'; that text
+#      is unchanged where no entry stores the code (4BL, composites), and so
+#      is every hyperbolic result.  Only the rows whose stored DT code can
+#      match are built (_exact_dt_candidates), so it costs seconds, not the
+#      ~31 s of building a 14-crossing table.  --list-formats lists
+#      snappy-match (and the name blurb says how non-hyperbolic links are
+#      named), the GUI offers it (a check box), the self-test checks it
+#      (section 13).
 
 # The project's own 4-component diagram, used as the GUI's default input.
 DEFAULT_INPUT = "DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]"
@@ -1622,7 +1651,7 @@ class Diagram(object):
         (check_flips) and mended piece by piece; see _repair_normalisation."""
         if self.flips is not None:
             return self
-        repaired, link = False, None
+        repaired, link, reading = False, None, False
         try:
             codec = _codec(self.comps, None)
             flips = [bool(f) for f in codec.flips]
@@ -1642,12 +1671,18 @@ class Diagram(object):
         else:
             try:
                 check_flips(self.comps, flips)
+                reading = True
             except ValueError:
                 flips, note, link = self._repair_normalisation(flips)
                 repaired = True
         out = Diagram(self.comps, flips, self.source, self.notes)
         out.note(note)
         out._resolved_from_normalisation = True
+        if reading:
+            # 1.3: the vector IS spherogram's own reading of the bare code, so
+            # snappy-match may look the bare code up (snappy_query); not
+            # carried by mirror() or the --simplify rebuild
+            out._spherogram_reading = True
         if repaired:
             out._normalisation_repaired = True
             out._link = link
@@ -3133,6 +3168,26 @@ def _emit_name(d, cache):
                 "censuses, a name of the complement, which other links can "
                 "share)" % ", ".join(exterior))
     if soln and soln != "all tetrahedra positively oriented":
+        # 1.3: identify() cannot name a link whose exterior is not hyperbolic,
+        # but a table entry that stores this very DT code can (the SnapPy-table
+        # lookup's exact methods, section 5d): DT: [(4,6,2)] is 3_1 and K3a1
+        failed = []
+        by_dt = table_names_by_dt(d, failed)
+        if failed:
+            _caveat(cache, "name",
+                    "the SnapPy-table lookup by this DT code was cut short by "
+                    "its clock (%s), so a table entry that stores the code may "
+                    "have been missed; dt_converter.py --to snappy-match shows "
+                    "the lookup's own result" % failed[0])
+        if by_dt:
+            _caveat(cache, "name",
+                    "found in SnapPy's Rolfsen and Hoste-Thistlethwaite "
+                    "tables as the entries that store this diagram's own DT "
+                    "code (snappy-match's exact methods): the exterior is not "
+                    "hyperbolic -- SnapPy reports solution type %r -- so "
+                    "identify() cannot name it. A table name denotes the link "
+                    "only UP TO MIRROR IMAGE." % soln)
+            return ", ".join(by_dt)
         return ("(no name: the exterior is not hyperbolic -- SnapPy reports "
                 "solution type %r -- so a census lookup cannot identify it. "
                 "Torus links, split links and diagrams with a reducible "
@@ -3152,6 +3207,24 @@ def _emit_isosig(d, cache):
 
 def _emit_invariants(d, cache):
     return "; ".join("%s = %s" % (k, v) for k, v in dt_invariants(d))
+
+
+def _emit_snappy_match(d, cache):
+    """find_link_in_snappy.py's rows for this diagram (section 5d): one line
+    per row in the report (``lines``), every column in --json (``rows``), and
+    the lines joined by '; ' as the value (--out, the GUI)."""
+    rows = snappy_match_rows(d)
+    query, how = snappy_query(d)
+    lines = [snappy_row_summary(r) for r in rows]
+    cache.setdefault("extras", {})["snappy-match"] = {"rows": rows, "lines": lines}
+    _caveat(cache, "snappy-match",
+            "the rows find_link_in_snappy.py gives for %r -- %s. A table entry "
+            "names its link only up to mirror image; exact_alpha_dt_with_flips "
+            "is the one method that also compares the chirality (the entry "
+            "stores this very diagram, flips included). Loose candidates (the "
+            "same DT code with its signs dropped) are verified before they are "
+            "reported." % (query, how))
+    return "; ".join(lines)
 
 
 # -- parsers.  Each takes the raw text and returns a Diagram. --------------- #
@@ -3485,8 +3558,10 @@ FORMAT_TABLE = (
                "Thistlethwaite (K10a3, L6a1) and torus (T(3,5)). Out: the "
                "link's names in SnapPy's link and knot tables, found from the "
                "exterior with its meridians (the same link, up to mirror image; "
-               "hyperbolic links only), then the exterior's names in the other "
-               "censuses."),
+               "hyperbolic links), then the exterior's names in the other "
+               "censuses; for a link whose exterior is not hyperbolic, the "
+               "entries of SnapPy's Rolfsen and Hoste-Thistlethwaite tables "
+               "that store this very DT code (snappy-match's exact methods)."),
     dict(id="isosig", aliases=("isometry-signature", "snappy"),
          title="exterior isometry signature",
          parse=None, emit=_emit_isosig, carries_chirality=False,
@@ -3500,6 +3575,24 @@ FORMAT_TABLE = (
          needs=(), example="crossings = 3; components = 1; ...",
          blurb="Crossing and component counts, whether the diagram alternates, "
                "the writhe and the linking matrix."),
+    dict(id="snappy-match", aliases=("find-link", "find_link", "snappy-tables",
+                                     "table-match"),
+         title="matches in SnapPy's Rolfsen and Hoste-Thistlethwaite tables",
+         parse=None, emit=_emit_snappy_match, carries_chirality=False,
+         needs=("spherogram", "snappy"),
+         example="matched K3a1 in HTLinkExteriors by exact_alpha_dt_with_flips; "
+                 "matched 3_1 in LinkExteriors by exact_numeric_dt",
+         blurb="find_link_in_snappy.py's result for this diagram, one row per "
+               "match: status (matched, unconfirmed, not_found, parse_error), "
+               "table, entry name, method (exact_alpha_dt_with_flips, "
+               "exact_numeric_dt, exterior_identify_meridian, or a verified "
+               "loose_abs_numeric_dt) and message; --json carries every "
+               "column. The bare code is looked up only when the flip vector "
+               "is spherogram's own reading of it (the input gave no "
+               "chirality, and nothing mended, searched, mirrored or "
+               "simplified the code); otherwise the code with its flip "
+               "vector. NOT part of --to all: scanning a table can take "
+               "seconds to minutes, so ask for it by name."),
 )
 
 # ``carries_chirality`` is about the OUTPUT: does the emitted string record
@@ -3535,6 +3628,10 @@ EXAMPLE_CHECKED = tuple(
 
 FORMAT_IDS = tuple(f["id"] for f in FORMAT_TABLE)
 PARSEABLE_IDS = tuple(f["id"] for f in FORMAT_TABLE if f["parse"] is not None)
+# Outputs only given when asked for by name (1.3): snappy-match scans SnapPy's
+# tables, which can take seconds to minutes, so --to all leaves it out.
+NOT_IN_ALL = ("snappy-match",)
+ALL_IDS = tuple(i for i in FORMAT_IDS if i not in NOT_IN_ALL)
 
 
 # --------------------------------------------------------------------------- #
@@ -5207,6 +5304,1520 @@ def composite_danger(comps, flips=None):
 
 
 # --------------------------------------------------------------------------- #
+#  5d. SnapPy's link tables: a DT code -> its entries (merged from
+#      find_link_in_snappy.py, 1.3)
+# --------------------------------------------------------------------------- #
+# A DT code converted to the entries of SnapPy's Rolfsen table (LinkExteriors:
+# 3_1, 6^2_3) and Hoste-Thistlethwaite table (HTLinkExteriors: K3a1, L6a4).
+# This is find_link_in_snappy.py's lookup, moved here unchanged in 1.3 (its
+# own file is now the command line around it): ``process_query`` gives its
+# rows -- columns FIELDNAMES, status matched / unconfirmed / not_found /
+# parse_error -- for one query, as the TSV of find_link_in_snappy.py does.
+# The converter uses it twice: the ``snappy-match`` output (snappy_match_rows,
+# those rows for the diagram being converted), and the ``name`` output of a
+# link whose exterior is NOT hyperbolic, which SnapPy's identify() cannot
+# name: the entries whose stored DT code IS this diagram's -- the lookup's
+# two exact methods (table_names_by_dt).
+#
+# How a query is matched (find_link's documentation, unchanged):
+#   exact_alpha_dt_with_flips    the entry's alphabetical DT code with its
+#                                flips is the query's (or its twin's: the same
+#                                diagram seen from the other side of the page)
+#   exact_numeric_dt             the entry's signed numeric DT code is the
+#                                query's, flips ignored
+#   exterior_identify_meridian   SnapPy's identify(extends_to_link=True): an
+#                                isometry of the exteriors taking meridians to
+#                                meridians (hyperbolic links)
+#   loose_abs_numeric_dt         the same DT code with signs dropped and
+#                                components sorted (only the shadow), off with
+#                                --strict; each candidate is VERIFIED before it
+#                                is reported (make_loose_verifier): refuted
+#                                ones are dropped and named in the not_found
+#                                row, undecided ones get status 'unconfirmed'.
+# A bare code takes the bare path (Link(spec) / snappy.Manifold(spec), behind
+# the hang and crash gates below); a code WITH a flip vector is checked with
+# check_flips and built with DTcodec(comps, flips), never through Link(text).
+# SnapPy and spherogram are imported by the caller (find_link_in_snappy's
+# import_snappy, or lookup_backends here), so this module still loads, and
+# its self-test still runs, without them.
+
+# Look-alike characters copy-pasting puts into DT codes are folded with this
+# module's own _DASHES and _SPACES (the drawing script and canonical_dt fold the
+# same set).  spherogram/SnapPy read none of them, so a BARE code written with
+# them is still a parse error (bare input takes the old path unchanged); a code
+# WITH a flip vector is read by parse_numeric_dt.
+# A numeric DT code: optional 'DT' / 'DT:', then '[' (or the '(' of the
+# tuple wrapper 'DT: ([...], [...])').  Only such inputs can carry a flip
+# vector; named, alphabetical ('DT[cacbca.001]') or other inputs are left to
+# the old path untouched.
+_NUMERIC_DT_START = re.compile(r"^\s*(?:DT\s*:?\s*)?\(?\s*\[", re.IGNORECASE)
+
+CHIRALITY_NOTE = (
+    "Chirality not compared: the input's flip vector fixes its chirality, but "
+    "this method ignores it, so the entry may be the mirror image of the input."
+)
+
+# The columns of a row (find_link_in_snappy.py's TSV, snappy-match's --json).
+FIELDNAMES = [
+    "label",
+    "input",
+    "status",
+    "database",
+    "method",
+    "match_name",
+    "match_dt_alpha_flips",
+    "match_dt_numeric",
+    "input_dt_alpha_flips",
+    "input_dt_numeric",
+    "input_crossings",
+    "input_components",
+    "message",
+]
+
+
+def _normalise_unicode(text: str) -> str:
+    for ch in _DASHES:
+        text = text.replace(ch, "-")
+    for ch in _SPACES:
+        text = text.replace(ch, " ")
+    return text
+
+
+def split_query(raw_dt: str) -> Tuple[str, Optional[List[bool]]]:
+    """(DT text, flip vector or None) of one query.
+
+    Only a numeric DT code is looked at (see ``_NUMERIC_DT_START``); any other
+    input comes back unchanged with None.  A bare code also comes back with
+    None, so it takes exactly its old path.  Text after the code that is not
+    a flip vector raises ValueError (it is never ignored)."""
+    if not _NUMERIC_DT_START.match(raw_dt):
+        return raw_dt, None
+    return split_dt_flips(raw_dt.strip())
+
+
+def parse_numeric_dt(dt_text: str, flips: Optional[List[bool]] = None) -> List[Tuple[int, ...]]:
+    """Components of a numeric DT code: 'DT: [(4, 6, 2)]', '[(-4), (-2)]' or
+    '[4, 6, 2]' (one component).  Read textually, like canonical_dt's
+    parse_dt: Unicode dashes and spaces are normalised and the parenthesised
+    groups are taken as written, so a comma-less '(-4)' is still one
+    component.  ValueError unless every entry is a nonzero even integer.
+
+    An EMPTY component, '()', is refused naming it (round 4e, 2026-10-20; the
+    error said that a flip vector needs a numeric code, which the code is),
+    with the code without it -- and ``flips``, the query's vector, when given
+    and legal for that code -- to look up instead."""
+    text = _normalise_unicode(str(dt_text)).strip()
+    m = re.match(r"^(?:DT\s*:?\s*)?\[(.*)\]$", text, re.IGNORECASE | re.DOTALL)
+    if not m:
+        raise ValueError("could not read the DT code {!r}; a flip vector needs a "
+                         "numeric code such as 'DT: [(4, 6, 2)], [1,1,0]'".format(dt_text))
+    body = m.group(1)
+    groups = re.findall(r"\(([^()]*)\)", body)
+    if groups and re.sub(r"\([^()]*\)", "", body).strip(" ,"):
+        raise ValueError("could not read the DT code {!r}: text outside its "
+                         "components".format(dt_text))
+    empty = [index for index, group in enumerate(groups, start=1) if not group.strip()]
+    if empty and len(empty) < len(groups):
+        raise ValueError(_empty_flips_component_text(dt_text, groups, empty, flips))
+    comps = []
+    for index, group in enumerate(groups or [body], start=1):
+        tokens = [tok for tok in re.split(r"[\s,]+", group.strip()) if tok]
+        if not tokens or not all(re.fullmatch(r"[-+]?\d+", tok) for tok in tokens):
+            raise ValueError(
+                "could not read component {} of the DT code {!r}; a flip vector "
+                "needs a numeric code such as 'DT: [(4, 6, 2)], [1,1,0]' (an "
+                "alphabetical code carries its flips after a dot, e.g. "
+                "'DT[cacbca.110]')".format(index, dt_text))
+        values = tuple(int(tok) for tok in tokens)
+        bad = [v for v in values if v == 0 or v % 2]
+        if bad:
+            raise ValueError("DT entries must be nonzero even integers; got {} in "
+                             "{!r}".format(bad[0], dt_text))
+        comps.append(values)
+    return comps
+
+
+def _empty_flips_component_text(dt_text: str, groups: List[str], empty: List[int],
+                                flips: Optional[List[bool]]) -> str:
+    """The parse_error of a code WITH a flip vector that has an empty
+    component (round 4e, 2026-10-20): name it, and give the code without it
+    (with the vector when the vector is legal for that code) to look up."""
+    one = len(empty) == 1
+    head = "could not read component{} {} of the DT code {!r}: {} empty, and a code with a flip vector needs a " \
+           "crossing in every component; drop {}".format(
+               "" if one else "s", empty[0] if one else "{} and {}".format(
+                   ", ".join(str(i) for i in empty[:-1]), empty[-1]),
+               dt_text, "it is" if one else "they are", "it" if one else "them")
+    try:
+        kept = parse_numeric_dt("[" + ", ".join("({})".format(g) for g in groups if g.strip()) + "]")
+        hint = format_numeric_dt(kept)
+        if flips is not None:
+            check_flips(kept, flips)
+            hint = format_dt_flips(hint, flips)
+    except ValueError:
+        return head + " and check the code"
+    return head + " and look up '{}'".format(hint)
+
+
+def format_numeric_dt(comps: List[Tuple[int, ...]]) -> str:
+    """'DT: [(4, 6, 2)]'; a one-crossing component keeps its comma, '(-4,)'."""
+    return "DT: [{}]".format(", ".join(
+        "({}{})".format(", ".join(str(v) for v in comp), "," if len(comp) == 1 else "")
+        for comp in comps))
+
+
+def build_link_and_manifold_from_flips(
+    comps: List[Tuple[int, ...]], flips: List[bool]
+) -> Tuple[Any, Any, Any]:
+    """(link, manifold, twin) of the diagram given by a DT code AND its flip vector.
+
+    The vector is checked first (``check_flips``: one bit per crossing, and a
+    diagram on the sphere); an illegal one raises ValueError before anything
+    is built -- snappy.Manifold used to triangulate it anyway ("no solution
+    found") and the query went on to report a match.  The link is built with
+    spherogram's DTcodec, never as Link('DT: ..., [flips]') (that route goes
+    through DTcodec.PD_code(), which loses the chirality of a kink) nor as
+    snappy.Manifold(spec) (which does not terminate on some kinked codes even
+    with their flips, e.g. 'DT: [(-2,), (-4,)], [0,0]'); the manifold is the
+    link's exterior.  ``twin`` is the same diagram seen from the other side
+    of the page -- the DT code negated and every flip complemented: the same
+    link with the same chirality, spelled differently (the Rolfsen table
+    stores the trefoil as 'cacBCA.001', the twin of 'DT: [(4, 6, 2)],
+    [1,1,0]'), so its DT codes are matched too; None if spherogram cannot
+    build it."""
+    check_flips(comps, flips)
+    from spherogram.codecs.DT import DTcodec  # type: ignore
+
+    bits = [bool(f) for f in flips]
+    try:
+        link = DTcodec([tuple(c) for c in comps], bits).link()
+    except Exception as exc:
+        raise ValueError(
+            "spherogram cannot build {}: the flip vector is legal for the code, "
+            "but spherogram's DTcodec refuses this realisation, as it does some "
+            "kinked diagrams ({})".format(
+                format_dt_flips(format_numeric_dt(comps), bits), safe_str(exc)))
+    try:
+        manifold = link.exterior()
+    except Exception as exc:
+        raise ValueError("could not build the exterior of {}: {}".format(
+            format_dt_flips(format_numeric_dt(comps), bits), safe_str(exc)))
+    try:
+        twin = DTcodec([tuple(-v for v in c) for c in comps], [not b for b in bits]).link()
+    except Exception:
+        twin = None
+    return link, manifold, twin
+
+
+def add_chirality_notes(rows: List[Dict[str, str]], flips: Optional[List[bool]]) -> List[Dict[str, str]]:
+    """With a flip vector, say on every row matched (or left unconfirmed) by a
+    method that ignores it."""
+    if flips is None:
+        return rows
+    for row in rows:
+        if row["status"] in ("matched", "unconfirmed") and row["method"] != "exact_alpha_dt_with_flips":
+            row["message"] = (row["message"] + " " if row["message"] else "") + CHIRALITY_NOTE
+    return rows
+
+
+def candidate_specs(raw_dt: str) -> List[str]:
+    """Return DT specifications to try with snappy.Link / snappy.Manifold."""
+    raw = raw_dt.strip()
+    specs = []
+
+    def add(value: str) -> None:
+        value = value.strip()
+        if value and value not in specs:
+            specs.append(value)
+
+    add(raw)
+
+    upper = raw.upper()
+    if not upper.startswith("DT:") and not upper.startswith("DT["):
+        add("DT: {}".format(raw))
+        add("DT[{}]".format(raw))
+
+    # Convenience for input like: 4,6,2
+    if re.match(r"^[-+0-9,\s]+$", raw):
+        add("DT: [({})]".format(raw))
+
+    return specs
+
+
+def safe_str(value: Any) -> str:
+    if value is None:
+        return ""
+    return " ".join(str(value).split())
+
+
+# ---------------------------------------------------------------------------
+# Hang guards (2026-10-19): snappy.Manifold on kinked codes, and a clock on
+# spherogram's DT decoder
+# ---------------------------------------------------------------------------
+
+# Seconds allowed for one run of spherogram's DT decoder (--timeout; 0 or None
+# = no limit).  The embedding limit's value, for the same reason: the slowest
+# realisable embedding measured there took 3.1 ms (a 101-crossing torus knot),
+# so the clock only ever stops a code that was never going to finish.
+DEFAULT_DECODE_TIMEOUT = 20.0
+_DECODE_TIMEOUT: Optional[float] = DEFAULT_DECODE_TIMEOUT
+
+
+class DecodeTimeout(Exception):
+    """spherogram's DT decoder did not finish within the time limit.
+
+    The decoder does not terminate on some well-formed DT codes, realisable
+    kinked ones included ('DT: [(8,6,2,4)]', a trefoil with a kink, is the
+    smallest known; see EmbeddingTimeout).  This module's
+    guard on the decoder (installed with SnapPy) refuses every such code it
+    knows at once, so this clock is a backstop.  Deliberately NOT a
+    ValueError: the decoder's embedding search catches ValueError (and its
+    own EmbeddingError) while it backtracks, and would swallow it.
+    ``toolkit_clock``: the guard passes it on wherever it catches (round 4b,
+    2026-10-20), so it leaves the guard exactly as it left the decoder."""
+    toolkit_clock = True
+
+
+def set_decode_timeout(seconds: Optional[float]) -> None:
+    """Set the decoder's time limit in seconds; 0 or None removes it."""
+    global _DECODE_TIMEOUT
+    _DECODE_TIMEOUT = float(seconds) if seconds else None
+
+
+def _decode_time_limit() -> Any:
+    """A context manager that stops the block with DecodeTimeout after
+    ``_DECODE_TIMEOUT`` seconds of wall-clock time.
+
+    SIGALRM, which POSIX delivers to the main thread only, so this is a no-op
+    in a worker thread, on a platform without SIGALRM, and with no limit set.
+    It only helps where the block is in Python: a signal handler never runs
+    while SnapPy's C kernel loops, which is why ``manifold_would_hang`` exists.
+    The timer re-fires every second until the block ends, in case something
+    on the way out swallows the first exception.  The clock is this module's
+    ``_AlarmClock`` (see there; ``refire=1.0``), or a ``_NoClock`` where no
+    clock can run; either is also this thread's last lookup clock, so a
+    caller can tell a decode the clock cut short (``_decode_cut_short``).
+    (Until 1.3 find_link_in_snappy.py carried its own copy of the same
+    clock, round 4c.)"""
+    import threading
+
+    signal = signal_mod()
+    limit = _DECODE_TIMEOUT
+    if (not limit or signal is None or not hasattr(signal, "SIGALRM")
+            or threading.current_thread() is not threading.main_thread()):
+        _LOOKUP_THREAD.clock = _NoClock()
+        return _LOOKUP_THREAD.clock
+
+    def timeout() -> DecodeTimeout:
+        return DecodeTimeout(
+            "spherogram's DT decoder did not finish within {:g} s; it does not "
+            "terminate on some well-formed DT codes, realisable ones included "
+            "('DT: [(8,6,2,4)]', a kinked trefoil, is the smallest known), so this "
+            "says nothing about the code itself (give its flip vector, or raise or "
+            "remove the limit with --timeout to wait longer)".format(limit))
+    _LOOKUP_THREAD.clock = _AlarmClock(limit, signal, timeout, refire=1.0)
+    return _LOOKUP_THREAD.clock
+
+
+def _thread_local() -> Any:
+    import threading
+    return threading.local()
+
+
+_LOOKUP_THREAD = _thread_local()    # the clock _decode_time_limit made last, per thread
+
+
+def _decode_cut_short(exc: BaseException) -> Optional[BaseException]:
+    """The DecodeTimeout of a decode the --timeout clock cut short, or None:
+    ``exc`` itself when it is one, else the timeout the clock this thread
+    made last (the one around the block that raised ``exc``) raised -- also
+    when spherogram turned it into another exception on the way out (round
+    4c, 2026-10-20)."""
+    if isinstance(exc, DecodeTimeout):
+        return exc
+    return getattr(getattr(_LOOKUP_THREAD, "clock", None), "fired", None)
+
+
+# The two DT spellings snappy.Manifold(spec) and spherogram's Link(spec) decode
+# themselves, with spherogram's DTcodec (the patterns of both constructors):
+# numeric with an optional flip vector, and alphabetical with optional '.flips'.
+_MANIFOLD_NUMERIC_DT = re.compile(r"DT[:]? *(\[[0-9, \-\(\)]+\](?: *, *\[[01, ]+\])?)$")
+_MANIFOLD_ALPHA_DT = re.compile(r"DT[:\[] *([a-zA-Z]+(?:\.[01]+)?)[\]]?$")
+
+
+def _spec_dt_code(spec: str) -> Tuple[Optional[Tuple[Any, ...]], Optional[List[Tuple[int, ...]]]]:
+    """(the arguments snappy.Manifold(spec) / Link(spec) hand to spherogram's
+    DTcodec, the code's components), or (None, None) when ``spec`` is not a DT
+    code they decode themselves (a name, a file, other text) or when DTcodec
+    would refuse it at once.  Mirrors the constructors' own reading."""
+    m = _MANIFOLD_NUMERIC_DT.match(spec)
+    if m:
+        try:
+            code = ast.literal_eval(m.group(1))
+        except Exception:
+            return None, None
+        if isinstance(code, tuple):                    # (code, flips)
+            if len(code) != 2:
+                return None, None
+            args: Tuple[Any, ...] = tuple(code)
+            comps = code[0]
+        elif isinstance(code, list) and not code:
+            return None, None                          # '[ ]': refused at once
+        elif isinstance(code, list) and isinstance(code[0], int):
+            comps = [tuple(code)]                      # a flat list: one component
+            args = (comps,)
+        else:
+            comps = code
+            args = (code,)
+        try:
+            comps = [tuple(int(v) for v in comp) for comp in comps]
+        except Exception:
+            return None, None
+        return args, comps
+    m = _MANIFOLD_ALPHA_DT.match(spec)
+    if m:
+        try:
+            from spherogram.codecs.DT import DTcodec  # type: ignore
+            comps = DTcodec(None).convert_alpha(m.group(1).split(".")[0])
+        except Exception:
+            return None, None
+        return (m.group(1),), [tuple(int(v) for v in comp) for comp in comps]
+    return None, None
+
+
+def dt_kink(comps: List[Tuple[int, ...]]) -> Optional[str]:
+    """A crossing whose two visits are consecutive along one component (a
+    kink, Reidemeister I loop), described, or None."""
+    start = 1
+    for comp in comps:
+        end = start + 2 * len(comp) - 1
+        for k, even in enumerate(comp):
+            odd, even = start + 2 * k, abs(int(even))
+            if start <= even <= end and (abs(odd - even) == 1 or {odd, even} == {start, end}):
+                return "the crossing of labels {} and {} is a kink".format(odd, even)
+        start = end + 1
+    return None
+
+
+def manifold_would_hang(spec: str) -> Optional[str]:
+    """Why snappy.Manifold(spec) would not return, or None.
+
+    It never returns on a DT code with a kink once spherogram's DTcodec has
+    decoded it: it then loops in SnapPy's C kernel, where no signal reaches
+    it.  Measured on 700 bare codes: kinked and decoded 199 / 199 hung;
+    kinked and refused by the decoder 201 / 201 raised at once (Manifold(spec)
+    stops in that same decoder, so it is still called, for its own error);
+    kink-free 300 / 300 built.  The decoder is run here (only for a kinked
+    code) under the --timeout clock; if it does not finish, Manifold(spec)
+    would stall in it too, so that is a reason as well."""
+    args, comps = _spec_dt_code(spec)
+    kink = dt_kink(comps) if comps else None
+    if kink is None:
+        return None
+    try:
+        from spherogram.codecs.DT import DTcodec  # type: ignore
+        with _decode_time_limit():
+            DTcodec(*args).KLPProjection()
+    except Exception as exc:
+        # round 4c (2026-10-20): a decode the clock cut short is a timeout,
+        # whatever it turned into on the way out
+        cut = _decode_cut_short(exc)
+        if cut is not None:
+            return "{} (SnapPy reads the code with that decoder)".format(safe_str(cut))
+        return None
+    return ("{}, and snappy.Manifold never returns on a kinked DT code that "
+            "spherogram's decoder reads (it loops in SnapPy's C kernel)".format(kink))
+
+
+def _empty_components(comps: Optional[List[Tuple[int, ...]]]) -> List[int]:
+    """1-based positions of the empty components ('()') of ``comps``."""
+    return [i for i, comp in enumerate(comps or (), start=1) if not len(comp)]
+
+
+def _empty_component_text(empty: List[int]) -> str:
+    """'component 2 of the DT code is empty' / 'components 1 and 3 of ...'."""
+    if len(empty) == 1:
+        return "component {} of the DT code is empty".format(empty[0])
+    return "components {} and {} of the DT code are empty".format(
+        ", ".join(str(i) for i in empty[:-1]), empty[-1])
+
+
+def manifold_would_crash(spec: str) -> Optional[Tuple[str, bool]]:
+    """(why snappy.Manifold(spec) must not be called, whether it would CRASH
+    the process), or None (round 4d, 2026-10-20).
+
+    spherogram's DT decoder skips an empty component ('()'): Link(spec) reads
+    'DT: [(4,6,2), ()]' as the trefoil.  snappy.Manifold(spec) decodes the
+    spec with that decoder too, but then dies in SnapPy's C kernel
+    (triangulate_link_complement) of SIGSEGV, which killed the whole run: no
+    TSV, the other queries' rows lost.  Measured (round 4d) on 769 specs with
+    an empty component, each in its own process: Manifold(spec) crashed
+    (SIGSEGV) on all 198 whose KLPProjection spherogram builds and that have
+    no kink (112 kinked ones it never returns on: ``manifold_would_hang``),
+    and raised the decoder's own error at once on all 459 the decoder refuses
+    -- so it is still called there, for that error, exactly as before.  A
+    code whose components are ALL empty ('DT: [()]') is refused by the
+    decoder and is left to it.  The decode runs under the --timeout clock
+    (the decoder has already finished on this code in the query, so it is
+    quick); a decode the clock cuts short is a timeout (crash False), as in
+    ``manifold_would_hang``."""
+    args, comps = _spec_dt_code(spec)
+    empty = _empty_components(comps)
+    if args is None or not empty or len(empty) == len(comps or ()):
+        return None
+    try:
+        from spherogram.codecs.DT import DTcodec  # type: ignore
+        with _decode_time_limit():
+            DTcodec(*args).KLPProjection()
+    except Exception as exc:
+        cut = _decode_cut_short(exc)
+        if cut is not None:
+            return "{} (SnapPy reads the code with that decoder)".format(safe_str(cut)), False
+        return None
+    return ("{}, and snappy.Manifold kills the process on a DT code with an "
+            "empty component (SIGSEGV in SnapPy's C kernel)".format(_empty_component_text(empty))), True
+
+
+def _empty_component_error(spec: str) -> ValueError:
+    """The parse_error of a query whose Manifold(spec) was not called because
+    it would crash (round 4d): what is wrong, and the code to look up."""
+    _args, comps = _spec_dt_code(spec)
+    empty = _empty_components(comps)
+    kept = [comp for comp in comps or () if len(comp)]
+    return ValueError(
+        "{}: snappy.Manifold kills the process on a DT code with an empty "
+        "component (SIGSEGV in SnapPy's C kernel; spherogram's DT decoder reads "
+        "the code without it), so it was not called; drop the empty component{} "
+        "and look up '{}'".format(_empty_component_text(empty), "s" if len(empty) > 1 else "",
+                                  format_numeric_dt(kept)))
+
+
+def _decoder_finishes(args: Tuple[Any, ...]) -> Optional[str]:
+    """None when spherogram's DTcodec(*args) finishes (decodes or raises)
+    within the --timeout clock, else the DecodeTimeout text."""
+    try:
+        from spherogram.codecs.DT import DTcodec  # type: ignore
+        with _decode_time_limit():
+            DTcodec(*args)
+    except Exception as exc:
+        cut = _decode_cut_short(exc)        # round 4c: cut short = a timeout
+        if cut is not None:
+            return safe_str(cut)
+    return None
+
+
+def _no_diagram_reason(raw_dt: str) -> Optional[str]:
+    """no_diagram_reason of a bare numeric DT query, read exactly as
+    Link(spec) reads it, or None (realisable, alphabetical or unreadable: the
+    old path decides)."""
+    try:
+        for spec in candidate_specs(raw_dt):
+            _args, comps = _spec_dt_code(spec)
+            if comps:
+                return no_diagram_reason(comps)
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
+def build_link_and_manifold(raw_dt: str, snappy: Any, Link: Any) -> Tuple[Any, Any]:
+    """Build a Spherogram/SnapPy Link and a SnapPy Manifold from a DT input.
+
+    Hang guards (they change only what used to hang; see find_link's
+    docstring): Link(spec) runs under the --timeout clock (spherogram's
+    decoder stalls on some well-formed codes, realisable kinked ones included,
+    in Python; this module's guard on the decoder refuses every such code it
+    knows at once, so the clock is a backstop); snappy.Manifold(spec)
+    is not called where it would never return (``manifold_would_hang``: a
+    kinked DT code spherogram decodes) nor on a code the decoder has already
+    stalled on, and where nothing in this query has run the decoder on its
+    code yet, the decoder is first run alone under the clock.  The manifold
+    then comes from the link's exterior when spherogram can build the link,
+    as for any spec Manifold refuses."""
+    link = None
+    manifold = None
+    errors = []
+    stalled: Dict[str, str] = {}     # decoded code -> the spec it stalled on
+    finished: Set[str] = set()       # decoded codes the decoder finished on
+    crashed: Optional[str] = None    # round 4d: a spec Manifold would have crashed on
+
+    for spec in candidate_specs(raw_dt):
+        args, comps = _spec_dt_code(spec)
+        code = None if args is None else repr(args)
+        if link is None:
+            if code is not None and code in stalled:
+                errors.append("Link({!r}): not called -- the same code as {!r}, on which "
+                              "spherogram's DT decoder did not finish".format(spec, stalled[code]))
+            else:
+                try:
+                    with _decode_time_limit():
+                        link = Link(spec)
+                except Exception as exc:
+                    # round 4c (2026-10-20): a decode the clock cut short is a
+                    # timeout, whatever it turned into on the way out
+                    cut = _decode_cut_short(exc)
+                    if cut is not None:
+                        if link is None:             # (not a clock firing just after a success)
+                            if code is not None:
+                                stalled[code] = spec
+                            errors.append("Link({!r}): {}".format(spec, safe_str(cut)))
+                    else:
+                        errors.append("Link({!r}): {}".format(spec, safe_str(exc)))
+                if code is not None and code not in stalled:
+                    finished.add(code)
+        if manifold is None:
+            why = None
+            if code is not None and code in stalled:
+                why = ("spherogram's DT decoder did not finish on {} above, and SnapPy "
+                       "reads it with that decoder".format(
+                           "it" if stalled[code] == spec else "the same code, as {!r},".format(stalled[code])))
+            elif code is not None and code not in finished:
+                why = _decoder_finishes(args)
+                if why is None:
+                    finished.add(code)
+                else:
+                    stalled[code] = spec
+                    why += " (SnapPy reads the code with that decoder)"
+            if why is None:
+                why = manifold_would_hang(spec)
+            if why is None:
+                # round 4d (2026-10-20): it would kill the process (SIGSEGV)
+                crash = manifold_would_crash(spec)
+                if crash is not None:
+                    why = crash[0]
+                    if crash[1] and crashed is None:
+                        crashed = spec
+            if why is not None:
+                errors.append("Manifold({!r}): not called -- {}".format(spec, why))
+            else:
+                try:
+                    manifold = snappy.Manifold(spec)
+                except Exception as exc:
+                    errors.append("Manifold({!r}): {}".format(spec, safe_str(exc)))
+        if link is not None and manifold is not None:
+            break
+
+    if manifold is None and crashed is not None:
+        # round 4d (2026-10-20): one parse_error row naming the empty component
+        # (the query took the whole run down before), whatever Link(spec) gave
+        raise _empty_component_error(crashed)
+
+    if manifold is None and link is not None:
+        try:
+            manifold = link.exterior()
+        except Exception as exc:
+            errors.append("link.exterior(): {}".format(safe_str(exc)))
+
+    if link is None and manifold is not None:
+        try:
+            link = manifold.link()
+        except Exception:
+            pass
+
+    if link is None and manifold is None:
+        raise ValueError("Could not parse DT input. " + " | ".join(errors[:6]))
+
+    return link, manifold
+
+
+def call_dt_code(obj: Any, alpha: bool = False, flips: bool = False) -> Any:
+    """Call DT_code across SnapPy/Spherogram API variants."""
+    if obj is None:
+        raise ValueError("No object available")
+
+    call_patterns = [
+        ({"alpha": alpha, "flips": flips}, None),
+        ({"DT_alpha": alpha, "flips": flips}, None),
+        ({}, (alpha, flips)),
+    ]
+    last_error = None
+    for kwargs, args in call_patterns:
+        try:
+            if args is None:
+                return obj.DT_code(**kwargs)
+            return obj.DT_code(*args)
+        except TypeError as exc:
+            last_error = exc
+    raise last_error if last_error is not None else ValueError("DT_code failed")
+
+
+def normalize_alpha_dt(value: Any) -> str:
+    """Normalize alphabetic DT strings for comparison."""
+    if value is None:
+        return ""
+    text = safe_str(value).replace(" ", "")
+    if text.startswith("DT:"):
+        text = text[3:]
+    if text.startswith("DT[") and text.endswith("]"):
+        text = text[3:-1]
+    if text.startswith("[") and text.endswith("]") and re.match(r"^[A-Za-z.0-9]+$", text[1:-1]):
+        text = text[1:-1]
+    return text
+
+
+def to_python_dt(value: Any) -> Any:
+    """Convert a DT-code-like object or string to Python containers when possible."""
+    if isinstance(value, str):
+        text = value.strip()
+        if text.startswith("DT:"):
+            text = text[3:].strip()
+        if text.startswith("DT["):
+            return None
+        try:
+            return ast.literal_eval(text)
+        except Exception:
+            return None
+    return value
+
+
+def numeric_dt_components(value: Any) -> Optional[List[Tuple[int, ...]]]:
+    """Return numeric DT components as tuples, or None if unavailable."""
+    value = to_python_dt(value)
+    if value is None:
+        return None
+
+    # DT_code(flips=True) sometimes returns (dt_code, flips). Keep only dt_code.
+    if (
+        isinstance(value, tuple)
+        and len(value) == 2
+        and isinstance(value[0], (list, tuple))
+        and isinstance(value[1], (list, tuple))
+    ):
+        value = value[0]
+
+    if isinstance(value, tuple):
+        value = list(value)
+
+    if not isinstance(value, list):
+        return None
+
+    if all(isinstance(item, int) for item in value):
+        return [tuple(int(item) for item in value)]
+
+    components = []
+    for component in value:
+        if not isinstance(component, (list, tuple)):
+            return None
+        try:
+            components.append(tuple(int(item) for item in component))
+        except Exception:
+            return None
+    return components
+
+
+def numeric_dt_key(value: Any, absolute: bool = False, unordered_components: bool = False) -> str:
+    components = numeric_dt_components(value)
+    if components is None:
+        return ""
+
+    normalized = []
+    for component in components:
+        if absolute:
+            normalized.append(tuple(abs(item) for item in component))
+        else:
+            normalized.append(tuple(component))
+
+    if unordered_components:
+        normalized = sorted(normalized)
+
+    return repr(tuple(normalized)).replace(" ", "")
+
+
+def get_dt_strings(obj: Any) -> Tuple[str, str]:
+    """Return display strings: alpha DT with flips, and numeric DT."""
+    alpha_flips = ""
+    numeric = ""
+    try:
+        alpha_flips = normalize_alpha_dt(call_dt_code(obj, alpha=True, flips=True))
+    except Exception:
+        pass
+    try:
+        numeric = safe_str(call_dt_code(obj, alpha=False, flips=False))
+    except Exception:
+        pass
+    return alpha_flips, numeric
+
+
+def collect_target_keys(link: Any, manifold: Any, extra: Iterable[Any] = ()) -> Dict[str, Set[str]]:
+    """Collect comparable DT keys from both Link and Manifold objects (and
+    ``extra`` ones: other spellings of the same diagram, e.g. its twin)."""
+    keys = {"alpha": set(), "numeric": set(), "numeric_abs": set()}
+    for obj in [link, manifold] + list(extra):
+        if obj is None:
+            continue
+        try:
+            keys["alpha"].add(normalize_alpha_dt(call_dt_code(obj, alpha=True, flips=True)))
+        except Exception:
+            pass
+        try:
+            numeric = call_dt_code(obj, alpha=False, flips=False)
+            keys["numeric"].add(numeric_dt_key(numeric, absolute=False, unordered_components=False))
+            keys["numeric_abs"].add(numeric_dt_key(numeric, absolute=True, unordered_components=True))
+        except Exception:
+            pass
+
+    for key in list(keys.keys()):
+        keys[key] = set(item for item in keys[key] if item)
+    return keys
+
+
+def get_crossing_count(link: Any, manifold: Any) -> Optional[int]:
+    if link is not None:
+        try:
+            return len(link.crossings)
+        except Exception:
+            pass
+    for obj in [link, manifold]:
+        try:
+            components = numeric_dt_components(call_dt_code(obj, alpha=False, flips=False))
+            if components is not None:
+                return sum(len(component) for component in components)
+        except Exception:
+            pass
+    return None
+
+
+def get_component_count(link: Any, manifold: Any) -> Optional[int]:
+    if link is not None:
+        try:
+            return len(link.link_components)
+        except Exception:
+            pass
+    if manifold is not None:
+        try:
+            return int(manifold.num_cusps())
+        except Exception:
+            pass
+    return None
+
+
+def database_tables(snappy: Any, database: str, crossings: Optional[int], components: Optional[int]) -> List[Tuple[str, Any]]:
+    """Return filtered database iterators where possible."""
+    names = ["ht", "rolfsen"] if database == "all" else [database]
+    tables = []
+
+    for name in names:
+        if name == "ht":
+            base = snappy.HTLinkExteriors
+            display_name = "HTLinkExteriors"
+            kwargs: Dict[str, Any] = {}
+            if crossings is not None:
+                kwargs["crossings"] = crossings
+            if components is not None:
+                kwargs["knots_vs_links"] = "knots" if components == 1 else "links"
+        elif name == "rolfsen":
+            base = snappy.LinkExteriors
+            display_name = "LinkExteriors"
+            kwargs = {}
+            if crossings is not None:
+                kwargs["crossings"] = crossings
+            if components is not None:
+                kwargs["num_cusps"] = components
+        else:
+            continue
+
+        try:
+            table = base(**kwargs)
+        except Exception:
+            table = base
+        tables.append((display_name, table))
+
+    return tables
+
+
+def unfiltered_database_table(snappy: Any, display_name: str) -> Any:
+    if display_name == "HTLinkExteriors":
+        return snappy.HTLinkExteriors
+    if display_name == "LinkExteriors":
+        return snappy.LinkExteriors
+    raise ValueError("Unknown database display name: {}".format(display_name))
+
+
+def match_name(obj: Any) -> str:
+    try:
+        return safe_str(obj.name())
+    except Exception:
+        return safe_str(obj)
+
+
+def row_for_match(
+    label: str,
+    raw_dt: str,
+    database: str,
+    method: str,
+    match: Any,
+    input_alpha: str,
+    input_numeric: str,
+    crossings: Optional[int],
+    components: Optional[int],
+    message: str = "",
+) -> Dict[str, str]:
+    match_alpha, match_numeric = get_dt_strings(match)
+    row = {field: "" for field in FIELDNAMES}
+    row.update(
+        {
+            "label": label,
+            "input": raw_dt,
+            "status": "matched",
+            "database": database,
+            "method": method,
+            "match_name": match_name(match),
+            "match_dt_alpha_flips": match_alpha,
+            "match_dt_numeric": match_numeric,
+            "input_dt_alpha_flips": input_alpha,
+            "input_dt_numeric": input_numeric,
+            "input_crossings": safe_str(crossings),
+            "input_components": safe_str(components),
+            "message": message,
+        }
+    )
+    return row
+
+
+# ---------------------------------------------------------------------------
+# Verifying loose candidates (2026-10-19)
+# ---------------------------------------------------------------------------
+
+def _jones_class(comps: Any, flips: Any) -> Tuple[int, ...]:
+    """The Jones polynomial of (DT code, flip vector) as its coefficient list,
+    shifted to start at exponent 0 and read in the smaller of the two
+    directions: invariant under mirror image (t -> 1/t) and under reversing
+    components (a monomial factor), so two links with different classes are
+    different links even up to mirror image and orientation."""
+    poly = jones_polynomial(oriented_pd(Diagram(comps, flips)))
+    poly = {e: c for e, c in poly.items() if c}
+    lo, hi = min(poly), max(poly)
+    coeffs = tuple(poly.get(e, 0) for e in range(lo, hi + 1))
+    return min(coeffs, coeffs[::-1])
+
+
+def _link_jones_class(link: Any) -> Tuple[int, ...]:
+    comps, flips = link_to_dt(link)
+    return _jones_class(comps, flips)
+
+
+def _is_hyperbolic(manifold: Any) -> bool:
+    try:
+        return manifold.solution_type() == "all tetrahedra positively oriented"
+    except Exception:
+        return False
+
+
+def make_loose_verifier(link: Any, manifold: Any, given: Optional[Tuple[Any, Any]] = None) -> Any:
+    """verify(candidate) -> (True | False | None, reason) for a loose match.
+
+    False when the candidate is provably another link: a different number of
+    components; hyperbolic exteriors of different volume, or isometric with no
+    isometry taking meridians to meridians, or not isometric at all; or Jones
+    polynomials that differ even up to mirror image and orientation.  True
+    when it is the input's link up to mirror image: an isometry of hyperbolic
+    exteriors taking meridians to meridians, or -- where that cannot be
+    decided -- equal Jones polynomials up to mirror image and orientation
+    (not a proof; the only test for a non-hyperbolic link).  None when
+    neither test decides.  ``given`` = (comps, flips) of a flips input, whose
+    Jones polynomial is then computed from that realisation itself."""
+    state: Dict[str, Any] = {}
+
+    def input_jones() -> Any:
+        if "jones" not in state:
+            try:
+                state["jones"] = (_jones_class(*given) if given is not None
+                                  else _link_jones_class(link) if link is not None else None)
+            except Exception as exc:
+                state["jones"] = None
+                state["jones_error"] = safe_str(exc)[:120]
+        return state["jones"]
+
+    def verify(candidate: Any) -> Tuple[Optional[bool], str]:
+        components = get_component_count(link, manifold)
+        try:
+            cand_components = int(candidate.num_cusps())
+        except Exception:
+            cand_components = None
+        if components is not None and cand_components is not None and components != cand_components:
+            return False, "{} component(s), not {}".format(cand_components, components)
+        if manifold is not None and _is_hyperbolic(manifold) and _is_hyperbolic(candidate):
+            try:
+                if abs(float(manifold.volume()) - float(candidate.volume())) > 1e-6:
+                    return False, "the exteriors' hyperbolic volumes differ"
+                isometries = candidate.is_isometric_to(manifold, return_isometries=True)
+                if any(iso.extends_to_link() for iso in isometries):
+                    return True, "an isometry of the exteriors takes meridians to meridians"
+                if isometries:
+                    return False, "the exteriors are isometric, but no isometry takes meridians to meridians"
+                return False, "SnapPy finds the exteriors not isometric"
+            except Exception:
+                pass
+        mine = input_jones()
+        try:
+            theirs: Any = _link_jones_class(candidate.link())
+        except Exception as exc:
+            theirs, their_error = None, safe_str(exc)[:120]
+        if mine is None or theirs is None:
+            detail = state.get("jones_error") if mine is None else their_error
+            return None, ("neither a meridian-preserving isometry nor the Jones polynomial "
+                          "could decide it" + (" ({})".format(detail) if detail else ""))
+        if mine != theirs:
+            return False, "the Jones polynomials differ, even up to mirror image and orientation"
+        return True, "the Jones polynomials agree up to mirror image and orientation"
+
+    return verify
+
+
+def scan_table_by_dt(
+    table: Any,
+    database_name: str,
+    target_keys: Dict[str, Set[str]],
+    label: str,
+    raw_dt: str,
+    input_alpha: str,
+    input_numeric: str,
+    crossings: Optional[int],
+    components: Optional[int],
+    allow_loose: bool,
+    max_matches: int,
+    verify_loose: Any = None,
+    rejected: Optional[List[str]] = None,
+) -> List[Dict[str, str]]:
+    """Search a table by exact alpha/numeric DT, then optional loose numeric DT.
+
+    With ``verify_loose`` (``make_loose_verifier``) a loose candidate is
+    reported as matched only when it is confirmed; a refuted one is left out
+    (its name and the reason go to ``rejected``) and an undecided one becomes
+    an 'unconfirmed' row.  Loose candidates are not verified once an exact row
+    has been found or ``max_matches`` loose rows are kept: those rows would be
+    discarded anyway."""
+    alpha_rows = []
+    numeric_rows = []
+    loose_rows = []
+    seen_names: Set[str] = set()
+
+    for candidate in table:
+        name = match_name(candidate)
+        if name in seen_names:
+            continue
+
+        try:
+            cand_alpha_raw = call_dt_code(candidate, alpha=True, flips=True)
+            cand_alpha = normalize_alpha_dt(cand_alpha_raw)
+        except Exception:
+            cand_alpha = ""
+
+        try:
+            cand_numeric_raw = call_dt_code(candidate, alpha=False, flips=False)
+        except Exception:
+            cand_numeric_raw = None
+
+        cand_numeric = numeric_dt_key(cand_numeric_raw, absolute=False, unordered_components=False)
+        cand_numeric_abs = numeric_dt_key(cand_numeric_raw, absolute=True, unordered_components=True)
+
+        method = ""
+        message = ""
+        if cand_alpha and cand_alpha in target_keys["alpha"]:
+            method = "exact_alpha_dt_with_flips"
+        elif cand_numeric and cand_numeric in target_keys["numeric"]:
+            method = "exact_numeric_dt"
+        elif allow_loose and cand_numeric_abs and cand_numeric_abs in target_keys["numeric_abs"]:
+            method = "loose_abs_numeric_dt"
+            message = "Loose fallback: ignores DT signs and component order; may include mirror/convention matches."
+
+        if not method:
+            continue
+
+        status = "matched"
+        if (method == "loose_abs_numeric_dt" and verify_loose is not None
+                and not alpha_rows and not numeric_rows and len(loose_rows) < max_matches):
+            ok, why = verify_loose(candidate)
+            if ok is False:
+                if rejected is not None:
+                    rejected.append("{} ({})".format(name, why))
+                seen_names.add(name)
+                continue
+            if ok is None:
+                status = "unconfirmed"
+                message = "Loose candidate, not confirmed: same unsigned DT code, but {}.".format(why)
+
+        row = row_for_match(
+            label=label,
+            raw_dt=raw_dt,
+            database=database_name,
+            method=method,
+            match=candidate,
+            input_alpha=input_alpha,
+            input_numeric=input_numeric,
+            crossings=crossings,
+            components=components,
+            message=message,
+        )
+        row["status"] = status
+        seen_names.add(name)
+        if method == "exact_alpha_dt_with_flips":
+            alpha_rows.append(row)
+        elif method == "exact_numeric_dt":
+            numeric_rows.append(row)
+        elif method.startswith("loose"):
+            loose_rows.append(row)
+
+        if len(alpha_rows) >= max_matches:
+            break
+
+    if alpha_rows:
+        return alpha_rows[:max_matches]
+    if numeric_rows:
+        return numeric_rows[:max_matches]
+    return loose_rows[:max_matches]
+
+
+def identify_matches(table: Any, manifold: Any) -> List[Any]:
+    """Return SnapPy identify() matches as a list across API variants."""
+    try:
+        result = table.identify(manifold, extends_to_link=True)
+    except TypeError:
+        result = table.identify(manifold)
+    # SnapPy answers "no match" with False, not None.  Until 1.1 that False was
+    # wrapped as a match, giving rows that said "matched False".
+    if result is None or result is False:
+        return []
+    if isinstance(result, (list, tuple)):
+        return [item for item in result if item is not None and item is not False]
+    return [result]
+
+
+def identify_by_exterior(
+    snappy: Any,
+    manifold: Any,
+    tables: List[Tuple[str, Any]],
+    label: str,
+    raw_dt: str,
+    input_alpha: str,
+    input_numeric: str,
+    crossings: Optional[int],
+    components: Optional[int],
+    max_matches: int,
+) -> List[Dict[str, str]]:
+    """Try meridian-preserving database identification by link exterior."""
+    if manifold is None:
+        return []
+
+    rows = []
+    seen = set()
+
+    for database_name, _filtered_table in tables:
+        try:
+            table = unfiltered_database_table(snappy, database_name)
+        except Exception:
+            continue
+
+        for match in identify_matches(table, manifold):
+            key = (database_name, match_name(match))
+            if key in seen:
+                continue
+            seen.add(key)
+
+            rows.append(
+                row_for_match(
+                    label=label,
+                    raw_dt=raw_dt,
+                    database=database_name,
+                    method="exterior_identify_meridian",
+                    match=match,
+                    input_alpha=input_alpha,
+                    input_numeric=input_numeric,
+                    crossings=crossings,
+                    components=components,
+                )
+            )
+            if len(rows) >= max_matches:
+                return rows
+
+    return rows
+
+
+def no_match_row(
+    label: str,
+    raw_dt: str,
+    input_alpha: str,
+    input_numeric: str,
+    crossings: Optional[int],
+    components: Optional[int],
+    message: str,
+) -> Dict[str, str]:
+    row = {field: "" for field in FIELDNAMES}
+    row.update(
+        {
+            "label": label,
+            "input": raw_dt,
+            "status": "not_found",
+            "input_dt_alpha_flips": input_alpha,
+            "input_dt_numeric": input_numeric,
+            "input_crossings": safe_str(crossings),
+            "input_components": safe_str(components),
+            "message": message,
+        }
+    )
+    return row
+
+
+def parse_error_row(label: str, raw_dt: str, error: Exception) -> Dict[str, str]:
+    row = {field: "" for field in FIELDNAMES}
+    row.update(
+        {
+            "label": label,
+            "input": raw_dt,
+            "status": "parse_error",
+            "message": safe_str(error),
+        }
+    )
+    return row
+
+
+def _query_input(raw_dt: str, snappy: Any, Link: Any) -> Tuple[Any, Any, List[Any], Optional[List[bool]], Any]:
+    """(link, manifold, extra, flips, given) of one query, as process_query
+    builds them: a flip vector is split off first and checked before anything
+    is built; a bare code is built exactly as before.  ``extra`` holds the
+    twin of a code with a flip vector (the same diagram seen from the other
+    side of the page), ``given`` its (components, flips).  Raises on anything
+    that cannot be built -- process_query's parse_error row."""
+    extra: List[Any] = []
+    given = None
+    dt_text, flips = split_query(raw_dt)
+    if flips is None:
+        why = _no_diagram_reason(raw_dt)
+        if why is not None:     # spherogram used to "read" it (an illegal vector) and report not_found
+            raise ValueError(why + ", so there is no link to look up; check the code")
+        link, manifold = build_link_and_manifold(raw_dt, snappy, Link)
+    else:
+        given = (parse_numeric_dt(dt_text, flips), flips)
+        link, manifold, twin = build_link_and_manifold_from_flips(*given)
+        if twin is not None:
+            extra.append(twin)
+    return link, manifold, extra, flips, given
+
+
+def process_query(
+    label: str,
+    raw_dt: str,
+    snappy: Any,
+    Link: Any,
+    database: str,
+    allow_loose: bool,
+    max_matches: int,
+) -> List[Dict[str, str]]:
+    try:
+        link, manifold, extra, flips, given = _query_input(raw_dt, snappy, Link)
+    except Exception as exc:
+        return [parse_error_row(label, raw_dt, exc)]
+    # Loose candidates are verified against the input (2026-10-19).
+    verify_loose = make_loose_verifier(link, manifold, given) if allow_loose else None
+    rejected: List[str] = []
+
+    input_alpha = ""
+    input_numeric = ""
+    for obj in [link, manifold]:
+        alpha, numeric = get_dt_strings(obj)
+        if alpha and not input_alpha:
+            input_alpha = alpha
+        if numeric and not input_numeric:
+            input_numeric = numeric
+
+    crossings = get_crossing_count(link, manifold)
+    components = get_component_count(link, manifold)
+    target_keys = collect_target_keys(link, manifold, extra)
+
+    tables = database_tables(snappy, database, crossings, components)
+
+    rows = []
+    seen = set()
+
+    # Exact DT search first: this catches non-hyperbolic knots such as the trefoil.
+    for database_name, table in tables:
+        table_rows = scan_table_by_dt(
+            table=table,
+            database_name=database_name,
+            target_keys=target_keys,
+            label=label,
+            raw_dt=raw_dt,
+            input_alpha=input_alpha,
+            input_numeric=input_numeric,
+            crossings=crossings,
+            components=components,
+            allow_loose=allow_loose,
+            max_matches=max_matches,
+            verify_loose=verify_loose,
+            rejected=rejected,
+        )
+        for row in table_rows:
+            key = (row["database"], row["match_name"], row["method"])
+            if key not in seen:
+                rows.append(row)
+                seen.add(key)
+            if len(rows) >= max_matches:
+                return add_chirality_notes(rows, flips)
+
+    # Exterior identification catches hyperbolic links whose DT presentation differs.
+    id_rows = identify_by_exterior(
+        snappy=snappy,
+        manifold=manifold,
+        tables=tables,
+        label=label,
+        raw_dt=raw_dt,
+        input_alpha=input_alpha,
+        input_numeric=input_numeric,
+        crossings=crossings,
+        components=components,
+        max_matches=max_matches,
+    )
+    for row in id_rows:
+        key = (row["database"], row["match_name"])
+        already = set((r["database"], r["match_name"]) for r in rows if r["status"] == "matched")
+        if key not in already:
+            # (an 'unconfirmed' loose row for the same entry is settled by it)
+            rows = [r for r in rows if (r["database"], r["match_name"]) != key]
+            rows.append(row)
+        if len(rows) >= max_matches:
+            return add_chirality_notes(rows, flips)
+
+    if rows:
+        return add_chirality_notes(rows, flips)
+
+    return [
+        no_match_row(
+            label=label,
+            raw_dt=raw_dt,
+            input_alpha=input_alpha,
+            input_numeric=input_numeric,
+            crossings=crossings,
+            components=components,
+            message=(
+                "No match found. If you used --strict, try without it; otherwise the link may not be in "
+                "the selected database or the DT code may use a different convention."
+            ) + ("" if not rejected else
+                 " Loose candidates with the same unsigned DT code were rejected as different links: "
+                 + "; ".join(rejected) + "."),
+        )
+    ]
+
+
+# ---------------------------------------------------------------------------
+# The converter's two uses of the lookup (1.3): the snappy-match output, and
+# the names of a link whose exterior is not hyperbolic
+# ---------------------------------------------------------------------------
+
+SNAPPY_MATCH_LABEL = "input"        # the label column of snappy-match's rows
+SNAPPY_MATCH_DATABASE = "all"       # find_link_in_snappy.py's defaults:
+SNAPPY_MATCH_MAX = 20               # --database all, --max-matches 20, loose on
+
+
+def lookup_backends():
+    """(snappy, Link) for process_query, picked as find_link_in_snappy.py's
+    import_snappy picks them (snappy.Link, else spherogram's), or a
+    ConversionError saying what is missing.  Loading spherogram installs the
+    guard on its DT decoder (spherogram_mod)."""
+    snappy = snappy_mod()
+    if snappy is None:
+        raise ConversionError("looking a link up in SnapPy's tables needs "
+                              "SnapPy, which is not importable here")
+    missing = [n for n in ("Manifold", "HTLinkExteriors", "LinkExteriors")
+               if not hasattr(snappy, n)]
+    if missing:
+        raise ConversionError(
+            "the imported module named 'snappy' is not the SnapPy topology "
+            "package or is incomplete (missing: %s)" % ", ".join(missing))
+    sg = _need_spherogram("looking a link up in SnapPy's tables")
+    return snappy, (snappy.Link if hasattr(snappy, "Link") else sg.Link)
+
+
+class _LookupClock(object):
+    """Run the lookup with spherogram's decoder under THIS tool's --timeout
+    (set_embed_timeout), and put the lookup's own limit back afterwards."""
+
+    def __enter__(self):
+        self.saved = _DECODE_TIMEOUT
+        set_decode_timeout(_EMBED_TIMEOUT)
+        return self
+
+    def __exit__(self, *_exc_info):
+        global _DECODE_TIMEOUT
+        _DECODE_TIMEOUT = self.saved
+        return False
+
+
+def snappy_query(diagram):
+    """(query, how): the DT code the lookup is given for ``diagram``.
+
+    The BARE code when the diagram's flip vector is spherogram's own reading
+    of that bare code -- the input did not give the chirality, the converter
+    took spherogram's normalisation, and nothing mirrored, mended, simplified
+    or replaced it (``_spherogram_reading``) -- or when no vector is known:
+    find_link_in_snappy.py then reads the code exactly as the converter did,
+    and the rows are the ones it gives for that code.  Otherwise the code with
+    its flip vector, 'DT: [...], [0,1,...]', so that the lookup sees this
+    realisation and no other (a composite code's other realisations are other
+    links)."""
+    bare = fmt_dt(diagram.comps)
+    if diagram.flips is None:
+        return bare, ("the bare code: its chirality is unresolved, so it is "
+                      "read as spherogram reads it")
+    if getattr(diagram, "_spherogram_reading", False):
+        return bare, ("the bare code: the input did not give the chirality, "
+                      "and spherogram reads the bare code as the realisation "
+                      "above")
+    return format_dt_flips(bare, diagram.flips), "this realisation, with its flip vector"
+
+
+def snappy_match_rows(diagram):
+    """find_link_in_snappy.py's rows (process_query with its defaults: every
+    table, the verified loose fallback, at most 20 matches) for ``diagram``,
+    looked up as snappy_query(diagram).  Columns FIELDNAMES."""
+    snappy, Link = lookup_backends()
+    query, _how = snappy_query(diagram)
+    with _LookupClock():
+        return process_query(SNAPPY_MATCH_LABEL, query, snappy, Link,
+                             SNAPPY_MATCH_DATABASE, True, SNAPPY_MATCH_MAX)
+
+
+def snappy_row_summary(row):
+    """One row as one line: find_link_in_snappy.py's summary line without its
+    label, a matched row's message (if it has one) in brackets as well."""
+    note = " (%s)" % row["message"] if row.get("message") else ""
+    if row["status"] in ("matched", "unconfirmed"):
+        return "%s %s in %s by %s%s" % (row["status"], row["match_name"],
+                                        row["database"], row["method"], note)
+    return "%s (%s)" % (row["status"], row["message"])
+
+
+def _exact_dt_candidates(table, target_keys):
+    """The entries of ``table`` -- one of database_tables' SnapPy tables --
+    that an EXACT method can match, built as the table builds them and in the
+    table's own order; or ``table`` itself when its rows cannot be read that
+    way (another SnapPy, another table class).
+
+    Every row stores its link's DT code: the string the built manifold's
+    DT_code(alpha=True, flips=True) returns, whose part before the dot
+    spherogram's convert_alpha decodes to the manifold's DT_code().  A row is
+    skipped only when that code matches neither an alphabetical nor a
+    numeric key of ``target_keys``; a row whose code cannot be decoded is
+    kept.  Measured on every row of both tables (LinkExteriors 1 216 rows,
+    HTLinkExteriors 180 511), the keys read off the stored codes equal the
+    keys of the built manifolds and the rows come in the table's own order,
+    so scan_table_by_dt, given only these entries, finds exactly what it
+    finds in the whole table -- without building the rest (the table
+    filtered to 14-crossing links has 95 991 rows: ~31 s to build them all)."""
+    try:
+        from snappy.database import ManifoldTable  # type: ignore
+        from spherogram.codecs.DT import DTcodec  # type: ignore
+        if type(table).__iter__ is not ManifoldTable.__iter__:
+            return table
+        query = table._select
+        if table._filter:
+            query += " where %s order by id" % table._filter
+        rows = list(table._connection.cursor().execute(query))
+        build = table._manifold_factory
+        decode = DTcodec(None).convert_alpha
+    except Exception:                                            # noqa: BLE001
+        return table
+    alpha, numeric = target_keys["alpha"], target_keys["numeric"]
+
+    def may_match(row):
+        text = row[2] if len(row) > 2 else None
+        if not isinstance(text, str):
+            return True
+        if normalize_alpha_dt(text) in alpha:
+            return True
+        try:
+            key = numeric_dt_key(decode(text.split(".")[0]))
+        except Exception:                                        # noqa: BLE001
+            return True
+        return not key or key in numeric
+
+    return (build(row) for row in rows if may_match(row))
+
+
+def table_names_by_dt(diagram, failure=None):
+    """Names of the entries of SnapPy's Rolfsen (LinkExteriors) and
+    Hoste-Thistlethwaite (HTLinkExteriors) tables that store THIS diagram's DT
+    code: the lookup's two exact methods, exact_alpha_dt_with_flips and
+    exact_numeric_dt, on snappy_query(diagram).  Rolfsen names first, each
+    table in its own order; [] when there are none or anything fails.
+
+    The ``name`` output of a link whose exterior is NOT hyperbolic (1.3):
+    identify() cannot name it, its DT code can -- the trefoil 'DT: [(4,6,2)]'
+    is 3_1 and K3a1.  The lookup's exact scan (scan_table_by_dt, strict) is
+    given only the rows _exact_dt_candidates keeps, so the names are the ones
+    process_query's exact rows give, in seconds rather than minutes.
+
+    When the bare query cannot be built (spherogram's string reader refuses
+    some split codes with a kinked piece: 'PD code isn't consistent') it is
+    tried once more with the diagram's flip vector; only a lookup the CLOCK
+    cut short is reported in ``failure`` (a list), since only then may a table
+    entry that stores the code have been missed (2026-10-21 review)."""
+    try:
+        snappy, Link = lookup_backends()
+    except Exception:                                            # noqa: BLE001
+        return []
+    query, _how = snappy_query(diagram)
+    queries = [query]
+    if diagram.flips is not None:
+        with_flips = format_dt_flips(fmt_dt(diagram.comps), diagram.flips)
+        if with_flips != query:
+            queries.append(with_flips)
+    for query in queries:
+        try:
+            return _table_names_for(query, snappy, Link)
+        except Exception as exc:                                 # noqa: BLE001
+            cut = _decode_cut_short(exc) or (exc if isinstance(exc, DecodeTimeout) else None)
+            if cut is not None:
+                if failure is not None:
+                    failure.append("%s: %s" % (type(cut).__name__, " ".join(str(cut).split())))
+                return []
+    return []
+
+
+def _table_names_for(query, snappy, Link):
+    """table_names_by_dt's lookup of one query text (raises on any failure)."""
+    with _LookupClock():
+        link, manifold, extra, _flips, _given = _query_input(query, snappy, Link)
+        target_keys = collect_target_keys(link, manifold, extra)
+        crossings = get_crossing_count(link, manifold)
+        components = get_component_count(link, manifold)
+        found = {}
+        for database_name, table in database_tables(
+                snappy, SNAPPY_MATCH_DATABASE, crossings, components):
+            rows = scan_table_by_dt(
+                table=_exact_dt_candidates(table, target_keys),
+                database_name=database_name, target_keys=target_keys,
+                label=SNAPPY_MATCH_LABEL, raw_dt=query, input_alpha="",
+                input_numeric="", crossings=crossings, components=components,
+                allow_loose=False, max_matches=SNAPPY_MATCH_MAX)
+            found[database_name] = [r["match_name"] for r in rows
+                                    if r["status"] == "matched"]
+    return found.get("LinkExteriors", []) + found.get("HTLinkExteriors", [])
+
+
+# Every name of the lookup, for find_link_in_snappy.py, which re-exports them
+# (module __getattr__) so that code importing them from it keeps working.
+LOOKUP_NAMES = (
+    "FIELDNAMES", "CHIRALITY_NOTE", "DEFAULT_DECODE_TIMEOUT", "DecodeTimeout",
+    "set_decode_timeout", "split_query", "parse_numeric_dt",
+    "format_numeric_dt", "build_link_and_manifold_from_flips",
+    "add_chirality_notes", "candidate_specs", "safe_str", "dt_kink",
+    "manifold_would_hang", "manifold_would_crash", "build_link_and_manifold",
+    "call_dt_code", "normalize_alpha_dt", "to_python_dt",
+    "numeric_dt_components", "numeric_dt_key", "get_dt_strings",
+    "collect_target_keys", "get_crossing_count", "get_component_count",
+    "database_tables", "unfiltered_database_table", "match_name",
+    "row_for_match", "make_loose_verifier", "scan_table_by_dt",
+    "identify_matches", "identify_by_exterior", "no_match_row",
+    "parse_error_row", "process_query",
+    "_normalise_unicode", "_empty_flips_component_text", "_decode_time_limit",
+    "_decode_cut_short", "_spec_dt_code", "_empty_components",
+    "_empty_component_text", "_empty_component_error", "_decoder_finishes",
+    "_no_diagram_reason", "_jones_class", "_link_jones_class",
+    "_is_hyperbolic", "_query_input",
+)
+
+
+# --------------------------------------------------------------------------- #
 #  6. Input format detection
 # --------------------------------------------------------------------------- #
 _NAME_RE = re.compile(r"""^\s*(?:
@@ -5363,7 +6974,7 @@ def parse_input(text, fmt="auto"):
 # --------------------------------------------------------------------------- #
 # Group names usable anywhere a format name is, including inside a comma list.
 FORMAT_GROUPS = {
-    "all": lambda: list(FORMAT_IDS),
+    "all": lambda: list(ALL_IDS),
     "faithful": lambda: [f["id"] for f in FORMAT_TABLE
                          if f["carries_chirality"]],
     "chiral": lambda: [f["id"] for f in FORMAT_TABLE
@@ -5371,9 +6982,11 @@ FORMAT_GROUPS = {
     "exact": lambda: [f["id"] for f in FORMAT_TABLE
                       if f["carries_chirality"]],
     "codes": lambda: [f["id"] for f in FORMAT_TABLE
-                      if f["id"] not in ("invariants", "isosig", "name")],
+                      if f["id"] not in ("invariants", "isosig", "name")
+                      and f["id"] not in NOT_IN_ALL],
     "notations": lambda: [f["id"] for f in FORMAT_TABLE
-                          if f["id"] not in ("invariants", "isosig", "name")],
+                          if f["id"] not in ("invariants", "isosig", "name")
+                          and f["id"] not in NOT_IN_ALL],
 }
 
 
@@ -5388,7 +7001,7 @@ def resolve_targets(spec):
         spec = "all"
     spec = str(spec).strip()
     if not spec:
-        return list(FORMAT_IDS)
+        return list(ALL_IDS)
     out = []
     for token in re.split(r"[,\s]+", spec):
         if not token:
@@ -5452,6 +7065,9 @@ def convert(diagram, targets):
         except Exception as exc:                                 # noqa: BLE001
             row["error"] = "%s: %s" % (type(exc).__name__, str(exc)[:200])
         row["caveat"] = cache.get("caveats", {}).get(fid)
+        if row["value"] is not None:
+            # 1.3: snappy-match's per-row lines (report) and rows (--json)
+            row.update(cache.get("extras", {}).get(fid, {}))
         out.append(row)
     return out
 
@@ -5813,7 +7429,11 @@ def run_pipeline(args, log=print):
     for r in results:
         if r["error"] is None:
             ok += 1
-            log("%-*s  %s" % (width, r["id"], r["value"]))
+            # snappy-match (1.3): one line per row, the first beside its id
+            lines = r.get("lines") or [r["value"]]
+            log("%-*s  %s" % (width, r["id"], lines[0]))
+            for line in lines[1:]:
+                log("%-*s  %s" % (width, "", line))
         else:
             log("%-*s  (unavailable: %s)" % (width, r["id"], r["error"]))
     log("")
@@ -5845,9 +7465,7 @@ def run_pipeline(args, log=print):
         "crossings": resolved.n, "components": resolved.n_components,
         "alternating": is_alternating_code(resolved.comps),
         "notes": list(resolved.notes),
-        "conversions": [{k: r.get(k) for k in ("id", "title", "value", "error",
-                                               "caveat")}
-                        for r in results],
+        "conversions": [_json_conversion(r) for r in results],
     }
     # Only when asked for, so a default run's JSON is unchanged.
     if polys:
@@ -5871,6 +7489,16 @@ def run_pipeline(args, log=print):
     return 0
 
 
+def _json_conversion(r):
+    """One entry of --json's "conversions": id, title, value, error, caveat --
+    and, for snappy-match only (1.3), its rows with every column
+    (FIELDNAMES), so every other entry is as it was."""
+    out = {k: r.get(k) for k in ("id", "title", "value", "error", "caveat")}
+    if r.get("rows") is not None:
+        out["rows"] = r["rows"]
+    return out
+
+
 def print_formats(log=print):
     log("dt_converter.py %s -- notations it knows\n" % VERSION)
     log("%-12s %-4s %-4s %-6s %s"
@@ -5890,7 +7518,8 @@ def print_formats(log=print):
                f["example"]))
     log("")
     log("Every example above is the SAME diagram -- reproduce the whole column")
-    log("with:  dt_converter.py -i '%s' --to all" % EXAMPLE_DIAGRAM)
+    log("with:  dt_converter.py -i '%s' --to %s"
+        % (EXAMPLE_DIAGRAM, ",".join(("all",) + NOT_IN_ALL)))
     log("")
     log("'chiral' says whether the spelling records the chirality.  A 'no' means")
     log("the code names the link only up to mirror image: converting INTO such a")
@@ -6316,6 +7945,164 @@ def _selftest_clocks(check):
     return 0
 
 
+def _selftest_lookup_pure(check):
+    """The SnapPy-table lookup's parts that need neither spherogram nor SnapPy
+    (section 5d, 1.3): the query reader, the DT-key helpers, the clock's
+    timeout class, the row summary and snappy-match's place among the
+    outputs."""
+    bits = [True, True, False]
+    check("lookup: split_query passes a bare code through untouched",
+          split_query("DT: [(4,6,2)]") == ("DT: [(4,6,2)]", None))
+    check("lookup: split_query reads a flip vector after a numeric code",
+          split_query("DT: [(4, 6, 2)], [1,1,0]") == ("DT: [(4, 6, 2)]", bits))
+    check("lookup: split_query leaves an alphabetical code to the old path",
+          split_query("DT[cacbca.001]") == ("DT[cacbca.001]", None))
+    check("lookup: parse_numeric_dt reads a comma-less one-crossing component "
+          "as a component", parse_numeric_dt("DT: [(-4), (-2)]") == [(-4,), (-2,)])
+    try:
+        parse_numeric_dt("DT: [(4,6,2), ()]", [False, False, True])
+        msg = ""
+    except ValueError as exc:
+        msg = str(exc)
+    check("lookup: an empty component in a code with a vector is named, with "
+          "the code to look up", msg.endswith("drop it and look up "
+                                              "'DT: [(4, 6, 2)], [0,0,1]'"), msg)
+    check("lookup: format_numeric_dt keeps the one-crossing comma",
+          format_numeric_dt([(-4,), (-2,)]) == "DT: [(-4,), (-2,)]")
+    check("lookup: candidate_specs of a prefix-less code",
+          candidate_specs("4,6,2") == ["4,6,2", "DT: 4,6,2", "DT[4,6,2]",
+                                       "DT: [(4,6,2)]"], str(candidate_specs("4,6,2")))
+    check("lookup: dt_kink finds the kink of DT: [(4,8,2,6)] and none in the "
+          "trefoil", dt_kink([(4, 8, 2, 6)]) == "the crossing of labels 7 and 6 "
+          "is a kink" and dt_kink([(4, 6, 2)]) is None, str(dt_kink([(4, 8, 2, 6)])))
+    check("lookup: the DT keys",
+          normalize_alpha_dt("DT[cacbca.001]") == "cacbca.001"
+          and numeric_dt_key("DT: [(4, 6, 2)]") == "((4,6,2),)"
+          and numeric_dt_key([(-6, 8), (-2,)], absolute=True,
+                             unordered_components=True) == "((2,),(6,8))")
+    timeout = DecodeTimeout("x")
+    check("lookup: DecodeTimeout is a toolkit clock's timeout and NOT a "
+          "ValueError", _is_toolkit_clock(timeout)
+          and not isinstance(timeout, ValueError)
+          and _decode_cut_short(timeout) is timeout)
+    saved = _DECODE_TIMEOUT
+    try:
+        set_decode_timeout(0)
+        free = _decode_time_limit()
+        set_decode_timeout(2.5)
+        clock = _decode_time_limit()
+    finally:
+        set_decode_timeout(saved)
+    check("lookup: no limit gives no clock; a limit gives this module's "
+          "_AlarmClock, re-firing every second",
+          isinstance(free, _NoClock) and (
+              not clock_available() or (isinstance(clock, _AlarmClock)
+                                        and clock.limit == 2.5
+                                        and clock.refire == 1.0
+                                        and clock.state == "new")),
+          "%r %r" % (free, clock))
+    check("lookup: FIELDNAMES are find_link_in_snappy.py's 13 columns",
+          FIELDNAMES[:3] == ["label", "input", "status"] and len(FIELDNAMES) == 13
+          and FIELDNAMES[-1] == "message")
+    rows = [dict(status="matched", match_name="3_1", database="LinkExteriors",
+                 method="exact_numeric_dt", message=""),
+            dict(status="unconfirmed", match_name="5_1", database="LinkExteriors",
+                 method="loose_abs_numeric_dt", message="why"),
+            dict(status="not_found", message="No match found.")]
+    check("lookup: one summary line per row",
+          [snappy_row_summary(r) for r in rows]
+          == ["matched 3_1 in LinkExteriors by exact_numeric_dt",
+              "unconfirmed 5_1 in LinkExteriors by loose_abs_numeric_dt (why)",
+              "not_found (No match found.)"])
+    check("lookup: snappy-match is an output, never part of all / codes / "
+          "an empty --to",
+          "snappy-match" in FORMAT_IDS and "snappy-match" not in resolve_targets("all")
+          and "snappy-match" not in resolve_targets("")
+          and "snappy-match" not in resolve_targets("codes")
+          and resolve_targets("all,find-link")[-1] == "snappy-match"
+          and FORMATS["snappy-match"]["parse"] is None)
+    d = Diagram([(4, 6, 2)], [False, False, True])
+    read = Diagram([(4, 6, 2)], [False, False, True])
+    read._spherogram_reading = True
+    check("lookup: snappy_query looks a realisation up with its vector, "
+          "spherogram's own reading and an unresolved code bare",
+          snappy_query(d)[0] == "DT: [(4, 6, 2)], [0,0,1]"
+          and snappy_query(read)[0] == "DT: [(4, 6, 2)]"
+          and snappy_query(Diagram([(4, 6, 2)]))[0] == "DT: [(4, 6, 2)]"
+          and snappy_query(read.mirror())[0] == "DT: [(-4, -6, -2)], [0,0,1]")
+
+
+def _selftest_lookup_tables(check):
+    """Section 13 (1.3): the lookup against SnapPy's tables.  Returns the
+    number of checks skipped (no SnapPy)."""
+    try:
+        snappy, Link = lookup_backends()
+    except ConversionError:
+        return 9
+    tref = "DT: [(4,6,2)]"
+    rows = process_query("q", tref, snappy, Link, "all", True, 20)
+    check("lookup: the trefoil is K3a1 (exact alphabetical) and 3_1 (exact "
+          "numeric), as find_link gives it",
+          [(r["status"], r["database"], r["match_name"], r["method"]) for r in rows]
+          == [("matched", "HTLinkExteriors", "K3a1", "exact_alpha_dt_with_flips"),
+              ("matched", "LinkExteriors", "3_1", "exact_numeric_dt")]
+          and all(list(r) == FIELDNAMES for r in rows), str(rows)[:200])
+    rows = process_query("q", "DT: [(4, 6, 2)], [1,1,0]", snappy, Link,
+                         "rolfsen", True, 20)
+    check("lookup: with a flip vector, the twin's alphabetical code matches "
+          "Rolfsen's 3_1 exactly, chirality compared",
+          [(r["match_name"], r["method"], r["message"]) for r in rows]
+          == [("3_1", "exact_alpha_dt_with_flips", "")], str(rows)[:200])
+    rows = process_query("q", "DT: [(4,6,8,10,2)]", snappy, Link, "rolfsen", True, 20)
+    check("lookup: a code no diagram has is one parse_error row in the one "
+          "no-diagram wording",
+          [r["status"] for r in rows] == ["parse_error"]
+          and rows[0]["message"] == NO_DIAGRAM_TEXT + ", so there is no link to "
+          "look up; check the code", str(rows)[:200])
+
+    def name_of(text, *more):
+        d = parse_input(text)[0].with_flips_resolved()
+        for step in more:
+            d = step(d)
+        return _emit_name(d, {})
+    got = [name_of("DT: [(4,6,2)]"), name_of("DT: [(6,8,10,2,4)]"),
+           name_of("DT: [(-6,-8),(-4,-2)]")]
+    check("lookup: names of links whose exterior is not hyperbolic, from the "
+          "tables' own DT codes (3_1, 5_1 -- K5a2 in HT's numbering --, the "
+          "(2,4) torus link)",
+          got == ["3_1, K3a1", "5_1, K5a2", "4^2_1, L4a1"], str(got))
+    check("lookup: ... up to mirror image: the mirrored trefoil is named the same",
+          name_of("DT: [(4,6,2)]", Diagram.mirror) == "3_1, K3a1")
+    bor = name_of("DT: [(-12,-10),(-4,-2),(-8,-6)]")
+    check("lookup: a hyperbolic link's name is unchanged (the Borromean rings)",
+          bor == "6^3_2, L6a4; its exterior is also t12067, ooct02_00005 in "
+          "SnapPy's other censuses", bor)
+    gr = name_of("DT: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]")
+    check("lookup: a non-hyperbolic link no table stores keeps the old text "
+          "(the square knot)", gr.startswith("(no name: the exterior is not "
+                                            "hyperbolic -- SnapPy reports "), gr)
+    # the fast path (_exact_dt_candidates) finds what the full scan finds
+    same = []
+    for text in ("DT: [(4,6,2)]", "DT: [(-6,-8),(-4,-2)]", "DT: [(6,8,10,2,4)]"):
+        d = parse_input(text)[0].with_flips_resolved()
+        query = snappy_query(d)[0]
+        full = process_query("q", query, snappy, Link, "all", False, 20)
+        names = ([r["match_name"] for r in full if r["database"] == "LinkExteriors"
+                  and r["method"].startswith("exact_")]
+                 + [r["match_name"] for r in full if r["database"] == "HTLinkExteriors"
+                    and r["method"].startswith("exact_")])
+        same.append(names == table_names_by_dt(d) and bool(names))
+    check("lookup: the names come out as process_query's exact rows (whole "
+          "tables scanned) give them", all(same), str(same))
+    d = parse_input("DT: [(4,6,2)]")[0].with_flips_resolved().mirror()
+    rows = snappy_match_rows(d)
+    check("lookup: snappy-match on the mirrored trefoil looks its realisation "
+          "up with the vector (find_link's flips path)",
+          rows and rows[0]["input"] == "DT: [(-4, -6, -2)], [0,0,1]"
+          and all(r["status"] == "matched" for r in rows), str(rows)[:200])
+    return 0
+
+
 def run_selftest(log=print, verbose=True):
     """Round-trip every notation over a fixed corpus.  Returns 0 on success.
 
@@ -6474,6 +8261,9 @@ def run_selftest(log=print, verbose=True):
         skipped += _selftest_clocks(check)
     else:
         skipped += 10
+
+    # 1b. the SnapPy-table lookup (section 5d, 1.3): its pure-Python parts
+    _selftest_lookup_pure(check)
 
     if sg is None:
         log("\n[selftest]   spherogram absent: PD, braid, name and chirality "
@@ -6879,9 +8669,11 @@ def run_selftest(log=print, verbose=True):
             log("  FAIL  accepted the bad input: %s (%s)" % (label, text))
     set_embed_timeout(saved_timeout)
 
-    # 8. every emitter runs on the project's own diagram
+    # 8. every emitter runs on the project's own diagram (but snappy-match,
+    # which is never part of 'all': scanning the 14-crossing link table takes
+    # ~31 s; section 13 checks it on small codes)
     d = parse_input(DEFAULT_INPUT)[0].with_flips_resolved()
-    for row in convert(d, list(FORMAT_IDS)):
+    for row in convert(d, list(ALL_IDS)):
         if row["error"] is None:
             passed += 1
         elif "not importable" in row["error"]:
@@ -7700,6 +9492,10 @@ def run_selftest(log=print, verbose=True):
           and DTcodec.embed._dt_toolkit_unguarded is original
           and _unguarded_embed(DTcodec) is original, str(answers[:3]))
 
+    # 13. the SnapPy-table lookup (1.3): find_link_in_snappy.py's rows, the
+    # snappy-match output and the names of non-hyperbolic links
+    skipped += _selftest_lookup_tables(check)
+
     log("")
     log("[selftest]   %d passed, %d failed, %d skipped"
         % (passed, len(failed), skipped))
@@ -7769,7 +9565,8 @@ HELP = {
            "(dt-flips, dt-alpha, dt-hex, dt-compact, gauss-ext, pd, pd-kt, "
            "braid, braid-kt).\n\n'codes' prints the notations but skips the "
            "name, isometry signature and invariants.\n\nOr give a comma-"
-           "separated list: gauss-ou,pd-kt,braid"),
+           "separated list: gauss-ou,pd-kt,braid\n\n'snappy-match' (the "
+           "'SnapPy tables' box) is never part of 'all': ask for it by name."),
     "flips": ("Flip vector (chirality)",
               "A signed DT code names a link only UP TO MIRROR IMAGE: "
               "reflecting the diagram in the plane of the paper changes no "
@@ -7854,6 +9651,22 @@ HELP = {
                     "a braid route when the diagram has at most 8 Seifert "
                     "circles, or by a skein tree, which usually manages 20-30 "
                     "crossings, and is reported unavailable beyond both."),
+    "snappy_match": ("Look it up in SnapPy's tables",
+                     "Also print snappy-match: the entries of SnapPy's Rolfsen "
+                     "(LinkExteriors: 3_1, 6^2_3) and Hoste-Thistlethwaite "
+                     "(HTLinkExteriors: K3a1, L6a4) tables that match this "
+                     "diagram, one row each -- the result find_link_in_snappy.py "
+                     "gives (its lookup lives in this tool since 1.3).\n\n"
+                     "Each row says how it matched: exact_alpha_dt_with_flips "
+                     "(the entry stores this very diagram, chirality included), "
+                     "exact_numeric_dt (the same DT code), "
+                     "exterior_identify_meridian (an isometry of the exteriors "
+                     "taking meridians to meridians), or a loose candidate "
+                     "(the same code with its signs dropped), which is verified "
+                     "first; a refuted one is named in the not_found row.\n\n"
+                     "Off by default and never part of 'all': scanning a table "
+                     "of 13-15-crossing links or knots can take a minute or "
+                     "more. The box adds snappy-match to 'Output formats'."),
     "check_toolkit": ("Cross-check with draw_dt",
                       "Also feed the DT code to parse_dt() in the newest "
                       "draw_dt_original_labels*.py next to this script, to "
@@ -8012,6 +9825,11 @@ def launch_gui(defaults=None):
         flags[key] = bv
         tk.Checkbutton(chkrow, text=text, variable=bv).pack(side="left")
         _help_badge(chkrow, key).pack(side="left", padx=(2, 10))
+    # 1.3: snappy-match is never part of 'all'; the box adds it to --to
+    snappy_var = tk.BooleanVar(value=False)
+    tk.Checkbutton(chkrow, text="SnapPy tables",
+                   variable=snappy_var).pack(side="left")
+    _help_badge(chkrow, "snappy_match").pack(side="left", padx=(2, 10))
 
     btnrow = tk.Frame(frm)
     btnrow.pack(fill="x", pady=(8, 2))
@@ -8070,7 +9888,10 @@ def launch_gui(defaults=None):
         else:
             argv += ["--input", vars_["input"].get().strip()]
             argv += ["--from", from_var.get().strip() or "auto"]
-            argv += ["--to", to_var.get().strip() or "all"]
+            to = to_var.get().strip() or "all"
+            if snappy_var.get():
+                to += ",snappy-match"
+            argv += ["--to", to]
             flips = vars_["flips"].get().strip()
             if flips:
                 argv += ["--flips", flips]

@@ -36,7 +36,7 @@ link_engine_v4_1.py              Diagram engine and SnapPy bridge
 draw_dt_original_labelsV5_9.py   DT parser, layout, renderer, XYZ audit, and GUI
 audit_xyz.py                     Audit a 3D XYZ curve against its signed DT link
 check_two_dt.py                  Standalone SnapPy/Sage DT-comparison utility
-find_link_in_snappy.py           Search SnapPy link databases for DT matches
+find_link_in_snappy.py           Search SnapPy link databases for DT matches (batch front end of dt_converter's lookup)
 score_diagramV2_6.py             Generate, deduplicate, score, and rank diagrams
 enumerate_puncturing_dt.py       Atlas of the plane drawings, one per punctured face
 grid_diagram.py                  Minimal grid diagram (arc presentation) of a link, and its 3-D lift
@@ -1150,6 +1150,24 @@ SnapPy database search utility:
 sage -python find_link_in_snappy.py --dt "DT: [(4,6,2)]" --output matches.tsv
 sage -python find_link_in_snappy.py --input links.tsv --output matches.tsv
 ```
+
+Since 2026-10-21 the search itself lives in `dt_converter.py` (version 1.3), and
+`find_link_in_snappy.py` (version 2.0) is a short command line around it: the
+same options, the same TSV, the same messages.  Keep `dt_converter.py` next to
+it.  For a single code you can also ask the converter directly:
+
+```bash
+python3 dt_converter.py -i "DT: [(4,6,2)]" --to snappy-match
+```
+
+prints the same rows (`--json` carries every column).  It is not part of
+`--to all`, because a table scan can take from seconds to a few minutes; ask for
+it by name, or tick "SnapPy tables" in the converter's window.  The converter's
+`name` output uses the same tables for links whose exterior is not hyperbolic,
+which SnapPy's census lookup cannot name: the trefoil `DT: [(4,6,2)]` is now
+"3_1, K3a1" instead of "no name" (up to mirror image).  Only entries that store
+this very DT code are found, so some non-hyperbolic links (8_19, torus links
+SnapPy stores with a different diagram) still have no name.
 
 `find_link_in_snappy.py` searches SnapPy's `HTLinkExteriors` and
 `LinkExteriors` databases for links matching one or more DT codes. For each

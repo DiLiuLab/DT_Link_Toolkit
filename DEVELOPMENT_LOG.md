@@ -4,6 +4,27 @@ DT Link Toolkit Development Log
 This file records version-specific development notes and implementation history.
 For installation and everyday usage, see README.md.
 
+find_link's SnapPy-table lookup merged into dt_converter (2026-10-21)
+--------------------------------------------------------------------
+* The user's decision: find_link is a conversion (a DT code -> entries of
+  SnapPy's Rolfsen and Hoste-Thistlethwaite tables), so its lookup moves into
+  dt_converter.py, and find_link_in_snappy.py stays as a thin command line.
+* dt_converter 1.2 -> 1.3: new section 5d holds find_link 1.1's whole matching
+  core (query reader, decode clock -- now this file's _AlarmClock with a 1-s
+  re-fire --, the kink and crash gates, the exact table scans, exterior
+  identification, the verified loose fallback, process_query).  New output
+  `--to snappy-match` (find_link's rows for the input; not part of `--to all`;
+  a "SnapPy tables" box in the window).  The `name` output now names links
+  whose exterior is not hyperbolic from the table entries that store their DT
+  code (the trefoil: 3_1, K3a1), with a mirror-image caveat; hyperbolic names
+  and every other output are unchanged.
+* find_link_in_snappy.py 1.1 -> 2.0: 2003 -> ~660 lines; the same options,
+  help, TSV, messages and exit codes (227 jobs / 5254 rows over the corpora of
+  the earlier rounds: identical); `--help` and a missing dt_converter.py work
+  without the lookup.
+* Measured: 119 new names on 168 non-hyperbolic corpus codes, all checked
+  right; dt_converter self-test 1986 passed / 13 skipped (151 masked).
+
 Decoder guard, one no-diagram wording and the last bare crash paths (2026-10-19/21)
 -----------------------------------------------------------------------------------
 * No version bumps (the same uncommitted versions); each touched file's changelog
