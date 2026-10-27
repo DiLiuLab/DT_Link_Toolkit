@@ -4,6 +4,34 @@ DT Link Toolkit Development Log
 This file records version-specific development notes and implementation history.
 For installation and everyday usage, see README.md.
 
+bing_double.py 1.0: Bing doubles (2026-10-27)
+---------------------------------------------
+* New tool (launcher `bing`): the Bing double of a knot or of one component of
+  a link, built combinatorially from the DT code with its flip vector (any
+  notation dt_converter reads): self-crossings of the doubled component -> 4
+  crossings, crossings with other components -> 2, one edge carries the two
+  clasps, the framing twists and, with --meridian, a loop around the band.
+  Output: DT code with flip vector (through dt_converter / spherogram, with the
+  DT components' roles) and PD code; --jones, --json.
+* Framing 0 by default; --blackboard keeps the side-by-side drawing (framing =
+  the component's self-writhe).  For the 3-crossing trefoil that drawing has 16
+  crossings and framing +-3, a different link (Conway -3z^3); the Bing double
+  proper has 22 crossings, Conway 0, Jones span 14.
+* Measured before writing it, with the toolkit (a 3-D satellite curve read by
+  audit_xyz.link_from_curve): the Bing double of the trefoil has crossing
+  number >= 15 -- Jones span 14 for a prime non-alternating link, and no Jones
+  match among all 77,331 two-component links of SnapPy's HTLinkExteriors --
+  so it has no Hoste-Thistlethwaite name; nor does any trefoil Bing double of
+  framing -9..+6.  The scorer's harvest reached 21 crossings (16 for the
+  blackboard version, 24 distinct diagrams).
+* --selftest, 31 checks, under a second: unknot -> unlink / Whitehead (L5a1,
+  both hands) / + meridian Borromean; kinked unknots corrected to the unlink;
+  the left-handed trefoil's doubles match the 3-D construction's Jones
+  polynomials; Hopf -> Borromean; each Borromean ring -> 4BL's Jones polynomial;
+  planarity, label pairing, crossing-count formula, linking numbers 0; the DT
+  export reads back.  The tool carries no dt-flips helper block and no version
+  resolver (it imports the unversioned dt_converter).
+
 find_link's SnapPy-table lookup merged into dt_converter (2026-10-21)
 --------------------------------------------------------------------
 * The user's decision: find_link is a conversion (a DT code -> entries of

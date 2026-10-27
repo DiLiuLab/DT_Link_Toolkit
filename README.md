@@ -40,6 +40,7 @@ find_link_in_snappy.py           Search SnapPy link databases for DT matches (ba
 score_diagramV2_6.py             Generate, deduplicate, score, and rank diagrams
 enumerate_puncturing_dt.py       Atlas of the plane drawings, one per punctured face
 grid_diagram.py                  Minimal grid diagram (arc presentation) of a link, and its 3-D lift
+bing_double.py                   Bing double of a knot or of one link component, as DT and PD codes
 chain_layout.py                  3-D layout of a linear chain (--sphere-layout chain): segment and reunite, or --chain-form folded
 canonical_dt_V2_1.py             Canonical DT code (up to mirror) and symmetry
 spheremaps.py                    Symmetry-distinct crossings N: the diagram as a map on the sphere, exact groups
@@ -126,6 +127,7 @@ strand-passage   Strand-passage explorer (GUI / --nongui / --demo)
 score            Diagram generation, deduplication, and scoring
 puncture         Atlas of the plane drawings, one per punctured face
 grid             Minimal grid diagram (arc presentation) of a link, and its 3-D lift
+bing             Bing double of a knot or of one link component (framing 0 by default)
 canonical        Canonical DT code and diagram symmetry
 crossings        Symmetry-distinct crossings N (exact sphere maps, four materials)
 convert          Convert between DT, Gauss, PD, braid and named codes
@@ -1349,6 +1351,36 @@ python3 canonical_dt_V2_1.py --dt "DT: [(4,6,2)]"
 python3 canonical_dt_V2_1.py --dt "DT: [(4,6,2)]" --ops
 python3 canonical_dt_V2_1.py       # no arguments -> graphical interface
 ```
+
+### Bing doubles (`bing`, bing_double.py, 2026-10-27)
+
+`bing_double.py` replaces one component of a knot or link by its Bing double --
+two unknotted "fingers" running along it, clasped at both ends -- and prints the
+result as a DT code with its flip vector (pipe it into `dt_converter.py` or the
+scorer) and as a PD code. The construction is combinatorial and exact: every
+crossing of the doubled component with itself becomes 4 crossings, every crossing
+with another component 2, and one edge carries the two clasps (4 crossings) and the
+framing twists.
+
+```bash
+python3 bing_double.py --dt "DT: [(4,6,2)], [0,0,1]"             # the right-handed trefoil
+python3 bing_double.py --dt "DT: [(4,6,2)], [0,0,1]" --blackboard
+python3 bing_double.py --dt "DT: [(-4,), (-2,)]" --component 2   # Hopf link -> Borromean rings
+python3 bing_double.py --dt unknot --framing 1                   # the Whitehead link
+python3 bing_double.py --selftest
+```
+
+**The framing matters.** The Bing double is defined with the 0 (Seifert) framing.
+Drawing the doubled strands side by side follows the diagram's *blackboard*
+framing instead, which is the component's self-writhe; `--blackboard` builds that
+version, and by default the tool adds the compensating full twists (2 crossings
+each). For the 3-crossing trefoil the side-by-side drawing has 16 crossings and
+framing ±3 -- a different link (Conway polynomial −3z³) -- while the Bing double
+proper has 22 (Conway 0, Jones span 14). A round circle has no self-crossings, so
+Bing doubling a Hopf or Borromean component needs no correction (Hopf → Borromean
+rings, Borromean ring → 4BL). The Bing double of the trefoil has crossing number
+at least 15 and so is not in the Hoste–Thistlethwaite census: no two-component
+census link shares its Jones polynomial.
 
 ### Symmetry-distinct crossings (`crossings`, spheremaps.py)
 

@@ -14,6 +14,7 @@ Tools:
     strand-passage   Strand-passage explorer (GUI / --nongui / --demo)
     score            Diagram generation, deduplication, and scoring
     puncture         Atlas of the plane drawings, one per punctured face
+    bing             Bing double of a knot or of one link component
     canonical        Canonical DT code and diagram symmetry
     crossings        Symmetry-distinct crossings N (exact sphere maps, four materials)
     convert          Convert between DT, Gauss, PD, braid and named codes
@@ -144,6 +145,13 @@ TOOLS: Tuple[Tool, ...] = (
         aliases=("grid", "grid-diagram", "griddiagram", "arc", "arc-index",
                  "arc-presentation"),
         desc="Minimal grid diagram (arc presentation) of a link, and its 3-D lift",
+        gui="never",
+    ),
+    Tool(
+        key="bing",
+        base="bing_double",
+        aliases=("bing", "bing-double", "bingdouble", "bing_double"),
+        desc="Bing double of a knot or of one link component (framing 0 by default)",
         gui="never",
     ),
     Tool(
