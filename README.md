@@ -1248,6 +1248,25 @@ deduplicates signed diagram isomorphs, scores each representative, and writes an
 Excel workbook plus optional SVG/JSON reports. Long runs can use
 `--generate-only --max-seconds N` and resume from the checkpoint.
 
+Since 2026-11-01 the scorer looks for a link's diagrams exactly as the
+screening note's census did for all 666 knots and links of ten crossings or
+fewer (`results_score_10X_V3/process/screen_census.py --until-converged`).
+It makes 8 harvesting calls of 200 complicate/re-simplify rounds of 30 moves,
+then counts the distinct diagrams once 1, 2, 4 and 8 calls are pooled. If
+calls 5–8 still found a new diagram, it keeps adding batches of 8 calls to the
+same pool until two batches in a row find nothing new, at most 256 calls. The
+log prints these counts, and `run_info` records them (`yield_curve`,
+`calls_used`, `converged`). That is the default, used when `--rounds` is left
+out. You still choose the number of calls:
+
+- `--rounds N` makes exactly N calls, as before.
+- `--rounds N --until-converged` makes N calls, then adds batches of N.
+- `--max-calls` sets the ceiling.
+
+The GUI has "Until converged" (untick it for exactly "Calls" calls) and "Max
+calls". A script calling `generate_archive` directly still gets exactly the
+calls it asks for, unless it passes `until_converged=True`.
+
 V2.5 changes how diagrams are **found** and how they are **counted**.
 
 Stage 1 now *harvests*. `backtrack_simplify` runs many complicate/re-simplify

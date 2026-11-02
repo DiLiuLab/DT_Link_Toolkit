@@ -4,6 +4,59 @@ DT Link Toolkit Development Log
 This file records version-specific development notes and implementation history.
 For installation and everyday usage, see README.md.
 
+Scorer V2.6: the census's harvest by default (2026-11-01)
+---------------------------------------------------------
+* The user's request: the scorer should find a link's alternative diagrams the
+  same way as the screening script behind the Word notes
+  (results_score_10X_V3/process/screen_census.py, run with --until-converged).
+  Both used the scorer's own harvest (generate_archive, 200 rounds of 30 moves)
+  and grouping (dedup). They differed in when they stop. The census made 8
+  calls, counted the distinct diagrams once 1, 2, 4 and 8 calls were pooled,
+  and, if calls 5-8 still found one, harvested further batches of 8 until two
+  in a row found nothing new (at most 256). The scorer made a fixed 24 calls.
+  No version bump.
+* Now the scorer's command line and GUI stop by the census's rule by default,
+  and the number of calls stays the user's choice:
+  - With `--rounds` left out, the harvest makes 8 calls, then batches of 8
+    until two in a row find nothing new (at most 256, `--max-calls`).
+  - `--rounds N` makes exactly N calls, as before. Scripts that pass it, such
+    as V3's `10_score_examples.sh` (`--rounds 20`), harvest unchanged.
+  - `--rounds N --until-converged` makes N calls, then batches of N;
+    `--no-until-converged` makes exactly 8.
+  - The legacy chain keeps 24 rounds and never escalates.
+  - The GUI has "Calls" 8, "Until converged" (ticked unless `--rounds` was
+    given) and "Max calls".
+  - The log prints the yield curve and each batch. run_info records
+    until_converged, max_calls, calls_used, yield_curve(_calls), converged,
+    stopped_by and escalation_batches.
+* generate_archive does it only when asked (`until_converged=True`;
+  `run_pipeline` asks). A script that calls it directly harvests exactly the
+  calls it asks for, as before. That covers screen_census.py, the V3 builders,
+  and the Venn paper's harvest_crossings.py, which another session runs against
+  this repo.
+* One deliberate difference from the census script. Its further batches were a
+  fresh harvest from the root: the first 8 calls' codes were dropped, and the
+  larger count was kept. Here they join the same pool, which is what the
+  script's own help and the screening note describe.
+  - The pool size is the same, at least 24 calls.
+  - For a minimal root, which every census entry is, every call starts from the
+    root in both.
+  - For the 5 entries the census escalated, the fresh harvest found as many as
+    the first 8 calls.
+* dedup memoises its VF2 answers per pair (_iso_pair). The yield curve counts
+  the same growing harvest four times. On K10a3 (132 codes) a cold count took
+  7.5 s and a repeat 0.2 s, with identical groupings.
+* Measured against census_v3_merged.json, harvesting each census code with the
+  new rule (8 calls, batches of 8). Twelve entries gave the same set of
+  canonical DT codes as the census: K3a1 (1), L6a4 (1), K10a1 (6), K10a3 (12),
+  K10a17 (8), K10a52 (6), K9n1 (22), K9n4 (20), L10a165 (3), L10n105 (12),
+  L10n40 (28) and L10n41 (42).
+  - Three of them took further batches: L10n40 (yield 25, 27, 27, 28 -> 28,
+    28), K9n1 (19, 21, 21, 22 -> 22, 22) and L10n41 (23, 35, 41, 42 -> 42, 42).
+  - L10n41 with batches of 2 also stopped at 42, after 12 calls. Its counts
+    after the first 2 calls were 27, 38, then 40, 40, 42, 42, 42 batch by batch:
+    a quiet batch followed by a new diagram restarts the count of two.
+
 bing_double.py 1.0: Bing doubles (2026-10-27)
 ---------------------------------------------
 * New tool (launcher `bing`): the Bing double of a knot or of one component of

@@ -3,6 +3,22 @@
 """
 score_diagramV2_6.py  --  Comprehensive diagram explorer for a single link.
 
+Still V2.6 (2026-11-01: the census's harvest)
+---------------------------------------------
+* By default the command line and the GUI harvest a link the way the screening note's census harvested
+  all 666 knots and links of ten crossings or fewer (results_score_10X_V3/process/screen_census.py
+  --until-converged): 8 calls of 200 complicate/re-simplify rounds of 30 moves; the distinct diagrams
+  counted once 1, 2, 4 and 8 calls are pooled; and when calls 5-8 still found a new one, further
+  batches of 8 calls pooled until two batches in a row find nothing new (at most 256 calls).  The
+  default used to be a fixed 24 calls.  The number of calls stays the user's choice: ``--rounds N``
+  makes exactly N calls, as before; ``--rounds N --until-converged`` makes N, then batches of N;
+  ``--max-calls`` is the ceiling; the GUI has 'Until converged' (ticked unless --rounds was given) and
+  'Max calls'; the legacy chain keeps its 24 rounds.  generate_archive does it only when asked
+  (``until_converged=True``), so a script that calls it directly harvests exactly as before.  The one
+  difference from the census script: its further batches were a fresh harvest from the root, kept
+  when they found at least as many; here they join the same pool, as its help text and the note
+  describe (for a minimal root every call starts from the root in both).
+
 New in V2.6 (2026-10-18: DT codes WITH a flip vector)
 ----------------------------------------------------
 * ``--dt`` (and ``--check``, ``--check-file``, the GUI fields and ``score_diagram``)
@@ -286,8 +302,10 @@ link_engine*.py and canonical_dt*.py sitting next to it, each found by version
 
 Usage
 -----
-    python3 score_diagramV2_6.py                              # defaults: example DT, 24 calls
-    python3 score_diagramV2_6.py --dt "DT: [...]" --rounds 24
+    python3 score_diagramV2_6.py                              # GUI; defaults: example DT, the census's harvest
+    python3 score_diagramV2_6.py --dt "DT: [...]"             # 8 calls, then batches of 8 until converged
+    python3 score_diagramV2_6.py --dt "DT: [...]" --rounds 24 # exactly 24 calls
+    python3 score_diagramV2_6.py --dt "DT: [...]" --rounds 16 --until-converged   # 16, then batches of 16
     python3 score_diagramV2_6.py --dt "DT: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]"   # the square knot
     python3 score_diagramV2_6.py --xlsx out.xlsx --svg out.svg --json out.json
     # long runs can be chunked under a shell time limit:
@@ -2838,9 +2856,27 @@ def generate_chain(dt0, rounds, backtrack_rounds, backtrack_steps, base_seed,
     return chain
 
 
+# 2026-11-01: the harvest of the scorer's command line and GUI is the census's (results_score_10X_V3/process/
+# screen_census.py --until-converged: --calls 8, --backtrack-rounds 200, --backtrack-steps 30, --max-calls 256)
+HARVEST_CALLS = 8            # calls in the first pass, and in each further batch
+HARVEST_MAX_CALLS = 256      # at most this many calls in all
+LEGACY_ROUNDS = 24           # --legacy-chain's default --rounds (the old default of both generators)
+
+
+def _yield_points(calls):
+    """The call counts at which a harvest of `calls` calls records its cumulative yield: 1, 2, 4, ... below `calls`,
+    and `calls` itself.  For the census's 8 calls that is screen_census.py's 1, 2, 4, 8."""
+    pts, k = [], 1
+    while k < calls:
+        pts.append(k)
+        k *= 2
+    return pts + [calls] if calls > 0 else []
+
+
 def generate_archive(dt0, calls, backtrack_rounds, backtrack_steps, base_seed,
                     checkpoint=None, max_seconds=None, verbose=True,
-                    target_crossings=None, on_call=None):
+                    target_crossings=None, on_call=None,
+                    until_converged=False, max_calls=None, report=None):
     """Stage 1 by HARVESTING: keep every diagram that ties the minimum.
 
     Each call runs ``backtrack_rounds`` complicate/re-simplify cycles and archives every
@@ -2888,6 +2924,17 @@ def generate_archive(dt0, calls, backtrack_rounds, backtrack_steps, base_seed,
     10-crossing square-knot diagram on its bare harvest started half the calls from granny readings.  A [warn] says
     when the harvested minimal codes have fewer components than the root (spherogram drops a split component left
     with no crossings: 'DT: [(4,6,2),(-8,)]' harvests trefoil codes).
+
+    2026-11-01 -- ``until_converged`` (off here, so every direct caller harvests exactly ``calls`` calls as before;
+    run_pipeline turns it on): the census's stopping rule, the one screen_census.py --until-converged applied to all
+    666 entries of <= 10 crossings for the screening note.  After the ``calls`` calls the distinct diagrams among the
+    minimal codes are counted (dedup, exactly as the census counted them) after 1, 2, 4, ... and ``calls`` calls; if
+    the last two counts differ (for 8 calls: calls 5-8 still found a new diagram), further batches of ``calls`` calls
+    are pooled into the SAME harvest until two batches in a row find no new diagram, or ``max_calls`` calls in all.
+    (screen_census.py ran those batches as a fresh harvest from the root and kept it when it found at least as many;
+    pooling is what its help and the note describe, gives the same pool size -- 24 calls at least -- and can only
+    count more.  For the 5 census entries it escalated, the fresh harvest's count equalled the first 8 calls'.)
+    ``report``, a dict, receives the yield curve, the batches and whether the count converged.
     """
     import snappy
     _check_root_text(dt0)
@@ -2971,14 +3018,100 @@ def generate_archive(dt0, calls, backtrack_rounds, backtrack_steps, base_seed,
     failed = {}                              # root -> calls whose starting link could not be built
     extra = {"archive_flips": True} if flips_run else dict(_AUTO_ARCHIVE)   # bare: composite states keep their vector
     flat = flips_run and any(_crossingless(dt) for dt in found)    # V2.6: see the loop
+    # 2026-11-01: the census's stopping rule (see the docstring); `marks` holds len(found) after each call
+    calls = int(calls)
+    escalate = bool(until_converged) and calls > 0
+    cap = max(calls, int(max_calls or 0)) if escalate else calls
+    marks, target, i, ran, stop, prev, quiet = {}, calls, 0, 0, None, None, 0
+    rep = report if isinstance(report, dict) else {}
+    _ncache = {}
+
+    def _count(n_found, low):
+        """Distinct diagrams among the first n_found harvested codes that have `low` crossings: dedup's count, as
+        screen_census.py counted each point of its yield curve.  None when it cannot be counted."""
+        if low is None:
+            return None
+        try:
+            return len(dedup([d for d in found[:n_found] if _ncache.get(d) == low]))
+        except Exception:  # noqa: BLE001  -- the pipeline's own dedup reports a code that cannot be grouped
+            return None
+
+    def _lowest(n_found):
+        for d in found[:n_found]:
+            if d not in _ncache:
+                _ncache[d] = _n_of(d)
+        ns = [_ncache[d] for d in found[:n_found] if _ncache[d] is not None]
+        return min(ns) if ns else None
+
+    def _after_target():
+        """At the end of the calls asked for so far: the next target, or None to stop (the census's rule)."""
+        nonlocal prev, quiet, stop
+        low = _lowest(len(found))
+        if i == calls:                       # the first pass: its cumulative yield curve
+            pts = _yield_points(calls)
+            last = ("call %d" % calls if len(pts) < 2 or pts[-2] + 1 == calls
+                    else "calls %d-%d" % (pts[-2] + 1, calls))
+            curve = [_count(marks[k], low) for k in pts]
+            rep.update(yield_curve=curve, yield_curve_calls=pts)
+            ok = None not in curve and low is not None
+            done = ok and len(curve) >= 2 and curve[-1] == curve[-2]
+            if verbose:
+                print("  yield curve (distinct diagrams after %s call%s, pooled): %s"
+                      % (", ".join(str(k) for k in pts), "" if pts == [1] else "s",
+                         ", ".join("?" if c is None else str(c) for c in curve)), flush=True)
+            if not ok:
+                stop = "uncountable"
+                if verbose:
+                    print("  [note] the diagrams could not be counted, so the run stops at %d call(s)" % calls,
+                          flush=True)
+                return None
+            if done:
+                stop = "converged"
+                if verbose:
+                    print("  converged: %s found no new diagram" % last, flush=True)
+                return None
+            prev = curve[-1]
+            if verbose:
+                print("  %s, so batches of %d call(s) are pooled until two in a row find no new diagram "
+                      "(at most %d calls in all)"
+                      % ("one call cannot show a flat curve" if len(pts) < 2 else "%s found a new diagram" % last,
+                         calls, cap), flush=True)
+        else:                                # the end of a further batch
+            now = _count(len(found), low)
+            rep.setdefault("batches", []).append({"calls": i, "diagrams": now})
+            if now is None:
+                stop = "uncountable"
+                if verbose:
+                    print("  [note] the diagrams could not be counted, so the run stops at %d calls" % i, flush=True)
+                return None
+            quiet = quiet + 1 if now == prev else 0
+            if verbose:
+                print("  after %d calls: %d distinct diagram(s) (%+d)" % (i, now, now - prev), flush=True)
+            prev = now
+            if quiet >= 2:
+                stop = "converged"
+                if verbose:
+                    print("  converged: two batches in a row found no new diagram (%d calls in all)" % i,
+                          flush=True)
+                return None
+        if i >= cap:
+            stop = "max_calls"
+            if verbose:
+                print("  [warn] stopped at %d calls (--max-calls) before two batches in a row found no new diagram: "
+                      "the count may be incomplete" % i, flush=True)
+            return None
+        return target + calls
+
     t0 = time.time()
-    for i in range(1, int(calls) + 1):
+    while i < target:
+        i += 1
         if flat:
             # V2.6, flips runs only: a harvested 'DT: [()]' (the unknot or an unlink) leaves nothing to simplify, and
             # re-rooting at it only made each later call fail to build it ([warn] lines).  run_pipeline reports it.
             if verbose:
                 print("  [note] a diagram with no crossings (DT: [()]) has been harvested: nothing is left to "
-                      "simplify, so the remaining %d call(s) are skipped." % (int(calls) - i + 1), flush=True)
+                      "simplify, so the remaining %d call(s) are skipped." % (target - i + 1), flush=True)
+            stop = "no crossings"
             break
         root = dt0 if i == 1 else _pick_root()
         before = len(found)
@@ -3004,16 +3137,23 @@ def generate_archive(dt0, calls, backtrack_rounds, backtrack_steps, base_seed,
             _append_checkpoint(checkpoint, len(found) - 1, dt)
         if flips_run and not flat:
             flat = any(_crossingless(dt) for dt in found[before:])
+        marks[i], ran = len(found), i
         if on_call is not None:
             try:
                 on_call(i, found)
             except Exception:  # noqa: BLE001  -- a progress hook must never kill the run
                 pass
-        if verbose and (i % 5 == 0 or i == int(calls)):
+        if verbose and (i % 5 == 0 or i == target):
             print("  call %3d/%d  %d codes harvested (+%d)  %.1fs"
-                  % (i, calls, len(found), len(found) - before, time.time() - t0), flush=True)
+                  % (i, target, len(found), len(found) - before, time.time() - t0), flush=True)
         if max_seconds and (time.time() - t0) >= max_seconds:
+            stop = "max_seconds"
             break
+        if escalate and i == target and not flat:
+            target = _after_target() or target
+    if escalate:
+        rep.update(calls_used=ran, max_calls=cap, batch=calls, converged=(stop == "converged"),
+                   stopped_by=stop or ("no crossings" if flat else "?"))
     if verbose and sum(failed.values()) > 1:
         print("  [warn] %d call(s) in all could not build their starting diagram (%d distinct)"
               % (sum(failed.values()), len(failed)), flush=True)
@@ -3212,6 +3352,22 @@ def _iso_graph_cached(dt):
     return g
 
 
+_ISO_PAIR_CACHE = {}
+
+
+def _iso_pair(dt, rep, G, H, nm, mirror):
+    """nx.is_isomorphic(G, H, node_match=nm) for the graph G of `dt` and the graph H of the subgroup representative
+    `rep` (of its mirror image when `mirror`), memoised on the two DT strings.  2026-11-01: the census's stopping rule
+    counts the diagrams of a growing harvest several times (after 1, 2, 4, 8 calls), and those counts asked VF2 the
+    same questions again -- a 158-code harvest of K10a3: 600 VF2 calls, 19 s, per count.  Every question is still put
+    to VF2 once, in the same order, so every grouping is what it was."""
+    key = (dt, rep, mirror)
+    hit = _ISO_PAIR_CACHE.get(key)
+    if hit is None:
+        hit = _ISO_PAIR_CACHE[key] = nx.is_isomorphic(G, H, node_match=nm)
+    return hit
+
+
 def _split_signature_bucket(strings):
     """Split one canonical_key bucket into genuinely distinct diagrams, UP TO MIRROR.
 
@@ -3231,14 +3387,14 @@ def _split_signature_bucket(strings):
         for sub in subs:
             if G.number_of_nodes() != sub[0].number_of_nodes():
                 continue
-            if nx.is_isomorphic(G, sub[0], node_match=nm):
+            if _iso_pair(dt, sub[2][0], G, sub[0], nm, False):
                 sub[2].append(dt); placed = True; break
             if sub[1] is None:
                 try:
                     sub[1] = _iso_graph_cached(_mirror_dt(sub[2][0]))
                 except Exception:  # noqa: BLE001
                     sub[1] = False
-            if sub[1] and nx.is_isomorphic(G, sub[1], node_match=nm):
+            if sub[1] and _iso_pair(dt, sub[2][0], G, sub[1], nm, True):
                 sub[2].append(dt); placed = True; break
         if not placed:
             subs.append([G, None, [dt]])
@@ -6120,7 +6276,8 @@ def launch_gui(defaults=None):
     import queue as _queue
 
     def dv(name, fallback):
-        return str(getattr(defaults, name, fallback)) if defaults is not None else str(fallback)
+        val = getattr(defaults, name, None) if defaults is not None else None
+        return str(fallback if val is None else val)
 
     root.title("DT Diagram Scorer  —  score_diagramV2_6")
     frm = tk.Frame(root, padx=10, pady=8)
@@ -6173,8 +6330,21 @@ def launch_gui(defaults=None):
                "diagram it meets at the smallest crossing number — often a hundred or more — so "
                "far fewer calls are needed than the old one-per-round chain. In LEGACY CHAIN mode "
                "each call yields exactly one diagram.\n\n"
-               "Example: 24 harvesting (6 was enough to get every diagram right on a 196-knot "
-               "test); 999 for the legacy chain."),
+               "Example: 8 harvesting calls, the census's budget (6 was enough to get every diagram "
+               "right on a 196-knot test); with 'Until converged' ticked it is also the size of each "
+               "further batch.  999 for the legacy chain."),
+        "until_converged": ("Until converged (harvesting only)",
+               "The census's stopping rule, the one the screening note used for all 666 knots and links "
+               "of ten crossings or fewer.  After the first Calls, the distinct diagrams found so far are "
+               "counted once 1, 2, 4, ... and all Calls calls are pooled.  If the last calls still found "
+               "a new diagram, further batches of Calls calls are added to the same pool until two batches "
+               "in a row find nothing new (or Max calls is reached).  The log and run_info show the counts.\n\n"
+               "Untick it to run exactly Calls calls, as the scorer did before November 2026.\n\n"
+               "Example: ticked, Calls 8 — 661 of the 666 census entries stopped at 8 calls, the other 5 "
+               "at 24."),
+        "max_calls": ("Max calls (with 'Until converged')",
+               "The most harvesting calls a run may use in all when 'Until converged' keeps adding "
+               "batches.  The census allowed 256; no entry needed more than 24.\n\nExample: 256."),
         "backtrack_rounds": ("Backtrack rounds (per call)",
                "Inside each call, how many times the diagram is randomly re-tangled and "
                "re-simplified. This is where the diagrams actually come from: in harvesting mode "
@@ -6329,8 +6499,22 @@ def launch_gui(defaults=None):
                    value="chain").pack(side="left", padx=(8, 0))
     _help_badge(gen_row, "generator").pack(side="left", padx=6)
 
-    _num_pair(("rounds", "Calls", dv("rounds", 24)),
+    _num_pair(("rounds", "Calls", dv("rounds", HARVEST_CALLS)),
               ("backtrack_rounds", "Backtrack rounds", dv("backtrack_rounds", 200)))
+    # 2026-11-01: the census's stopping rule (harvesting only; greyed for the legacy chain)
+    until_var = tk.BooleanVar(value=getattr(defaults, "until_converged", None) is not False)
+    conv_row = tk.Frame(frm)
+    conv_row.pack(fill="x", pady=2)
+    until_chk = tk.Checkbutton(conv_row, text="Until converged", variable=until_var, width=13, anchor="w")
+    until_chk.pack(side="left")
+    _help_badge(conv_row, "until_converged").pack(side="left", padx=(2, 18))
+    vars_["max_calls"] = tk.StringVar(value=dv("max_calls", HARVEST_MAX_CALLS))
+    max_calls_lab = tk.Label(conv_row, text="Max calls", width=16, anchor="w")
+    max_calls_lab.pack(side="left")
+    max_calls_ent = tk.Entry(conv_row, textvariable=vars_["max_calls"], width=11)
+    max_calls_ent.pack(side="left", padx=(0, 2))
+    _help_badge(conv_row, "max_calls").pack(side="left", padx=(2, 18))
+    widgets["max_calls"] = {"entry": max_calls_ent, "browse": None, "label": max_calls_lab}
     _num_pair(("backtrack_steps", "Backtrack steps", dv("backtrack_steps", 30)),
               ("reset_every", "Reset every N", reset_default))
     _num_pair(("seed", "Seed", dv("seed", 20260708)),
@@ -6403,9 +6587,15 @@ def launch_gui(defaults=None):
         if lw is not None:
             lw.config(text="Rounds" if legacy else "Calls")
         if not legacy and vars_["rounds"].get().strip() in ("99", "999"):
-            vars_["rounds"].set("24")        # chain-sized counts are wasteful when harvesting
+            vars_["rounds"].set(str(HARVEST_CALLS))   # chain-sized counts are wasteful when harvesting
+        # 2026-11-01: 'Until converged' is the harvest's; 'Max calls' only means anything with it ticked
+        until_chk.config(state="disabled" if legacy else "normal")
+        live = (not legacy) and until_var.get()
+        max_calls_ent.config(state="normal" if live else "disabled")
+        max_calls_lab.config(fg="black" if live else "#999999")
 
     gen_var.trace_add("write", _sync_generator_state)
+    until_var.trace_add("write", _sync_generator_state)
     _sync_generator_state()
 
     log = scrolledtext.ScrolledText(root, width=104, height=20, font=("Menlo", 9))
@@ -6459,6 +6649,8 @@ def launch_gui(defaults=None):
                 check_file=None, gui=False,
                 legacy_chain=(gen_var.get() == "chain"),
                 reset_mode="origin", reset_reencode=False, reset_subprocess=False,
+                until_converged=bool(until_var.get()),
+                max_calls=int(vars_["max_calls"].get() or HARVEST_MAX_CALLS),
             )
         except ValueError as exc:
             q.put("Invalid parameter: %s\n" % exc)
@@ -6513,9 +6705,24 @@ def main(argv=None):
                          "the granny and the square knot share their bare code).  A bare composite code runs as "
                          "the realisation spherogram reads it as (dt_converter's reading when spherogram cannot "
                          "read it), with an [info] line")
-    ap.add_argument("--rounds", type=int, default=24,
-                    help="number of simplifier CALLS.  With harvesting far fewer "
-                         "are needed than the old one-diagram-per-round chain")
+    ap.add_argument("--rounds", type=int, default=None,
+                    help="number of simplifier CALLS.  Given, exactly that many calls are made (with "
+                         "--until-converged as well: that many, then batches of that many until two in a row find "
+                         "no new diagram).  Left out, the harvest follows the census's rule: %d calls, then batches "
+                         "of %d until two in a row find no new diagram (see --until-converged); the legacy chain "
+                         "makes %d rounds.  With harvesting far fewer calls are needed than the old "
+                         "one-diagram-per-round chain" % (HARVEST_CALLS, HARVEST_CALLS, LEGACY_ROUNDS))
+    ap.add_argument("--until-converged", dest="until_converged", action=argparse.BooleanOptionalAction,
+                    default=None,
+                    help="the census's stopping rule (screen_census.py --until-converged, used for every entry of "
+                         "the screening note); ON by default when --rounds is left out.  After --rounds calls, count "
+                         "the distinct diagrams once 1, 2, 4, ... and --rounds calls are pooled; if the last two "
+                         "counts differ, pool further batches of --rounds calls until two batches in a row find no "
+                         "new diagram, or --max-calls calls in all.  --no-until-converged: exactly --rounds calls.  "
+                         "The legacy chain ignores it")
+    ap.add_argument("--max-calls", type=int, default=HARVEST_MAX_CALLS,
+                    help="with --until-converged: at most this many calls in all (default %d, as in the census; no "
+                         "census entry needed more than 24)" % HARVEST_MAX_CALLS)
     ap.add_argument("--backtrack-rounds", type=int, default=200)
     ap.add_argument("--backtrack-steps", type=int, default=30)
     ap.add_argument("--seed", type=int, default=20260708,
@@ -6582,6 +6789,7 @@ def main(argv=None):
                     help="launch the graphical interface (also the default when no "
                          "arguments are given)")
     args = ap.parse_args(raw)
+    _resolve_harvest_args(args)
     globals()["CANONICAL_COST_LIMIT"] = int(getattr(args, "canonical_limit", CANONICAL_COST_LIMIT) or 0)
 
     if (not raw) or args.gui:
@@ -6594,6 +6802,28 @@ def main(argv=None):
             raise
         print("[error] %s" % exc, file=sys.stderr)
         sys.exit(2)
+
+
+def _resolve_harvest_args(args):
+    """2026-11-01: fill in the harvest's defaults on an argument namespace, in place, and return whether the harvest
+    stops by the census's rule.  The number of calls stays the user's choice:
+      * --rounds N given          -> exactly N calls, as before (--until-converged with it: N calls, then batches
+                                     of N until two in a row find no new diagram);
+      * --rounds left out (None)  -> the census's rule: 8 calls, then batches of 8 (the old 24 rounds for
+                                     --legacy-chain, which never escalates);
+      * --no-until-converged      -> exactly --rounds calls (8 when left out).
+    A namespace built without the until_converged attribute (another script calling run_pipeline) keeps the fixed
+    number of calls it had before.  The GUI passes its own tick box."""
+    legacy = bool(getattr(args, "legacy_chain", False))
+    explicit = getattr(args, "rounds", None) is not None
+    if not explicit:
+        args.rounds = LEGACY_ROUNDS if legacy else HARVEST_CALLS
+    until = getattr(args, "until_converged", False)
+    if until is None:                        # neither --until-converged nor --no-until-converged
+        args.until_converged = until = not explicit
+    if getattr(args, "max_calls", None) is None:
+        args.max_calls = HARVEST_MAX_CALLS
+    return bool(until) and not legacy
 
 
 def _flips_error(exc, args):
@@ -6614,9 +6844,13 @@ def run_pipeline(args, log=None):
     Prints progress with print(); the GUI redirects stdout to capture it."""
     t_start = time.time()
     harvest = not getattr(args, "legacy_chain", False)
-    print("Generating (%s): %d calls, backtrack %dx%d ..."
+    until = _resolve_harvest_args(args)      # 2026-11-01: the census's 8 calls and stopping rule by default
+    max_calls = max(int(args.rounds), int(args.max_calls))
+    print("Generating (%s): %d calls, backtrack %dx%d%s ..."
           % ("harvesting" if harvest else "legacy chain", args.rounds,
-             args.backtrack_rounds, args.backtrack_steps), flush=True)
+             args.backtrack_rounds, args.backtrack_steps,
+             ", until converged (the census's rule: further batches of %d while calls still find new diagrams, "
+             "at most %d calls)" % (args.rounds, max_calls) if until and args.rounds > 0 else ""), flush=True)
     if harvest:
         ignored = [flag for flag, on in (
             ("--reset-every", getattr(args, "reset_every", 0)),
@@ -6626,11 +6860,13 @@ def run_pipeline(args, log=None):
         if ignored:
             print("  [note] %s act only with --legacy-chain; the harvesting generator ignores %s."
                   % (", ".join(ignored), "it" if len(ignored) == 1 else "them"), flush=True)
+    harvest_report = {}
     if harvest:
         chain = generate_archive(
             args.dt, args.rounds, args.backtrack_rounds, args.backtrack_steps,
             args.seed, checkpoint=args.checkpoint,
             max_seconds=(args.max_seconds or None),
+            until_converged=until, max_calls=max_calls, report=harvest_report,
         )
     else:
         chain = generate_chain(
@@ -6644,7 +6880,8 @@ def run_pipeline(args, log=None):
     done = len(chain) - 1
     dt_run = _gated_root(args.dt)            # 2026-10-19: a bare composite root ran as spherogram's reading
     if harvest:
-        print("Harvested %d minimal DT codes." % len(chain), flush=True)
+        print("Harvested %d minimal DT codes%s." % (len(chain), " in %d calls" % harvest_report["calls_used"]
+                                                    if "calls_used" in harvest_report else ""), flush=True)
         if args.generate_only:
             return
     else:
@@ -6837,6 +7074,15 @@ def run_pipeline(args, log=None):
         "reset_subprocess": getattr(args, "reset_subprocess", False),
         **({"reset_subprocess_rounds": dict(_SUBPROC_STATS)} if getattr(args, "reset_subprocess", False) else {}),
         "seed": args.seed,
+        **({"until_converged": bool(until)} if harvest else {}),
+        **({"max_calls": harvest_report.get("max_calls"),
+            "calls_used": harvest_report.get("calls_used"),
+            "yield_curve_calls": harvest_report.get("yield_curve_calls"),
+            "yield_curve": harvest_report.get("yield_curve"),
+            "converged": harvest_report.get("converged"),
+            "stopped_by": harvest_report.get("stopped_by"),
+            **({"escalation_batches": harvest_report["batches"]} if harvest_report.get("batches") else {})}
+           if harvest and until and "calls_used" in harvest_report else {}),
         "total_DT_codes": len(chain),
         "distinct_representatives": len(classes),
         "distinct_linking_fingerprints": len(fps),
