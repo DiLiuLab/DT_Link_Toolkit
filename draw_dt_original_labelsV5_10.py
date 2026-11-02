@@ -1,11 +1,70 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-draw_dt_original_labelsV5_9.py
-==============================
+draw_dt_original_labelsV5_10.py
+===============================
 
 Draw a smooth planar oriented link diagram from a signed Dowker-Thistlethwaite
 (DT) code while preserving the original traversal labels supplied by the user.
+
+V5.10 changes
+-------------
+* 3-D: a FOLDED Kamada sphere layout is re-run from the 2-D drawing
+  (2026-11-02, at the user's request).  The rank-1 diagram of L7a4,
+  'DT: [(-14, -10, -2), (-12, -4, -8, -6)]', came out of the default
+  spherical-kamada build as the (2,4) torus link -- Gauss linking number -2
+  against the code's 0, 4 crossings, volume 0 -- while stereo-safe built
+  L7a4; the xyz audit only said 'isometry undecided', and the clearance
+  repair was not the cause (the same link with --no-xyz-repair).  The
+  direction step lays the gadget graph out in 3-D by Kamada-Kawai and
+  projects it radially onto the sphere, and nothing makes that projection
+  an embedding.  Here the tangle of c2, c5 and c6 -- the clasp c2, c5
+  between the two rings' self-crossing loops, and ring 2's self-crossing
+  c6 -- was laid out turned over: its crossing
+  patches turned the wrong way round, and the strands bounding it crossed
+  twice where the code has no crossing (an exact count of the sphere
+  drawing's false crossings: ring 1's strands into and out of its loop at
+  c3, ring 2's between c4 and c6).  Such a layout shows itself exactly: its
+  patches realise a flip vector that no diagram on the sphere has
+  (`check_flips`; here [0,0,1,0,1,0,1], against the legal [0,1,1,0,0,1,1]
+  and [1,0,0,1,1,0,0]).  `_sphere_layout_folds` makes that test after the
+  Kamada-Kawai step, and `_unfold_kamada_sphere_layout` re-runs a folded
+  layout from the 2-D drawing lifted onto the sphere (inverse stereographic
+  projection, `_drawing_on_unit_sphere`; `_kamada_3d_directions_and_radii`
+  gained ``start=``); a '[fix]' line names both vectors.  L7a4 now builds
+  as L7a4 ([ok] audit, vol 6.1381; linking number 0; writhe +3, the hand of
+  stereo-safe, whose lift is the same), strands at least 7.46 apart (3.96
+  before), no clearance repair needed.  A layout that does not fold is used
+  exactly as before.  If the re-run folds too -- the 8-ring Brunnian chain,
+  whose fold is the Kamada-Kawai minimum itself -- the old layout is kept
+  and a '[warn]' says the curve is not the code's diagram and names the
+  layouts that lift the drawing; a flip-vector run is refused as before.
+  The angled / grid cube gets the re-run too: it wires each crossing in the
+  planar embedding's (or the vector's) port order, but over a folded
+  layout's crossing positions the router has to search for that wiring.
+  L7a4's angled build tried every grid up to 72 x 72 for 14 minutes and
+  fell back to the smooth map of the folded curve (audit undecided, volume
+  0.64 against 6.14); it now routes in 4 s and audits [ok], and so does
+  grid, which had routed.  With the flip vector [1,0,0,1,1,0,0] the angled
+  build was refused (no wiring on its two grid sizes) and now builds.
+  Measured over the 2887 minimal diagrams of the census
+  (results_score_10X_V3: the 666 knots and links of at most 10 crossings):
+  179 fold (6.2%) --
+  72 of 1178 knots, 24 of 252 links without self-crossings, 83 of 1457
+  links with -- so self-crossings are not what makes a layout fold.  The
+  vector test agrees with an exact count of the sphere drawing's false
+  crossings on every one of the 2887: the 2708 legal layouts have none,
+  each of the 179 folded ones has some.  After the re-run all 179 realise a
+  legal vector and their sphere drawings have no false crossing (the lift
+  itself, without Kamada-Kawai: 46 of 179).
+  End to end (default build; the curve's oriented Jones polynomial against
+  those of every legal realisation of the code): before, 2 of the 179
+  curves were a realisation of their code -- 103 audits FAILed, 53 were
+  undecided, and 23 passed although 21 of those were other links with the
+  same exterior (L9n3 came out with 5 crossings at the Whitehead link's
+  volume 3.6639: the audit's isometry test does not see meridians); now all
+  179 are, with 169 audits [ok] and 10 undecided (torus knots and links,
+  which have no hyperbolic volume).
 
 V5.9 changes
 ------------
@@ -1469,7 +1528,7 @@ Outputs:
   and a spherical XYZ coordinate file with blank lines between components.
 
 Example:
-  python draw_dt_original_labelsV5_9.py \
+  python draw_dt_original_labelsV5_10.py \
     --dt 'DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]' \
     --output example_v3.svg \
     --table example_v3.csv \
@@ -1519,7 +1578,7 @@ matplotlib.rcParams["svg.fonttype"] = "none"
 matplotlib.rcParams["pdf.fonttype"] = 42
 matplotlib.rcParams["ps.fonttype"] = 42
 DIAGRAM_FONT_FAMILY = "Arial"
-SCRIPT_VERSION = "V5.9"
+SCRIPT_VERSION = "V5.10"
 VERSION = SCRIPT_VERSION
 # V5.6: crossing-separation measurement from the most recent kamada-family XYZ
 # build, so the GUI "?" popup for the crossing angle can show live numbers.
@@ -8771,7 +8830,7 @@ def _fibonacci_sphere_directions(n):
     return out
 
 
-def _kamada_3d_directions_and_radii(G):
+def _kamada_3d_directions_and_radii(G, start=None):
     """
     Kamada-Kawai-style 3D graph layout, returned as directions AND radii.
 
@@ -8779,12 +8838,18 @@ def _kamada_3d_directions_and_radii(G):
     projection to S^2).  ``radii`` are the distances from the centre that the
     projection would otherwise discard, normalized so their mean is 1.0 -- the
     "raw-kk" layout keeps them instead of flattening everything onto one sphere.
+
+    ``start`` (node -> 3-vector), when given, replaces the Fibonacci-sphere
+    start positions (V5.10: the re-run of `_unfold_kamada_sphere_layout`).
     """
     nodes = sorted(list(G.nodes()), key=repr)
     if not nodes:
         return {}, {}
     seed = _fibonacci_sphere_directions(len(nodes))
-    pos0 = {node: seed[i] for i, node in enumerate(nodes)}
+    if start is None:
+        pos0 = {node: seed[i] for i, node in enumerate(nodes)}
+    else:
+        pos0 = {node: np.asarray(start[node], float) for node in nodes}
     try:
         raw = nx.kamada_kawai_layout(G, pos=pos0, dim=3)
     except Exception:
@@ -9166,6 +9231,93 @@ def _sphere_flips_relation(model, P3, centers3):
     return "different", read
 
 
+# --------------------------------------------------------------------------- #
+#  V5.10: a FOLDED Kamada sphere layout is re-run from the 2-D drawing.
+#
+#  The direction step lays the gadget graph out in 3-D (Kamada-Kawai) and
+#  projects it radially onto the sphere.  Nothing makes that projection an
+#  embedding, and on about 6% of the census's minimal diagrams it is not: a
+#  part of the diagram -- a 4-ended tangle, e.g. L7a4's two interlocked
+#  self-crossing loops -- is laid out turned over.  Its crossing patches then
+#  turn the wrong way round, the strands around it cross where the code has
+#  no crossing, and the curve is another diagram (L7a4 came out as the (2,4)
+#  torus link, linking number -2 against 0).  The patches show it exactly:
+#  together they realise a flip vector that no diagram on the sphere has
+#  (`check_flips`), where an unfolded layout realises a legal one.  A folded
+#  layout is re-run from the 2-D drawing lifted onto the sphere (inverse
+#  stereographic projection, which is an embedding), and Kamada-Kawai keeps
+#  that start unfolded: all 179 folded census diagrams (72 knots, 24 links
+#  without and 83 with self-crossings) came out legal and with no false
+#  crossing on the sphere, against 46 for the lift itself (Tutte crowding).
+#  An unfolded layout is used exactly as before.
+# --------------------------------------------------------------------------- #
+def _sphere_layout_folds(model, dirs, crossing_angle):
+    """V5.10: (folds, read) -- ``read`` is the flip vector the crossing
+    patches compacted from the node directions ``dirs`` realise
+    (`_sphere_realised_flips`), and ``folds`` is True when no diagram on the
+    sphere has it: a degenerate patch (None) or a vector `check_flips`
+    refuses.  The curve built on a folded layout is not the code's diagram."""
+    P3, centers3 = _compact_crossing_gadgets_on_sphere(
+        model, dirs, crossing_angle=crossing_angle)
+    read = _sphere_realised_flips(model, P3, centers3)
+    if None in read:
+        return True, read
+    try:
+        check_flips(_model_spherogram_comps(model), read)
+    except ValueError:
+        return True, read
+    return False, read
+
+
+def _drawing_on_unit_sphere(G, P):
+    """V5.10: node -> unit direction, the 2-D drawing ``P`` (positions of every
+    node of the gadget graph ``G``) lifted by inverse stereographic projection,
+    centred on its bounding box and scaled so that its farthest node lies on
+    the equator.  Seen from outside it shows the drawing's own crossings, as
+    the stereographic layouts' lift does.  None when ``P`` lacks a node or
+    has no extent."""
+    nodes = sorted(list(G.nodes()), key=repr)
+    if not nodes or P is None or any(v not in P for v in nodes):
+        return None
+    XY = np.array([np.asarray(P[v], float)[:2] for v in nodes], float)
+    if not np.all(np.isfinite(XY)):
+        return None
+    c = 0.5 * (XY.min(axis=0) + XY.max(axis=0))
+    r = float(np.max(np.linalg.norm(XY - c, axis=1)))
+    if r <= 1.0e-12:
+        return None
+    U = _inverse_stereographic_to_unit_sphere((XY - c) / r)
+    return {v: U[i] for i, v in enumerate(nodes)}
+
+
+def _unfold_kamada_sphere_layout(model, G, dirs, radii, drawing, crossing_angle,
+                                 report=None):
+    """V5.10: return ``(dirs, radii)`` unchanged when the Kamada sphere layout
+    does not fold (`_sphere_layout_folds`); otherwise the Kamada-Kawai layout
+    re-run from the 2-D ``drawing`` lifted onto the sphere
+    (`_drawing_on_unit_sphere`), if that one does not fold -- else the
+    original, which the caller reports.  ``report`` (a dict) gets ``read``
+    (the folded layout's vector), ``unfolded`` and, when the re-run was
+    made, ``read_after``."""
+    rep = report if report is not None else {}
+    folds, read = _sphere_layout_folds(model, dirs, crossing_angle)
+    if not folds:
+        return dirs, radii
+    rep.update({"read": read, "unfolded": False})
+    start = _drawing_on_unit_sphere(G, drawing)
+    if start is None:
+        rep["why"] = "no 2-D drawing of every node to start from"
+        return dirs, radii
+    dirs2, radii2 = _kamada_3d_directions_and_radii(G, start=start)
+    folds2, read2 = _sphere_layout_folds(model, dirs2, crossing_angle)
+    rep["read_after"] = read2
+    if folds2:
+        rep["why"] = "the re-run from the 2-D drawing folds too"
+        return dirs, radii
+    rep["unfolded"] = True
+    return dirs2, radii2
+
+
 def _spherical_quadratic_bezier(a, b, c, samples):
     """Sample a normalized quadratic Bezier arc on S^2."""
     nsamp = max(2, int(samples))
@@ -9281,10 +9433,18 @@ def _build_spherical_kamada_xyz_components(
     radii_report=None,
     dirs_override=None,
     flips_report=None,
+    drawing=None,
+    fold_report=None,
 ):
     """Sphere-native method: distribute the diagram directly on S^2.
     ``dirs_override`` (node -> unit direction) replaces the Kamada-Kawai
     direction step (used by the capped cylinder); radii are then all 1.
+
+    V5.10: when the Kamada-Kawai layout FOLDS -- its crossing patches realise
+    a flip vector no diagram on the sphere has -- it is re-run from the 2-D
+    ``drawing`` (P) lifted onto the sphere (`_unfold_kamada_sphere_layout`);
+    ``fold_report`` (a dict) is filled only when it folded.  A layout that
+    does not fold is used as before.
 
     V5.9, only when the model carries a flip vector (model["flips"]): the
     vector the compacted crossing patches realise (`_sphere_realised_flips`)
@@ -9301,11 +9461,17 @@ def _build_spherical_kamada_xyz_components(
     vector nothing here changes."""
     if G is None:
         G = build_gadget_graph(model)
+    _fold = fold_report if fold_report is not None else {}
     if dirs_override is not None:
         raw_dirs = {v: np.asarray(dirs_override[v], float) for v in G.nodes()}
         _node_radii = {v: 1.0 for v in G.nodes()}
     else:
         raw_dirs, _node_radii = _kamada_3d_directions_and_radii(G)
+        # V5.10: a folded layout builds another diagram; re-run it from the
+        # lifted 2-D drawing (see the section comment above _sphere_layout_folds)
+        raw_dirs, _node_radii = _unfold_kamada_sphere_layout(
+            model, G, raw_dirs, _node_radii, drawing, crossing_angle,
+            report=_fold)
     # V5.6: optionally re-minimise the stress ON the sphere (great-circle
     # distances, points constrained to S^2), warm-started from the projection
     # above.  Done here, before the gadgets are compacted, so shaped-kamada and
@@ -9397,7 +9563,9 @@ def _build_spherical_kamada_xyz_components(
                             "own port order over this layout)"
                             % (_bits(_read), "a different realisation of the code (a connected "
                                "summand or a split piece reflected)" if _legal else "no legal "
-                               "vector of the code (the layout folds)"))
+                               "vector of the code (the layout folds%s)"
+                               % (", also when re-run from the 2-D drawing lifted onto the "
+                                  "sphere" if "read_after" in _fold else "")))
                 raise _user_facing(
                     "--sphere-layout %s cannot build the requested flip vector %s of this DT "
                     "code: %s." % (_lay, _bits(_req), _why))
@@ -12682,6 +12850,7 @@ def build_spherical_xyz_components(
                                    # (and, for cubic-kamada, cube orientation)
     _refine_rep = {}
     _radii_rep = {}
+    _fold_rep = {}                 # V5.10: filled only when the Kamada layout folded
     _stereo_pins = {}
     _grid_info = None
     _grid_msgs = []
@@ -13007,6 +13176,15 @@ def build_spherical_xyz_components(
             radii_report=_radii_rep,
             dirs_override=_can_dirs,
             flips_report=_flips_rep,
+            # V5.10: a folded Kamada layout is re-run from the lifted 2-D
+            # drawing -- for the angled / grid cube too: they wire each
+            # crossing in the planar embedding's (or the vector's) port
+            # order, but over a folded layout's crossing positions the
+            # router has to search for that wiring (L7a4's angled build tried
+            # every grid up to 72 x 72 for 14 minutes; 4 s once unfolded), and
+            # its fallback is the smooth map of the folded curve
+            drawing=P,
+            fold_report=_fold_rep,
         )
     else:
         raise ValueError("Unknown --sphere-layout %r." % sphere_layout)
@@ -13014,6 +13192,41 @@ def build_spherical_xyz_components(
     _msgs = status_messages if status_messages is not None else []
     _msgs.extend(_grid_msgs)
     _msgs.extend(_sheet_msgs)
+    if _fold_rep.get("unfolded"):
+        # V5.10: the Kamada layout folded and was re-run from the 2-D drawing
+        _msgs.append(
+            "[fix] %s: the Kamada-Kawai sphere layout folded -- its crossing patches "
+            "realised the flip vector %s, which no diagram on the sphere has (a part of "
+            "the diagram was laid out turned over, so the curve would have been another "
+            "diagram) -- so it was re-run from the 2-D drawing lifted onto the sphere, "
+            "which realises %s."
+            % (layout, _bits(_fold_rep["read"]), _bits(_fold_rep["read_after"])))
+    elif _fold_rep.get("read") is not None:
+        # V5.10: still folded (a flip-vector run was refused above), e.g. the
+        # 8-ring Brunnian chain, whose fold is the Kamada-Kawai minimum itself
+        # (Invariant 20 of the project notes): the curve is the old one
+        if "read_after" in _fold_rep:
+            _what = "the re-run from the 2-D drawing lifted onto the sphere folds too"
+            _dfalse = 0
+            if P is not None:
+                try:
+                    _da = audit_false_crossings_detail(model, P, centers)
+                    _dfalse = len(_da["false"]) + len(_da["missing"])
+                except Exception:  # noqa: BLE001 -- only words the advice
+                    _dfalse = 0
+        else:
+            _what = "it could not be re-run (%s)" % _fold_rep.get("why", "unknown reason")
+            _dfalse = 0
+        _msgs.append(
+            "[warn] %s: the Kamada-Kawai sphere layout folds -- its crossing patches "
+            "realise the flip vector %s, which no diagram on the sphere has -- and %s, so "
+            "the curve is NOT this DT code's diagram (it can be another link); use a "
+            "layout that lifts the 2-D drawing: --sphere-layout stereo-safe or sheet (for "
+            "a linear chain also shaped-kamada --surface-shape capped-cylinder, or chain)%s."
+            % (layout, _bits(_fold_rep["read"]), _what,
+               "; the 2-D drawing has %d false or undrawn crossing(s), so draw it cleanly "
+               "first (--layout tutte or spread-tutte), which also gives the re-run a "
+               "clean start" % _dfalse if _dfalse else ""))
     if _flips_rep is not None and _flips_rep.get("relation") is not None:
         # V5.9: how the requested realisation was obtained
         _fl = _flips_rep["layout"]
@@ -17319,7 +17532,7 @@ def run_gui(initial_args):
         return 1
 
     apply_tk_window_icon(root, tk)
-    root.title("draw_dt_original_labelsV5_9")
+    root.title("draw_dt_original_labelsV5_10")
     root.geometry("1320x860")
     root.minsize(1050, 680)
 

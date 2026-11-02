@@ -427,7 +427,7 @@ def _find_draw_module():
 
 
 # Load the drawing helper under its real module name so link_engine's
-# `import draw_dt_original_labelsV5_9 as D` reuses the same instance.
+# `import draw_dt_original_labelsV5_10 as D` reuses the same instance.
 _draw_name, _draw_path = _find_draw_module()
 _spec = importlib.util.spec_from_file_location(_draw_name, _draw_path)
 DDOL = importlib.util.module_from_spec(_spec)

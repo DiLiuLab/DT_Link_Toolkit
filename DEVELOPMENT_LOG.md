@@ -4,6 +4,66 @@ DT Link Toolkit Development Log
 This file records version-specific development notes and implementation history.
 For installation and everyday usage, see README.md.
 
+Drawing V5.10: a folded Kamada sphere layout is re-run from the 2-D drawing (2026-11-02)
+----------------------------------------------------------------------------------------
+* The user's report: the rank-1 diagram of L7a4 (7²₃),
+  `DT: [(-14, -10, -2), (-12, -4, -8, -6)]`, built with the default
+  `spherical-kamada` layout, came out as the (2,4) torus link (Gauss linking
+  number -2 against the code's 0, 4 crossings after simplification, volume 0),
+  while `stereo-safe` built L7a4.  The xyz audit only said "isometry
+  undecided", and `--no-xyz-repair` gave the same wrong link.
+* Cause: the direction step lays the gadget graph out in 3-D by Kamada-Kawai and
+  projects it radially onto the sphere, and nothing makes that projection an
+  embedding.  Here the tangle of c2, c5 and c6 (the clasp c2, c5 between the two
+  rings' self-crossing loops, and ring 2's self-crossing c6) was laid out turned
+  over.  Its crossing patches turned the wrong way round, and the strands bounding
+  it crossed twice where the code has no crossing: ring 1's strands into and out of
+  its loop at c3, and ring 2's between c4 and c6 (an exact count of the sphere
+  drawing's false crossings).
+* The user suggested the self-crossings of the rings as the cause.  For this
+  diagram the turned-over tangle does sit at them, but over the 2887 minimal
+  diagrams of the census (results_score_10X_V3) folds are no more frequent with
+  self-crossings: 179 fold (6.2%) -- 72 of 1178 knots, 24 of 252 links without
+  self-crossings, 83 of 1457 links with them.
+* A folded layout shows itself exactly: its patches realise a flip vector that no
+  diagram on the sphere has (`check_flips`; here `[0,0,1,0,1,0,1]`, where the
+  code's legal vectors are `[0,1,1,0,0,1,1]` and `[1,0,0,1,1,0,0]`).  New:
+  `_sphere_layout_folds` makes that test after the Kamada-Kawai step, and
+  `_unfold_kamada_sphere_layout` re-runs a folded layout from the 2-D drawing
+  lifted onto the sphere (inverse stereographic projection,
+  `_drawing_on_unit_sphere`; `_kamada_3d_directions_and_radii` gained `start=`).
+  A `[fix]` line names both vectors.  A layout that does not fold is used exactly
+  as before.  The vector test agrees with an exact count of the sphere drawing's
+  false crossings on all 2887 census diagrams: the 2708 legal layouts have none,
+  each of the 179 folded ones has some.  If the re-run folds too (the 8-ring Brunnian chain, whose fold is
+  the Kamada-Kawai minimum itself), the old layout is kept and a `[warn]` says the
+  curve is not the code's diagram and names the layouts that lift the drawing; a
+  flip-vector run is refused as before.
+* The angled / grid cube gets the re-run too.  It wires each crossing in the planar
+  embedding's (or the vector's) port order, but over a folded layout's crossing
+  positions the router has to search for that wiring: L7a4's angled build tried
+  every grid up to 72 x 72 for 14 minutes and fell back to the smooth map of the
+  folded curve (audit undecided, volume 0.64 against 6.14).  It now routes in 4 s
+  and audits `[ok]`; grid had routed and still does.  With the flip vector
+  `[1,0,0,1,1,0,0]` the angled build was refused (no wiring on its two grid
+  sizes) and now builds.
+* L7a4 now builds as L7a4: audit `[ok]` (vol 6.1381), linking number 0, writhe +3
+  (the hand of stereo-safe, which lifts the same drawing), strands at least 7.46
+  apart (3.96 before), no clearance repair needed.
+* Measured on the 179 folded census diagrams.  After the re-run all realise a
+  legal vector and their sphere drawings have no false crossing (the lift itself,
+  without Kamada-Kawai: 46 of 179).  End to end (default build; the curve's
+  oriented Jones polynomial against those of every legal realisation of the
+  code): before, 2 of the 179 curves were a realisation of their code -- 103
+  audits FAILed, 53 were undecided, and 23 passed although 21 of those were other
+  links with the same exterior (L9n3 came out with 5 crossings at the Whitehead
+  link's volume 3.6639: the audit's isometry test does not see meridians).  Now
+  all 179 are, with 169 audits `[ok]` and 10 undecided (torus knots and links).
+* Bumped V5.9 -> V5.10 at the user's request (`git mv`; V5.9 is in git history).
+  The literal importers (link_engine_v4_1, strand_passage_guiV4_3), the window
+  title, the launcher's comment, README and the docstrings that name the module
+  are repointed.
+
 Scorer V2.6: the census's harvest by default (2026-11-01)
 ---------------------------------------------------------
 * The user's request: the scorer should find a link's alternative diagrams the

@@ -33,7 +33,7 @@ Development notes and version history are in [DEVELOPMENT_LOG.md](DEVELOPMENT_LO
 DT_Link_Toolkit.py               Universal launcher for all tools below
 strand_passage_guiV4_3.py        Strand-passage explorer: GUI, --nongui, --demo
 link_engine_v4_1.py              Diagram engine and SnapPy bridge
-draw_dt_original_labelsV5_9.py   DT parser, layout, renderer, XYZ audit, and GUI
+draw_dt_original_labelsV5_10.py   DT parser, layout, renderer, XYZ audit, and GUI
 audit_xyz.py                     Audit a 3D XYZ curve against its signed DT link
 check_two_dt.py                  Standalone SnapPy/Sage DT-comparison utility
 find_link_in_snappy.py           Search SnapPy link databases for DT matches (batch front end of dt_converter's lookup)
@@ -59,7 +59,7 @@ LICENSE                          MIT license
 Import chain:
 
 ```text
-strand_passage_guiV4_3 -> link_engine_v4_1 -> draw_dt_original_labelsV5_9
+strand_passage_guiV4_3 -> link_engine_v4_1 -> draw_dt_original_labelsV5_10
 ```
 
 `score_diagramV2_6.py` names none of its helpers: it loads the newest
@@ -292,7 +292,7 @@ What each tool does with the vector:
 
 | Tool | With a flip vector |
 |---|---|
-| `draw_dt_original_labelsV5_9.py` | The 2-D drawing shows that realisation (tutte, shaped-tutte, cylinder-tutte, spread-tutte, planar when clean; a finished drawing that comes out as the exact mirror is reflected; a `[flips]` line gives the writhe).  A clean drawing of a different realisation is refused; one with false crossings gets a `[warn]`.  In 3-D a positive crossing offset builds the given realisation and a negative one its mirror, and offset 0 is refused.  The Kamada sphere layouts build it when their layout realises it or its mirror and refuse otherwise; the `angled` / `grid` cube wires it from the vector itself (when the Kamada layout shows another diagram of the code, on at most 2 negotiated grid sizes); the layouts that lift the 2-D drawing (stereographic, stereo-safe, sheet, capped-cylinder) need a drawing of it without false or undrawn crossings.  The audit compares the curve's Jones polynomial with the given realisation's, and a build whose audit fails is refused (no XYZ / `.glb` is written; the 2-D image and table are). |
+| `draw_dt_original_labelsV5_10.py` | The 2-D drawing shows that realisation (tutte, shaped-tutte, cylinder-tutte, spread-tutte, planar when clean; a finished drawing that comes out as the exact mirror is reflected; a `[flips]` line gives the writhe).  A clean drawing of a different realisation is refused; one with false crossings gets a `[warn]`.  In 3-D a positive crossing offset builds the given realisation and a negative one its mirror, and offset 0 is refused.  The Kamada sphere layouts build it when their layout realises it or its mirror and refuse otherwise; the `angled` / `grid` cube wires it from the vector itself (when the Kamada layout shows another diagram of the code, on at most 2 negotiated grid sizes); the layouts that lift the 2-D drawing (stereographic, stereo-safe, sheet, capped-cylinder) need a drawing of it without false or undrawn crossings.  The audit compares the curve's Jones polynomial with the given realisation's, and a build whose audit fails is refused (no XYZ / `.glb` is written; the 2-D image and table are). |
 | `dt_converter.py` | The hub is (DT, flips) as before.  A vector in the input is checked even with `--no-validate` and without spherogram; a `--flips` that differs from it is an error; a legal kinked vector spherogram cannot build is still converted to the forms that do not need it. |
 | `canonical_dt_V2_1.py` | Adds the canonical flip vector (`--flips-mode faithful`, `strict` or `mirror`) and the symmetry group of that realisation. |
 | `score_diagramV2_6.py` | Harvests, deduplicates and scores that realisation (classes still up to mirror; a checkpoint must hold codes of the same kind); a `Flip vector` column and JSON key appear only then.  A BARE root the composite gate flags is run exactly as if given spherogram's reading as its vector (dt_converter's reading when spherogram has none; an older bare checkpoint of it is refused in one line); the harvest of an unflagged bare root (such as a prime-looking diagram of a composite link) keeps any composite diagram it meets with its vector (mixed classes, one `[info]` line).  When the scored codes carry vectors and the link has two or more components, the same-link checks compare Jones polynomials and linking numbers up to reversing components. |
@@ -322,7 +322,7 @@ If the path does not end in `.xlsx`, the script adds it first. For example,
 directory and basename of the spreadsheet path.
 
 Custom displayed crossing IDs use the same syntax as
-`draw_dt_original_labelsV5_9.py`.  The combined
+`draw_dt_original_labelsV5_10.py`.  The combined
 `--crossing-labels` option detects assignment-style text as a crossing map,
 and a plain list as crossing order.
 
@@ -352,7 +352,7 @@ Drawing settings:
 - Strand-passage drawings default to `shaped-tutte` with `tutte shape =
   ellipse` and `tutte aspect = 1.0`.
 - In the GUI, click `Load drawing session` to load a JSON session saved by
-  `draw_dt_original_labelsV5_9.py`. The saved 2-D drawing settings then apply to
+  `draw_dt_original_labelsV5_10.py`. The saved 2-D drawing settings then apply to
   the root diagram and following strand-passage diagrams.
 - In batch/demo modes, use `--drawing-session path/to/session.json`. If the
   session contains a DT code it is used when `--dt` is not supplied; explicit
@@ -364,7 +364,7 @@ Drawing settings:
 Standalone drawing and audited XYZ export:
 
 ```bash
-sage -python draw_dt_original_labelsV5_9.py --dt "DT: [(4,6,2)]"
+sage -python draw_dt_original_labelsV5_10.py --dt "DT: [(4,6,2)]"
 sage -python audit_xyz.py link_sphere.xyz "DT: [(4,6,2)]"
 ```
 
@@ -448,11 +448,39 @@ predictable rather than post-hoc:
   after — worth reading, because lowering the stress does not always leave more
   room between crossings.
 
+V5.10 re-runs a **folded** Kamada layout. Nothing makes the radial projection
+of the 3-D Kamada-Kawai layout an embedding: for about 6% of the census's
+minimal diagrams (knots and links alike) a part of the diagram is laid out
+turned over, and the curve is then another diagram, usually another link — the
+rank-1 diagram of L7a4, `DT: [(-14, -10, -2), (-12, -4, -8, -6)]`, came out as
+the (2,4) torus link. Such a layout shows itself exactly: its crossing patches
+realise a flip vector that no diagram on the sphere has. Every Kamada build
+checks for that and re-runs a folded layout from the 2-D drawing lifted onto
+the sphere:
+
+```
+[fix] spherical-kamada: the Kamada-Kawai sphere layout folded -- its crossing patches
+      realised the flip vector [0,0,1,0,1,0,1], which no diagram on the sphere has (...)
+      -- so it was re-run from the 2-D drawing lifted onto the sphere, which realises
+      [1,0,0,1,1,0,0].
+```
+
+All 179 folded census diagrams then build a curve of their own code. Where the
+re-run folds too (the 8-ring Brunnian chain, whose fold is the Kamada-Kawai
+minimum itself) a `[warn]` says the curve is not the code's diagram and names
+the layouts that lift the 2-D drawing (`stereo-safe`, `sheet`, and for a chain
+`shaped-kamada --surface-shape capped-cylinder` or `chain`). A layout that does
+not fold is used exactly as before. The `angled` / `grid` cube gets the re-run
+too: it wires each crossing in the planar embedding's port order, but over a
+folded layout's crossing positions its router has to search for that wiring
+(L7a4's angled build gave up after 14 minutes and fell back to the smooth map of
+the folded curve; it now routes in 4 seconds).
+
 V5.7 adds a **negative `--crossing-offset`**, which selects the opposite
 handedness of the exported 3-D curve:
 
 ```bash
-draw_dt_original_labelsV5_9.py --dt "DT: [(-6,-8,-10,-4,-2)]" \
+draw_dt_original_labelsV5_10.py --dt "DT: [(-6,-8,-10,-4,-2)]" \
   --xyz-output link.xyz --crossing-offset=-5
 ```
 
@@ -487,7 +515,7 @@ glTF file (`--shells-glb`; GUI `3D XYZ` tab, `'Save XYZ' also writes surface
 shells (.glb)`):
 
 ```bash
-draw_dt_original_labelsV5_9.py --dt "DT: [(4,6,2)]" --xyz-output link.xyz --shells-glb
+draw_dt_original_labelsV5_10.py --dt "DT: [(4,6,2)]" --xyz-output link.xyz --shells-glb
 ```
 
 Every sphere layout lifts the strands off a base surface by the crossing
@@ -636,7 +664,7 @@ about the spacing and keep the corners exactly.
   the other layouts.
 
 ```bash
-draw_dt_original_labelsV5_9.py --dt "DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]" \
+draw_dt_original_labelsV5_10.py --dt "DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]" \
   --sphere-layout cubic-kamada --cube-style grid --xyz bl4_cube.xyz --save-projections
 ```
 
@@ -713,7 +741,7 @@ exactly the given realisation. Since V5.9 `--negative-even under` reaches the
 grid too (up to V5.8 it then built the mirror of what stereo-safe built).
 
 ```bash
-draw_dt_original_labelsV5_9.py --dt "DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]" \
+draw_dt_original_labelsV5_10.py --dt "DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]" \
   --sphere-layout grid-diagram --xyz bl4_grid3d.xyz --shells-glb --save-projections --proj-views top,current
 ```
 
@@ -748,7 +776,7 @@ The layout takes about two minutes for the 48-crossing chain (it is cached
 within a run, so `--save-projections` reuses it).
 
 ```bash
-draw_dt_original_labelsV5_9.py --dt "DT: [(16,-10), (32,-26,-2,-18,24,4), (8,-14,40,-34,12,-6,-42,48), (28,-20,56,-50,22,-30,-58,64), (44,-36,72,-66,38,-46,-74,80), (60,-52,86,-82,54,-62,-88,92), (76,-68,94,70,-78,-96), (-90,84)]" \
+draw_dt_original_labelsV5_10.py --dt "DT: [(16,-10), (32,-26,-2,-18,24,4), (8,-14,40,-34,12,-6,-42,48), (28,-20,56,-50,22,-30,-58,64), (44,-36,72,-66,38,-46,-74,80), (60,-52,86,-82,54,-62,-88,92), (76,-68,94,70,-78,-96), (-90,84)]" \
   --sphere-layout shaped-kamada --surface-shape capped-cylinder \
   --xyz chain_can.xyz --shells-glb --save-projections --proj-views current,front
 ```
@@ -769,7 +797,7 @@ sheet's arc radius (the inner layer would fold). Shells and the mapped
 skeleton (the sheet's grid lines) are exported as for the other layouts.
 
 ```bash
-draw_dt_original_labelsV5_9.py \
+draw_dt_original_labelsV5_10.py \
   --dt "DT: [(16,-10), (32,-26,-2,-18,24,4), (8,-14,40,-34,12,-6,-42,48), (28,-20,56,-50,22,-30,-58,64), (44,-36,72,-66,38,-46,-74,80), (60,-52,86,-82,54,-62,-88,92), (76,-68,94,70,-78,-96), (-90,84)]" \
   --layout shaped-tutte --tutte-shape ellipse --no-tutte-auto-aspect --tutte-aspect 3.5 \
   --sphere-layout sheet --sheet-bend 120 --sheet-twist 180 --sphere-radius 200 --crossing-offset 6 \
@@ -854,7 +882,7 @@ all linking numbers 0, every 7-ring sublink an unlink; consecutive ring planes
 the axis; D2.
 
 ```bash
-draw_dt_original_labelsV5_9.py \
+draw_dt_original_labelsV5_10.py \
   --dt "DT: [(16,-10), (32,-26,-2,-18,24,4), (8,-14,40,-34,12,-6,-42,48), (28,-20,56,-50,22,-30,-58,64), (44,-36,72,-66,38,-46,-74,80), (60,-52,86,-82,54,-62,-88,92), (76,-68,94,70,-78,-96), (-90,84)]" \
   --layout shaped-tutte --tutte-shape ellipse --no-tutte-auto-aspect --tutte-aspect 3.5 \
   --sphere-layout chain --xyz chain_segments.xyz --shells-glb --glb-rod-diameter 3 \
@@ -926,7 +954,7 @@ same shape up to a rotation).
 The structure of the relax-from-correct picture (`chain8_relaxed_from_sheet_tubes.png`):
 
 ```bash
-python3 draw_dt_original_labelsV5_9.py \
+python3 draw_dt_original_labelsV5_10.py \
   --dt "DT: [(16,-10), (32,-26,-2,-18,24,4), (8,-14,40,-34,12,-6,-42,48), (28,-20,56,-50,22,-30,-58,64), (44,-36,72,-66,38,-46,-74,80), (60,-52,86,-82,54,-62,-88,92), (76,-68,94,70,-78,-96), (-90,84)]" \
   --layout shaped-tutte --tutte-shape ellipse --no-tutte-auto-aspect --tutte-aspect 3.5 \
   --sphere-layout chain --chain-form folded --crossing-offset 5 \
@@ -1006,7 +1034,7 @@ wreath, the outer triangle `c8,c16,c24` matching the handedness of the 5- and
 6-ring drawings:
 
 ```bash
-python3 draw_dt_original_labelsV5_9.py \
+python3 draw_dt_original_labelsV5_10.py \
   --dt "[(44,-36,24,-18,38,-46,-26,32), (12,-4,40,-34,6,-14,-42,48), (28,-20,8,-2,22,-30,-10,16)]" \
   --layout cylinder-tutte --puncture-face c8,c16,c24 --hole-ratio 0.25 \
   --hide-labels --no-arrows --line-width 3 --gap-frac 0.01 --min-sep 0.02 --no-xyz
@@ -1031,7 +1059,7 @@ rounds`) spreads them after the solve under the same planarity guard as
 (Edw_6: closest crossing pair 0.030 -> 0.057 of the drawing).
 
 ```bash
-python3 draw_dt_original_labelsV5_9.py \
+python3 draw_dt_original_labelsV5_10.py \
   --dt "[(16,10,12,14), (18,28,20,26), (2,24,6), (4,8,-22)]" \
   --layout cylinder-tutte --flatten-orthogonal --hole-ratio 0.1 \
   --flatten-outer-radius 0.6 --flatten-separation 0.05 --min-sep 0.01 \
@@ -1791,7 +1819,7 @@ To make the Python scripts directly executable on macOS/Linux:
 
 ```bash
 chmod +x strand_passage_guiV4_3.py
-chmod +x draw_dt_original_labelsV5_9.py
+chmod +x draw_dt_original_labelsV5_10.py
 chmod +x audit_xyz.py
 chmod +x check_two_dt.py
 chmod +x find_link_in_snappy.py
@@ -1836,7 +1864,7 @@ sage -python ./strand_passage_guiV4_3.py
   byte-identical rasters. The fallback stack also protects machines without
   Arial, which previously substituted silently. Text remains editable — this is
   deliberately not a switch to `svg.fonttype: 'path'` outlines.
-- Standalone SVGs from `draw_dt_original_labelsV5_9.py` use the same Arial
+- Standalone SVGs from `draw_dt_original_labelsV5_10.py` use the same Arial
   editable-text policy and roomier DT-label/crossing-ID boxes. Requested layouts
   are kept even when they create false crossings, with those artifacts
   highlighted and a metadata caption added to saved diagrams. Since

@@ -212,7 +212,7 @@ def resolve_script(tool: Tool, root: Path = PROJECT_DIR) -> Optional[Path]:
     """Return the highest-versioned script file for ``tool``, or None."""
     # <base>, optionally followed by a version, then .py -- and nothing else.
     # The repository uses several suffix styles, all of which must be accepted:
-    #   draw_dt_original_labelsV5_9.py   V, no separator
+    #   draw_dt_original_labelsV5_10.py  V, no separator
     #   link_engine_v4_1.py              _v, lowercase
     #   canonical_dt_V2_1.py             _V, uppercase
     # Requiring a v/V + digit after the optional separator keeps a sibling like

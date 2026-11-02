@@ -133,7 +133,7 @@ What is new in V4.3
   vector -- spherogram builds no realisation with a trailing empty
   component -- but names the component to drop (without it the run
   follows a reading, exit 0).  Codes that ran run exactly as before.
-* Imports ``draw_dt_original_labelsV5_9.py`` and ``link_engine_v4_1.py``.
+* Imports ``draw_dt_original_labelsV5_10.py`` and ``link_engine_v4_1.py``.
 
 What is new in V4.2
 -------------------
@@ -317,7 +317,7 @@ import numpy as np
 # backend so Sage/macOS never fails before the GUI's own backend fallback runs.
 os.environ.setdefault("MPLBACKEND", "Agg")
 
-import draw_dt_original_labelsV5_9 as D          # noqa: E402
+import draw_dt_original_labelsV5_10 as D          # noqa: E402
 import link_engine_v4_1 as E                       # noqa: E402
 
 TAB10_NAMES = ["blue", "orange", "green", "red", "purple",
@@ -704,7 +704,7 @@ def normalize_drawing_options(options=None):
 
 
 def load_drawing_session(path):
-    """Read a session JSON written by ``draw_dt_original_labels*.py`` (V5.9).
+    """Read a session JSON written by ``draw_dt_original_labels*.py`` (V5.10).
 
     Returns a small dict with drawing options plus optional DT/crossing-label
     settings.  Unknown helper-only 3-D fields are ignored.
@@ -4087,7 +4087,7 @@ def main():
                          "diagram)")
     ap.add_argument("--drawing-session", default=None, metavar="PATH",
                     help="load drawing settings from a JSON session saved by "
-                         "draw_dt_original_labelsV5_9.py")
+                         "draw_dt_original_labelsV5_10.py")
     ap.add_argument("--nongui", action="store_true",
                     help="write the two-pass strand-passage spreadsheet (.xlsx) "
                          "and overview SVG, then exit (needs SnapPy + pandas)")
