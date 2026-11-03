@@ -4,6 +4,63 @@ DT Link Toolkit Development Log
 This file records version-specific development notes and implementation history.
 For installation and everyday usage, see README.md.
 
+xyz and grid audits: the isometry must take meridians to meridians (2026-11-02)
+-------------------------------------------------------------------------------
+* Found while verifying V5.10 (the entry below): the audit that follows every
+  3-D build (`audit_xyz.audit_components_against_dt`, also `audit_xyz.py`'s own
+  command line) only asked SnapPy whether the curve's exterior is isometric to
+  the DT link's.  Different links can share an exterior -- the Whitehead link
+  shares its exterior with L7n2 and L9n3, which are it twisted along an
+  unknotted component -- so 21 of the 23 folded census builds of V5.9 that read
+  `[ok] xyz topology audit: curve link isometric to DT link` were other links
+  (L9n3 and L10n9 came out as the Whitehead link itself).
+* Now one of the isometries must take meridians to meridians
+  (`_isometric_keeping_meridians`, SnapPy's `Isometry.extends_to_link`).  Such an
+  isometry extends to the links, so they are the same link up to mirror image.
+  The isometries come from the same SnapPy kernel call as the plain test.  A curve
+  whose exterior is isometric to the DT link's, but by no isometry that takes
+  meridians to meridians, is a `[FAIL]`: "curve link is NOT the DT link: their
+  exteriors are isometric (vol ...), but no isometry takes meridians to
+  meridians, so the curve is another link with the same exterior: ...".  With a
+  flip vector the drawing script refuses such a build, as it refuses every
+  definite FAIL.  The `[ok]` line and every other audit line are unchanged, and
+  the audit is still blind to mirror images (an orientation-reversing isometry
+  takes meridians to meridians too).  Only links can fail this way: for a knot
+  every isometry of the exteriors takes meridian to meridian (Gordon-Luecke).
+* Measured.  The 21 wrong curves now FAIL (each: isometric, 2 to 64 isometries,
+  none taking meridians to meridians); the 2 right ones keep `[ok]` (8 of their
+  64 isometries do).  V5.10's default builds of all 2887 census minimal
+  diagrams, audited by both versions on the same curves, get the same verdicts
+  (2788 `[ok]`, 1632 of them links; 99 undecided); 2867 audit lines are
+  identical and 20 differ only in volume digits on "isometry undecided" lines
+  (as much as the old audit differs from itself between runs: 12 lines).  Each
+  of the 2788 isometric pairs had an isometry that keeps meridians, so every
+  `[ok]` there now also says the curve is the code's link up to mirror image.  No
+  cost: one kernel call either way (median audit 0.31 s old, 0.26 s new, mean
+  0.34 s both, on a loaded machine).  The 3-D layouts (18 test codes x
+  13 layouts, the V5.10 script with the old and the new audit, end to end): 224
+  of the 234 builds are identical (XYZ, `.glb`, log and exit code), 9 differ only
+  in SnapPy's run-to-run volume digits on "isometry undecided" lines, and 1 swaps
+  one inconclusive line for another (granny with `--sphere-refine`; the old audit
+  prints the new line in 4 of 4 re-runs).  Every one of the 87 isometric pairs
+  there had an isometry that keeps meridians.
+* grid_diagram's `same_link` -- the grid audit's link-level check, run by
+  `grid_diagram.py` without `--same-diagram` and by the drawing script's
+  grid-diagram layout with `--grid-any-diagram` -- had the same plain test and
+  now has the same rule (its own copy of `_isometric_keeping_meridians`).  A grid
+  of the Whitehead link checked against L7n2's or L9n3's bare code read "its link
+  is isometric to the DT link" and passed; it is now False ("its link is NOT the
+  DT link: their exteriors are isometric, but no isometry takes meridians to
+  meridians, ...").  With a flip vector the Jones comparison had already refused
+  it.  Measured: the braid-closure grids of all 2887 census diagrams get the same
+  verdict and text from both versions (2788 decided by an isometry, each keeping
+  meridians; 99 by the Jones comparison; 3.3 s and 3.2 s of `same_link` in all);
+  the self-test (63 checks) prints the same lines; on 17 test codes the command
+  line, link-level and same-diagram, gives identical logs, XYZ and JSON files
+  apart from the JSON's wall-clock `seconds`, and the drawing script's
+  grid-diagram layout gives identical runs.
+* audit_xyz and grid_diagram stay VERSION 1.1 (no bump).
+
 Drawing V5.10: a folded Kamada sphere layout is re-run from the 2-D drawing (2026-11-02)
 ----------------------------------------------------------------------------------------
 * The user's report: the rank-1 diagram of L7a4 (7²₃),

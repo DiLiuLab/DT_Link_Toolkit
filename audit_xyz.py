@@ -4,7 +4,8 @@ as the DT code it was generated from?
 Parses the .xyz (blank-line-separated components), closes each loop,
 projects along a generic direction, extracts crossings with over/under
 from interpolated depth, rebuilds the link in spherogram, and compares
-hyperbolic invariants with the reference DT link.
+hyperbolic invariants with the reference DT link: the two exteriors must be
+isometric by an isometry that takes meridians to meridians.
 
 Usage: sage -python audit_xyz.py file.xyz "DT: [...]"
        python3 audit_xyz.py file.xyz "DT: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]"
@@ -81,6 +82,21 @@ flip vector (list index out of range)" now name the empty component
 2026-10-21 (round 4e review): no per-process object addresses ('<ast.Name
 object at 0x...>') in the --flips note and the flip-vector failure of a
 spelling the reader cannot parse (``_no_address``).
+
+Still 1.1 (2026-11-02): the isometry test asks for an isometry that takes
+MERIDIANS TO MERIDIANS (``_isometric_keeping_meridians``, SnapPy's
+``Isometry.extends_to_link``).  Isometric exteriors alone do not make two
+links equal -- the Whitehead link shares its exterior with L7n2 and L9n3,
+which are it twisted along an unknotted component -- and the old test passed
+such curves: 21 V5.9 builds of folded census diagrams (L9n3, L10n9, ...,
+built as other links with the same exterior) read "[ok] xyz topology audit:
+curve link isometric to DT link".  They now FAIL ("curve link is NOT the DT
+link: their exteriors are isometric (vol ...), but no isometry takes
+meridians to meridians, ..."), and the drawing script refuses a flip-vector
+build that FAILs so.  The isometries come from the same SnapPy kernel call as
+the plain test, so the check costs nothing measurable, and every other audit
+line is unchanged.  It is still blind to mirror images: an
+orientation-reversing isometry takes meridians to meridians too.
 """
 import argparse
 import os
@@ -675,7 +691,9 @@ def audit_components_against_dt(xyz_components, dt_string, attempts=4,
     so the two cannot be read differently -- or a zero-argument callable
     returning either.
     For a link whose type is prime every realisation is the same link up to
-    mirror image, which this mirror-blind test does not see.
+    mirror image, which this mirror-blind test does not see.  The isometry of
+    the exteriors must take meridians to meridians (2026-11-02): different
+    links can share an exterior, and a curve that does only that FAILs.
 
     1.1 -- a GIVEN realisation.  When ``dt_string`` carries a flip vector
     ('DT: [(10, 6, 2, 4, 12, 8)], [0,1,0,0,0,1]'), or ``prefer_flips`` is
@@ -1249,6 +1267,29 @@ def _hyperbolic(M, tries=10):
     return False
 
 
+def _isometric_keeping_meridians(M, Mref):
+    """SnapPy's isometry test of two link exteriors, and whether one of the
+    isometries takes meridians to meridians: (isometric, keeps), keeps None
+    when SnapPy gave no isometries to inspect.  Raises what
+    ``is_isometric_to`` raises (SnapPy cannot decide).
+
+    2026-11-02: isometric exteriors do not make two links equal -- the
+    Whitehead link shares its exterior with L7n2 and L9n3, which are it
+    twisted along an unknotted component -- but an isometry that takes
+    meridians to meridians extends to the links, so they are the same link up
+    to mirror image.  Both exteriors come from spherogram's ``exterior()``,
+    whose peripheral curves are the meridians and longitudes, and SnapPy's
+    re-triangulations keep them.  The isometries are computed by the same
+    kernel call as the plain test."""
+    isos = M.is_isometric_to(Mref, return_isometries=True)
+    if isinstance(isos, bool):         # a SnapPy that returns no list
+        return isos, None
+    isos = list(isos)
+    if not isos:
+        return False, None
+    return True, any(i.extends_to_link() for i in isos)
+
+
 def _compare_with_reference(comps, Mref, vref, attempts, simplify_rounds, seed, ref_hyp=True,
                             ref_trivial=False, ref_ncomp=None, jones=None):
     """``jones`` (1.1, a given realisation only): a function L -> (verdict,
@@ -1303,9 +1344,18 @@ def _compare_with_reference(comps, Mref, vref, attempts, simplify_rounds, seed, 
             if abs(v) < 5e-5:
                 v = 0.0
             try:
-                iso = M.is_isometric_to(Mref)
+                iso, keeps = _isometric_keeping_meridians(M, Mref)
             except Exception:
-                iso = None
+                iso, keeps = None, None
+            if iso is True and keeps is False:
+                # 2026-11-02: the exteriors are isometric, but no isometry
+                # takes meridians to meridians -- another link with the same
+                # exterior (21 folded census builds of V5.9 read [ok] so)
+                return {'status': 'FAIL',
+                        'detail': 'curve link is NOT the DT link: their exteriors are '
+                                  'isometric (vol %.4f), but no isometry takes meridians '
+                                  'to meridians, so the curve is another link with the '
+                                  'same exterior: a strand passed through another' % v}
             if iso is True:
                 r = {'status': 'ok',
                      'detail': 'curve link isometric to DT link '
@@ -1362,7 +1412,8 @@ def main(argv=None):
         description=(
             "Reconstruct a link from a blank-line-separated XYZ curve and "
             "compare it with the signed DT link using SnapPy isometry checks "
-            "(and, for a code carrying a flip vector, Jones polynomials)."
+            "(an isometry of the exteriors that takes meridians to meridians; "
+            "and, for a code carrying a flip vector, Jones polynomials)."
         )
     )
     parser.add_argument("xyz_file", help="XYZ file to audit")

@@ -252,6 +252,19 @@ still named) -- and a
 code with no crossings ('DT: [()]', 'DT: [(), ()]', 'DT: [[]]') is named as
 such instead of as a kinked or split code (only when this module's reader sees
 no crossings either: 'DT: ([],[],(4,6,2))' keeps the name-lookup line).
+
+2026-11-02 (still 1.1): ``same_link`` -- the link-level grid audit --
+requires an isometry of the two exteriors that takes MERIDIANS TO MERIDIANS
+(``_isometric_keeping_meridians``, the same test audit_xyz adopted that
+day).  Isometric exteriors alone do not make two links equal: a grid of the
+Whitehead link checked against L7n2's or L9n3's bare code (both share its
+exterior) read "its link is isometric to the DT link" and passed; it is now
+False ("its link is NOT the DT link: their exteriors are isometric, but no
+isometry takes meridians to meridians, ...").  With a flip vector the Jones
+comparison had already refused it.  The isometries come from the same SnapPy
+kernel call; every correct grid keeps its verdict and its text (the braid
+closures of all 2887 census diagrams, the self-test, the command line and
+the drawing script's grid-diagram layout on 17 test codes).
 """
 import argparse
 import ast
@@ -265,7 +278,7 @@ import time
 
 import numpy as np
 
-VERSION = "1.1"     # 1.1 (2026-10-18): DT code + flip vector input; 2026-10-19: bare-code, kink and router fixes; (2026-10-19, round 4): decoder guard, no-diagram refusal; (2026-10-20, round 4b): import retried; (2026-10-20, round 4d): empty components, unparseable spellings, name-lookup wording; (2026-10-20, round 4e): '[]' empties, spherogram's exact form, empty last component (see the docstring)
+VERSION = "1.1"     # 1.1 (2026-10-18): DT code + flip vector input; 2026-10-19: bare-code, kink and router fixes; (2026-10-19, round 4): decoder guard, no-diagram refusal; (2026-10-20, round 4b): import retried; (2026-10-20, round 4d): empty components, unparseable spellings, name-lookup wording; (2026-10-20, round 4e): '[]' empties, spherogram's exact form, empty last component; (2026-11-02): same_link needs an isometry that keeps meridians (see the docstring)
 
 _SIMPLIFY_CACHE = {}
 
@@ -1547,12 +1560,35 @@ def _bare_spherogram_failure_text(exc, step, same_diagram_hint, dt_text=None):
     return head
 
 
+def _isometric_keeping_meridians(M, Mref):
+    """SnapPy's isometry test of two link exteriors, and whether one of the
+    isometries takes meridians to meridians: (isometric, keeps), keeps None
+    when SnapPy gave no isometries to inspect.  Raises what
+    ``is_isometric_to`` raises (SnapPy cannot decide).  The same test as
+    audit_xyz's (2026-11-02): isometric exteriors do not make two links equal
+    -- the Whitehead link shares its exterior with L7n2 and L9n3 -- but an
+    isometry that takes meridians to meridians extends to the links, so they
+    are the same link up to mirror image.  The isometries are computed by the
+    same kernel call as the plain test."""
+    isos = M.is_isometric_to(Mref, return_isometries=True)
+    if isinstance(isos, bool):         # a SnapPy that returns no list
+        return isos, None
+    isos = list(isos)
+    if not isos:
+        return False, None
+    return True, any(i.extends_to_link() for i in isos)
+
+
 def same_link(G, ref_link, attempts=3, dt_string=None):
     """Does the grid diagram's link equal ``ref_link``?  Returns (verdict, how):
     True / False / None (undecided).  First SnapPy's isometry test of the
     exteriors (mirror-blind); where that cannot decide -- 4BL's exterior is
     such a case -- the Jones polynomials are compared through dt_converter,
-    which is chirality-sensitive and needs the DT code of the reference."""
+    which is chirality-sensitive and needs the DT code of the reference.
+    Since 2026-11-02 the isometry must take meridians to meridians
+    (``_isometric_keeping_meridians``): isometric exteriors without such an
+    isometry are another link with the same exterior, and the verdict is
+    False."""
     try:
         L = to_link(G)
     except Exception as exc:  # noqa: BLE001
@@ -1566,7 +1602,13 @@ def same_link(G, ref_link, attempts=3, dt_string=None):
         Mref = ref_link.exterior()
         for _ in range(attempts):
             try:
-                iso = M.is_isometric_to(Mref)
+                iso, keeps = _isometric_keeping_meridians(M, Mref)
+                if iso is True and keeps is False:
+                    # 2026-11-02: isometric exteriors, but no isometry takes
+                    # meridians to meridians -- another link, same exterior
+                    return False, ("its link is NOT the DT link: their exteriors are isometric, but "
+                                   "no isometry takes meridians to meridians, so it is another link "
+                                   "with the same exterior")
                 if iso is True:
                     if not given:
                         return True, "its link is isometric to the DT link (mirror-blind, like every SnapPy isometry test)"

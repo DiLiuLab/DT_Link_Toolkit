@@ -381,7 +381,14 @@ cannot read most codes with kinks or other two-point cuts (it fails on 126 of
 builds the reference from a planar embedding of the code that the drawing
 script supplies (every crossing square a face), and the audit line says so.
 For a link whose type is prime every such realisation is the same link up to
-mirror image, which the audit does not distinguish.  A curve whose exterior is
+mirror image, which the audit does not distinguish.  Since 2026-11-02 the two
+exteriors must be isometric by an isometry that takes meridians to meridians:
+different links can share an exterior (the Whitehead link shares its exterior
+with L7n2 and L9n3, which are it twisted along an unknotted component), and a
+curve that only shares the DT link's exterior is a `[FAIL]` ("... their
+exteriors are isometric (vol ...), but no isometry takes meridians to
+meridians ...").  Before, such curves passed: 21 V5.9 builds of folded census
+diagrams read `[ok]` although they were other links.  A curve whose exterior is
 hyperbolic is reported as a FAIL against a DT link whose exterior is not (a
 torus link, say), and a curve that reduces to the unlink passes when the DT
 code is a kinked unlink with as many components.  `audit_xyz.py` used on its own takes `--flips 0110...` (one
@@ -683,7 +690,9 @@ Morton–Franks–Williams; not sharp). It prints the oriented notation (rows of
 the X and O per column) and KnotInfo's unoriented list of cells, draws the
 classic picture, and checks the result against the DT link (SnapPy isometry,
 or the Jones polynomial through `dt_converter` where SnapPy cannot decide, as
-for 4BL).
+for 4BL).  Since 2026-11-02 the isometry must take meridians to meridians, as
+in the xyz audit: a grid whose link only shares the DT link's exterior (the
+Whitehead link's grid against L7n2's code) is a `[FAIL]`.
 
 ```bash
 python3 grid_diagram.py --dt "DT: [(-8,-12,16),(-24,-22,-28,-26),(-10,-14,-2),(-20,-6,-18,-4)]" \
